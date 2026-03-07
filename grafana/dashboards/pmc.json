@@ -1,0 +1,181 @@
+{
+  "dashboard": {
+    "title": "Performance Management Chart",
+    "uid": "health-pmc",
+    "tags": ["health-tracker", "pmc"],
+    "timezone": "browser",
+    "editable": true,
+    "time": {
+      "from": "now-12w",
+      "to": "now+8w"
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "user",
+          "type": "query",
+          "datasource": "TimescaleDB",
+          "query": "SELECT id AS __value, display_name AS __text FROM users ORDER BY display_name",
+          "refresh": 1,
+          "current": {},
+          "label": "Athlete"
+        },
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "postgres",
+          "current": {
+            "text": "TimescaleDB",
+            "value": "TimescaleDB"
+          },
+          "label": "Data Source"
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Performance Management Chart (CTL / ATL / TSB)",
+        "type": "timeseries",
+        "gridPos": { "h": 14, "w": 24, "x": 0, "y": 0 },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, ctl AS \"Fitness (CTL)\", atl AS \"Fatigue (ATL)\", tsb AS \"Form (TSB)\" FROM training_load WHERE user_id = $user AND source = 'calculated' AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          },
+          {
+            "refId": "B",
+            "rawSql": "SELECT time, ctl AS \"CTL (projected)\", atl AS \"ATL (projected)\", tsb AS \"TSB (projected)\" FROM training_load WHERE user_id = $user AND source = 'projected' AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "lineWidth": 2,
+              "fillOpacity": 0,
+              "showPoints": "never"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Fitness (CTL)" },
+              "properties": [
+                { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
+              ]
+            },
+            {
+              "matcher": { "id": "byName", "options": "Fatigue (ATL)" },
+              "properties": [
+                { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+              ]
+            },
+            {
+              "matcher": { "id": "byName", "options": "Form (TSB)" },
+              "properties": [
+                { "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } },
+                { "id": "custom.fillOpacity", "value": 10 }
+              ]
+            },
+            {
+              "matcher": { "id": "byRegexp", "options": ".*projected.*" },
+              "properties": [
+                { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+                { "id": "custom.fillOpacity", "value": 5 }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "tooltip": { "mode": "multi" },
+          "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Daily TSS",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, tss AS \"TSS\" FROM training_load WHERE user_id = $user AND source = 'calculated' AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": { "fillOpacity": 80 }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "CTL Ramp Rate (week-over-week)",
+        "description": "Safe range: -2 to +7. Above +7 increases injury risk.",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, ramp AS \"Ramp Rate\" FROM training_load WHERE user_id = $user AND source = 'calculated' AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "orange" },
+            "custom": {
+              "lineWidth": 2,
+              "fillOpacity": 15,
+              "thresholdsStyle": { "mode": "area" }
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 5, "color": "yellow" },
+                { "value": 7, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Current Status",
+        "type": "stat",
+        "gridPos": { "h": 5, "w": 24, "x": 0, "y": 30 },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "CTL",
+            "rawSql": "SELECT ctl AS \"Fitness (CTL)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "ATL",
+            "rawSql": "SELECT atl AS \"Fatigue (ATL)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "TSB",
+            "rawSql": "SELECT tsb AS \"Form (TSB)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "reduceOptions": { "calcs": ["lastNotNull"] },
+          "orientation": "horizontal"
+        }
+      }
+    ],
+    "schemaVersion": 39
+  },
+  "overwrite": true
+}

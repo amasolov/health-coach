@@ -1,0 +1,31 @@
+# Environment
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Garmin OAuth tokens (auth handled per-machine)
+.garminconnect/
+
+# IDE / editor config (contains machine-specific paths and secrets)
+.vscode/
+.cursor/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Decrypted secrets (never commit)
+secrets.yaml
+secrets.dec.yaml

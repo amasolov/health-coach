@@ -1,0 +1,215 @@
+version: "3"
+
+dotenv: [".env"]
+
+vars:
+  SECRETS_ENC: secrets.enc.yaml
+  SECRETS_DEC: secrets.yaml
+  VENV: .venv
+  PYTHON: "{{.VENV}}/bin/python"
+  PIP: "{{.VENV}}/bin/pip"
+  USER_SLUG: '{{.USER_SLUG | default "alexey"}}'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  # ---------------------------------------------------------------------------
+  # Setup
+  # ---------------------------------------------------------------------------
+  setup:
+    desc: Full project setup (venv, deps, decrypt secrets, generate .env)
+    cmds:
+      - task: setup:venv
+      - task: setup:deps
+      - task: secrets:env
+
+  setup:venv:
+    desc: Create Python virtual environment
+    cmds:
+      - uv venv {{.VENV}} --python 3.12
+    status:
+      - test -d {{.VENV}}
+
+  setup:deps:
+    desc: Install Python dependencies
+    deps: [setup:venv]
+    cmds:
+      - uv pip install --python {{.PYTHON}} -e ".[dev]"
+
+  # ---------------------------------------------------------------------------
+  # Secrets
+  # ---------------------------------------------------------------------------
+  secrets:decrypt:
+    desc: Decrypt secrets.enc.yaml to secrets.yaml
+    cmds:
+      - sops decrypt {{.SECRETS_ENC}} > {{.SECRETS_DEC}}
+    generates:
+      - "{{.SECRETS_DEC}}"
+
+  secrets:edit:
+    desc: Edit encrypted secrets in-place
+    cmds:
+      - sops edit {{.SECRETS_ENC}}
+
+  secrets:env:
+    desc: Generate .env from encrypted secrets
+    cmds:
+      - |
+        {{.PYTHON}} -c "
+        import yaml, sys
+        with open('{{.SECRETS_DEC}}' if len(sys.argv) < 2 else sys.argv[1]) as f:
+            secrets = yaml.safe_load(f)
+        mapping = {
+            'db_host': 'DB_HOST',
+            'db_port': 'DB_PORT',
+            'db_name': 'DB_NAME',
+            'db_user': 'DB_USER',
+            'db_password': 'DB_PASSWORD',
+            'garmin_email': 'GARMIN_EMAIL',
+            'garmin_password': 'GARMIN_PASSWORD',
+            'tp_auth_cookie': 'TP_AUTH_COOKIE',
+            'hevy_api_key': 'HEVY_API_KEY',
+            'grafana_host': 'GRAFANA_HOST',
+            'grafana_port': 'GRAFANA_PORT',
+            'grafana_api_key': 'GRAFANA_API_KEY',
+        }
+        with open('.env', 'w') as out:
+            for key, env_var in mapping.items():
+                out.write(f'{env_var}={secrets.get(key, \"\")}\n')
+            out.write('USER_SLUG=alexey\n')
+        print('.env written successfully')
+        "
+    deps: [secrets:decrypt]
+
+  # ---------------------------------------------------------------------------
+  # Garmin
+  # ---------------------------------------------------------------------------
+  garmin:auth:
+    desc: Authenticate with Garmin Connect (saves OAuth tokens to ~/.garminconnect)
+    cmds:
+      - uvx --python 3.12 --from "git+https://github.com/Taxuspt/garmin_mcp" garmin-mcp-auth
+
+  garmin:auth:verify:
+    desc: Verify Garmin Connect authentication
+    cmds:
+      - uvx --python 3.12 --from "git+https://github.com/Taxuspt/garmin_mcp" garmin-mcp-auth --verify
+
+  # ---------------------------------------------------------------------------
+  # Database
+  # ---------------------------------------------------------------------------
+  db:migrate:
+    desc: Run all pending database migrations
+    cmds:
+      - "{{.PYTHON}} scripts/run_migrate.py"
+
+  # ---------------------------------------------------------------------------
+  # Sync
+  # ---------------------------------------------------------------------------
+  sync:all:
+    desc: Run all data syncs for current user
+    cmds:
+      - "{{.PYTHON}} scripts/run_sync.py"
+
+  sync:garmin:
+    desc: Sync data from Garmin Connect to TimescaleDB
+    cmds:
+      - "{{.PYTHON}} scripts/sync_garmin.py"
+
+  sync:hevy:
+    desc: Sync data from Hevy to TimescaleDB
+    cmds:
+      - "{{.PYTHON}} scripts/sync_hevy.py"
+
+  # ---------------------------------------------------------------------------
+  # PMC (Performance Management Chart)
+  # ---------------------------------------------------------------------------
+  pmc:calculate:
+    desc: Calculate CTL/ATL/TSB and 8-week projections for all users
+    cmds:
+      - "{{.PYTHON}} scripts/calc_pmc.py"
+
+  # ---------------------------------------------------------------------------
+  # Zones
+  # ---------------------------------------------------------------------------
+  zones:calculate:
+    desc: Recalculate training zones from threshold data
+    cmds:
+      - "{{.PYTHON}} scripts/calc_zones.py"
+
+  zones:show:
+    desc: Display current training zones
+    cmds:
+      - |
+        {{.PYTHON}} -c "
+        import yaml
+        with open('config/zones.yaml') as f:
+            zones = yaml.safe_load(f)
+        user_slug = '{{.USER_SLUG}}'
+        user_zones = zones.get('users', {}).get(user_slug, zones)
+        for section, data in user_zones.items():
+            if isinstance(data, dict) and 'zones' in data:
+                print(f'\n=== {section.upper().replace(\"_\", \" \")} ===')
+                print(f'  Model: {data.get(\"model\", \"\")}')
+                print(f'  Anchor: {data.get(\"anchor_value\", \"\")} {data.get(\"anchor_unit\", \"\")}')
+                for z in data['zones']:
+                    lo = z.get('lower', '...')
+                    hi = z.get('upper', '...')
+                    print(f'  {z[\"name\"]:20s}  {lo} - {hi}')
+        "
+
+  # ---------------------------------------------------------------------------
+  # Grafana
+  # ---------------------------------------------------------------------------
+  grafana:push:
+    desc: Provision Grafana dashboards via API
+    cmds:
+      - "{{.PYTHON}} scripts/push_dashboards.py"
+
+  # ---------------------------------------------------------------------------
+  # Treadmill Workout Generator
+  # ---------------------------------------------------------------------------
+  treadmill:list:
+    desc: List available treadmill workout templates
+    cmds:
+      - |
+        {{.PYTHON}} -c "
+        import yaml
+        with open('config/treadmill_templates.yaml') as f:
+            data = yaml.safe_load(f)
+        for key, tmpl in data.get('templates', {}).items():
+            steps = len(tmpl.get('steps', []))
+            total = sum(s.get('duration_min', 0) for s in tmpl.get('steps', []))
+            print(f'  {key:25s}  {tmpl[\"name\"]:40s}  {total}min  ({steps} steps)')
+        "
+
+  treadmill:generate:
+    desc: "Generate a treadmill workout (usage: task treadmill:generate TEMPLATE=easy_run_45)"
+    cmds:
+      - "{{.PYTHON}} scripts/gen_treadmill_workout.py --template {{.TEMPLATE}} --user {{.USER_SLUG}}"
+    vars:
+      TEMPLATE: '{{.TEMPLATE | default "easy_run_45"}}'
+
+  # ---------------------------------------------------------------------------
+  # HA Addon
+  # ---------------------------------------------------------------------------
+  addon:build:
+    desc: Build the HA addon Docker image locally for testing
+    cmds:
+      - >-
+        docker build
+        --build-arg BUILD_FROM=python:3.12-alpine
+        -f ha-addon/health-tracker/Dockerfile
+        -t health-tracker:local
+        .
+
+  # ---------------------------------------------------------------------------
+  # Cleanup
+  # ---------------------------------------------------------------------------
+  clean:
+    desc: Remove generated files
+    cmds:
+      - rm -f .env {{.SECRETS_DEC}}
+      - rm -rf {{.VENV}} __pycache__

@@ -1,0 +1,70 @@
+# Athlete Profiles (multi-user)
+# Semi-static data -- update when lab/field tests are performed.
+# This file feeds into zone calculations and training prescriptions.
+# Keyed by user slug matching the users table in the database.
+
+users:
+  alexey:
+    profile:
+      name: "Alexey M"
+      date_of_birth: null
+      sex: null
+      height_cm: null
+
+    thresholds:
+      last_tested: null
+
+      heart_rate:
+        max_hr: null
+        resting_hr: null
+        lthr_run: null
+        lthr_bike: null
+
+      running:
+        critical_power: null
+        threshold_pace: null
+        vo2max_garmin: null
+        vo2max_lab: null
+
+      cycling:
+        ftp: null
+        ftp_wkg: null
+
+      lactate:
+        lt1_hr: null
+        lt1_pace: null
+        lt2_hr: null
+        lt2_pace: null
+        test_protocol: null
+        test_date: null
+
+    body:
+      weight_kg: null
+      body_fat_pct: null
+      muscle_mass_kg: null
+      bone_mass_kg: null
+      bmi: null
+      measured_date: null
+      source: "garmin_scale"
+
+    training_status:
+      weekly_volume_hrs: null
+      longest_run_km: null
+      longest_ride_km: null
+      strength_sessions_per_week: null
+      current_phase: null
+
+    # Treadmill zone-to-speed/incline mapping (NordicTrack x22i)
+    # These are initial estimates -- refine as you gather HR/power data
+    # from treadmill sessions with Stryd + HRM Pro.
+    treadmill:
+      zone_speed_map:
+        z1_recovery:    { speed_kph: 7.0,  incline_pct: 1.0 }
+        z2_aerobic:     { speed_kph: 9.0,  incline_pct: 1.0 }
+        z3_tempo:       { speed_kph: 10.5, incline_pct: 1.0 }
+        z4_threshold:   { speed_kph: 12.0, incline_pct: 1.0 }
+        z5_vo2max:      { speed_kph: 14.0, incline_pct: 1.0 }
+      hill_map:
+        z2_hills:       { speed_kph: 7.5,  incline_pct: 8.0 }
+        z3_hills:       { speed_kph: 8.5,  incline_pct: 12.0 }
+        z4_hills:       { speed_kph: 9.5,  incline_pct: 15.0 }

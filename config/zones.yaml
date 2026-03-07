@@ -1,0 +1,186 @@
+# Training Zone Configuration (multi-user)
+# Zones are versioned by effective_date -- add new entries as fitness changes.
+# Run `task zones:calculate` to recompute from threshold values in athlete.yaml.
+# Keyed by user slug matching the users table in the database.
+
+users:
+  alexey:
+    effective_date: "2026-03-07"
+
+    heart_rate:
+      model: friel_5zone
+      anchor_metric: lthr
+      anchor_value: null
+      anchor_unit: bpm
+      max_hr: null
+      resting_hr: null
+      zones:
+        - name: "Zone 1 - Recovery"
+          lower_pct: 0.00
+          upper_pct: 0.81
+          lower: null
+          upper: null
+          description: "Active recovery, easy movement"
+        - name: "Zone 2 - Aerobic"
+          lower_pct: 0.81
+          upper_pct: 0.89
+          lower: null
+          upper: null
+          description: "Endurance base building, fat oxidation, conversational pace"
+        - name: "Zone 3 - Tempo"
+          lower_pct: 0.90
+          upper_pct: 0.93
+          lower: null
+          upper: null
+          description: "Moderate effort, muscular endurance"
+        - name: "Zone 4 - Sub-Threshold"
+          lower_pct: 0.94
+          upper_pct: 0.99
+          lower: null
+          upper: null
+          description: "Hard sustainable effort near lactate threshold"
+        - name: "Zone 5a - Super-Threshold"
+          lower_pct: 1.00
+          upper_pct: 1.02
+          lower: null
+          upper: null
+          description: "VO2max intervals, above threshold"
+        - name: "Zone 5b - Aerobic Capacity"
+          lower_pct: 1.03
+          upper_pct: 1.06
+          lower: null
+          upper: null
+          description: "Short high-intensity intervals"
+        - name: "Zone 5c - Anaerobic Capacity"
+          lower_pct: 1.06
+          upper_pct: null
+          lower: null
+          upper: null
+          description: "Max effort, neuromuscular power"
+
+    running_power:
+      model: stryd
+      anchor_metric: critical_power
+      anchor_value: null
+      anchor_unit: watts
+      zones:
+        - name: "Easy"
+          lower_pct: 0.00
+          upper_pct: 0.80
+          lower: null
+          upper: null
+          description: "Recovery and easy runs"
+        - name: "Moderate"
+          lower_pct: 0.80
+          upper_pct: 0.90
+          lower: null
+          upper: null
+          description: "Steady-state aerobic development"
+        - name: "Threshold"
+          lower_pct: 0.90
+          upper_pct: 1.00
+          lower: null
+          upper: null
+          description: "Tempo and threshold runs"
+        - name: "Interval"
+          lower_pct: 1.00
+          upper_pct: 1.13
+          lower: null
+          upper: null
+          description: "VO2max intervals (3-8 min)"
+        - name: "Repetition"
+          lower_pct: 1.13
+          upper_pct: null
+          lower: null
+          upper: null
+          description: "Short fast reps, neuromuscular"
+
+    cycling_power:
+      model: coggan
+      anchor_metric: ftp
+      anchor_value: null
+      anchor_unit: watts
+      zones:
+        - name: "Z1 - Active Recovery"
+          lower_pct: 0.00
+          upper_pct: 0.55
+          lower: null
+          upper: null
+        - name: "Z2 - Endurance"
+          lower_pct: 0.56
+          upper_pct: 0.75
+          lower: null
+          upper: null
+        - name: "Z3 - Tempo"
+          lower_pct: 0.76
+          upper_pct: 0.90
+          lower: null
+          upper: null
+        - name: "Z4 - Lactate Threshold"
+          lower_pct: 0.91
+          upper_pct: 1.05
+          lower: null
+          upper: null
+        - name: "Z5 - VO2max"
+          lower_pct: 1.06
+          upper_pct: 1.20
+          lower: null
+          upper: null
+        - name: "Z6 - Anaerobic Capacity"
+          lower_pct: 1.21
+          upper_pct: 1.50
+          lower: null
+          upper: null
+        - name: "Z7 - Neuromuscular Power"
+          lower_pct: 1.50
+          upper_pct: null
+          lower: null
+          upper: null
+
+    running_pace:
+      model: daniels
+      anchor_metric: threshold_pace
+      anchor_value: null
+      anchor_unit: "min/km"
+      zones:
+        - name: "Easy"
+          lower_pct: 1.15
+          upper_pct: 1.25
+          lower: null
+          upper: null
+          description: "Easy/long runs (slower than threshold)"
+        - name: "Marathon"
+          lower_pct: 1.05
+          upper_pct: 1.15
+          lower: null
+          upper: null
+          description: "Marathon-specific endurance"
+        - name: "Threshold"
+          lower_pct: 0.97
+          upper_pct: 1.03
+          lower: null
+          upper: null
+          description: "Tempo / cruise intervals"
+        - name: "Interval"
+          lower_pct: 0.88
+          upper_pct: 0.95
+          lower: null
+          upper: null
+          description: "VO2max intervals"
+        - name: "Repetition"
+          lower_pct: 0.80
+          upper_pct: 0.88
+          lower: null
+          upper: null
+          description: "Short fast reps"
+
+    body_composition:
+      current:
+        weight_kg: null
+        body_fat_pct: null
+        muscle_mass_kg: null
+        bmi: null
+      targets:
+        weight_kg: null
+        body_fat_pct: null
+        notes: "Targets to be set after baseline assessment"

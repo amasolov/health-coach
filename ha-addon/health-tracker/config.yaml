@@ -1,0 +1,53 @@
+name: Health Tracker
+version: "0.1.0"
+slug: health-tracker
+description: >-
+  Data-driven health and fitness tracking.
+  Syncs Garmin Connect, TrainingPeaks, and Hevy data to TimescaleDB
+  with PMC (CTL/ATL/TSB) calculation and Grafana dashboard provisioning.
+  Supports multiple users.
+url: "https://github.com/amasolov/alexeym-health"
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: services
+boot: auto
+resources:
+  memory: 256
+map:
+  - config:rw
+options:
+  sync_interval_minutes: 60
+  db_host: "timescaledb"
+  db_port: 5432
+  db_name: "health"
+  db_user: ""
+  db_password: ""
+  grafana_host: "a0d7b954-grafana"
+  grafana_port: 3000
+  grafana_api_key: ""
+  users:
+    - name: "Alexey M"
+      slug: "alexey"
+      garmin_email: ""
+      garmin_password: ""
+      tp_auth_cookie: ""
+      hevy_api_key: ""
+schema:
+  sync_interval_minutes: "int(5,1440)"
+  db_host: str
+  db_port: port
+  db_name: str
+  db_user: str
+  db_password: password
+  grafana_host: str
+  grafana_port: port
+  grafana_api_key: "str?"
+  users:
+    - name: str
+      slug: str
+      garmin_email: str
+      garmin_password: password
+      tp_auth_cookie: "str?"
+      hevy_api_key: "str?"

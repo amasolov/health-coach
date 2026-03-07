@@ -1,0 +1,120 @@
+# Treadmill Workout Templates
+# Each template defines a sequence of steps with zone targets.
+# Use `task treadmill:generate TEMPLATE=<key>` to generate a
+# concrete speed/incline table for entry into iFit Workout Creator.
+
+templates:
+  easy_run_30:
+    name: "Easy Aerobic Run 30min"
+    description: "Short steady Zone 2 session"
+    steps:
+      - { phase: warmup,   zone: z1_recovery, duration_min: 5 }
+      - { phase: main,     zone: z2_aerobic,  duration_min: 20 }
+      - { phase: cooldown, zone: z1_recovery, duration_min: 5 }
+
+  easy_run_45:
+    name: "Easy Aerobic Run 45min"
+    description: "Standard Zone 2 endurance builder"
+    steps:
+      - { phase: warmup,   zone: z1_recovery, duration_min: 5 }
+      - { phase: main,     zone: z2_aerobic,  duration_min: 35 }
+      - { phase: cooldown, zone: z1_recovery, duration_min: 5 }
+
+  easy_run_60:
+    name: "Easy Aerobic Run 60min"
+    description: "Long Zone 2 session for base building"
+    steps:
+      - { phase: warmup,   zone: z1_recovery, duration_min: 5 }
+      - { phase: main,     zone: z2_aerobic,  duration_min: 50 }
+      - { phase: cooldown, zone: z1_recovery, duration_min: 5 }
+
+  tempo_20:
+    name: "Tempo Run 20min"
+    description: "Sustained Zone 3 effort with warm-up/cool-down"
+    steps:
+      - { phase: warmup,   zone: z2_aerobic,  duration_min: 10 }
+      - { phase: main,     zone: z3_tempo,    duration_min: 20 }
+      - { phase: cooldown, zone: z1_recovery, duration_min: 5 }
+
+  threshold_4x5:
+    name: "Threshold Intervals 4x5min"
+    description: "4x5min at threshold with 2min recovery jog"
+    steps:
+      - { phase: warmup,   zone: z2_aerobic,  duration_min: 10 }
+      - { phase: work,     zone: z4_threshold, duration_min: 5 }
+      - { phase: recovery, zone: z1_recovery,  duration_min: 2 }
+      - { phase: work,     zone: z4_threshold, duration_min: 5 }
+      - { phase: recovery, zone: z1_recovery,  duration_min: 2 }
+      - { phase: work,     zone: z4_threshold, duration_min: 5 }
+      - { phase: recovery, zone: z1_recovery,  duration_min: 2 }
+      - { phase: work,     zone: z4_threshold, duration_min: 5 }
+      - { phase: cooldown, zone: z1_recovery,  duration_min: 5 }
+
+  threshold_3x10:
+    name: "Threshold Cruise Intervals 3x10min"
+    description: "Longer threshold blocks for sustained power development"
+    steps:
+      - { phase: warmup,   zone: z2_aerobic,   duration_min: 10 }
+      - { phase: work,     zone: z4_threshold,  duration_min: 10 }
+      - { phase: recovery, zone: z1_recovery,   duration_min: 3 }
+      - { phase: work,     zone: z4_threshold,  duration_min: 10 }
+      - { phase: recovery, zone: z1_recovery,   duration_min: 3 }
+      - { phase: work,     zone: z4_threshold,  duration_min: 10 }
+      - { phase: cooldown, zone: z1_recovery,   duration_min: 5 }
+
+  vo2max_5x3:
+    name: "VO2max Intervals 5x3min"
+    description: "Hard 3-min intervals with equal recovery"
+    steps:
+      - { phase: warmup,   zone: z2_aerobic,  duration_min: 10 }
+      - { phase: work,     zone: z5_vo2max,   duration_min: 3 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 3 }
+      - { phase: work,     zone: z5_vo2max,   duration_min: 3 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 3 }
+      - { phase: work,     zone: z5_vo2max,   duration_min: 3 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 3 }
+      - { phase: work,     zone: z5_vo2max,   duration_min: 3 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 3 }
+      - { phase: work,     zone: z5_vo2max,   duration_min: 3 }
+      - { phase: cooldown, zone: z1_recovery, duration_min: 5 }
+
+  hill_repeats_6x2:
+    name: "Hill Repeats 6x2min"
+    description: "Short steep efforts for running-specific strength"
+    steps:
+      - { phase: warmup,   zone: z2_aerobic,  duration_min: 10 }
+      - { phase: work,     zone: z3_hills,    duration_min: 2 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 2 }
+      - { phase: work,     zone: z3_hills,    duration_min: 2 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 2 }
+      - { phase: work,     zone: z3_hills,    duration_min: 2 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 2 }
+      - { phase: work,     zone: z3_hills,    duration_min: 2 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 2 }
+      - { phase: work,     zone: z3_hills,    duration_min: 2 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 2 }
+      - { phase: work,     zone: z3_hills,    duration_min: 2 }
+      - { phase: cooldown, zone: z1_recovery, duration_min: 5 }
+
+  steep_hills_4x3:
+    name: "Steep Hill Intervals 4x3min"
+    description: "Threshold-effort hills for mountain running prep"
+    steps:
+      - { phase: warmup,   zone: z2_aerobic,  duration_min: 10 }
+      - { phase: work,     zone: z4_hills,    duration_min: 3 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 3 }
+      - { phase: work,     zone: z4_hills,    duration_min: 3 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 3 }
+      - { phase: work,     zone: z4_hills,    duration_min: 3 }
+      - { phase: recovery, zone: z1_recovery, duration_min: 3 }
+      - { phase: work,     zone: z4_hills,    duration_min: 3 }
+      - { phase: cooldown, zone: z1_recovery, duration_min: 5 }
+
+  progressive_run:
+    name: "Progressive Run 40min"
+    description: "Start easy, finish at tempo -- teaches pacing discipline"
+    steps:
+      - { phase: warmup,   zone: z1_recovery, duration_min: 5 }
+      - { phase: main,     zone: z2_aerobic,  duration_min: 15 }
+      - { phase: main,     zone: z3_tempo,    duration_min: 15 }
+      - { phase: cooldown, zone: z1_recovery, duration_min: 5 }

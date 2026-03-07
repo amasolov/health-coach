@@ -1,0 +1,19 @@
+[project]
+name = "alexeym-health"
+version = "0.1.0"
+description = "Data-driven health and fitness tracking framework"
+requires-python = ">=3.12"
+dependencies = [
+    "psycopg2-binary",
+    "pyyaml",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+include = []
