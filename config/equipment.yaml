@@ -12,14 +12,18 @@ wearables:
     type: chest_strap
     sensors: [hr, running_dynamics, running_power_garmin]
     pairs_with: [garmin_fenix_8, garmin_edge_1030]
-    notes: "Use for all structured workouts for accurate HR"
+    notes: "Use for all structured workouts for accurate HR and native running power"
 
   - name: Stryd
     type: foot_pod
     sensors: [running_power, cadence, ground_contact, leg_spring_stiffness]
     pairs_with: [garmin_fenix_8]
     data_targets: [stryd_app, garmin_connect]
-    notes: "Primary running power source (preferred over Garmin running power)"
+    optional: true
+    notes: >-
+      Optional. Garmin Fenix 8 + HRM Pro provide native running power that
+      tracks closely with Stryd. Only advantage: Stryd accounts for wind.
+      All power data is available via Garmin Connect regardless.
 
 cycling:
   - name: Garmin Edge 1030

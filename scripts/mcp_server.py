@@ -1101,6 +1101,275 @@ def complete_action_item(ctx: Context, item_id: str, note: str = "") -> dict:
     return {"completed": target}
 
 
+# ===== INTEGRATIONS & HARDWARE REGISTRY =====
+
+EQUIPMENT_PATH = ROOT / "config" / "equipment.yaml"
+
+SUPPORTED_INTEGRATIONS: list[dict] = [
+    # --- Wearables ---
+    {
+        "id": "garmin_fenix",
+        "name": "Garmin Fenix / Forerunner / Enduro",
+        "category": "wearable",
+        "description": "GPS watch with optical HR, SpO2, barometric altitude, temperature",
+        "data_provided": ["activities", "heart_rate", "hrv", "sleep", "stress", "body_battery", "spo2", "vo2max"],
+        "setup": "Pair with Garmin Connect; data syncs automatically",
+        "required": False,
+        "recommended": True,
+    },
+    {
+        "id": "garmin_hrm_pro",
+        "name": "Garmin HRM Pro / HRM Pro Plus",
+        "category": "wearable",
+        "description": "Chest strap HR monitor with running dynamics and native running power",
+        "data_provided": ["heart_rate", "running_dynamics", "running_power"],
+        "setup": "Pair with Garmin watch via ANT+/BLE; provides running power without extra foot pod",
+        "required": False,
+        "recommended": True,
+        "notes": "Provides Garmin native running power -- no Stryd needed",
+    },
+    {
+        "id": "stryd",
+        "name": "Stryd Running Power Meter",
+        "category": "wearable",
+        "description": "Foot pod for running power, cadence, ground contact time, leg spring stiffness",
+        "data_provided": ["running_power", "cadence", "ground_contact", "leg_spring_stiffness", "critical_power"],
+        "setup": "Pair with Garmin watch; power data appears in Garmin Connect activities",
+        "required": False,
+        "recommended": False,
+        "notes": "Optional if you have HRM Pro -- Garmin native power is sufficient. Stryd adds wind adjustment and its own Critical Power model.",
+    },
+    # --- Cycling ---
+    {
+        "id": "garmin_edge",
+        "name": "Garmin Edge (1030/540/etc.)",
+        "category": "cycling",
+        "description": "Bike computer with GPS and sensor pairing",
+        "data_provided": ["cycling_activities", "power", "cadence", "speed"],
+        "setup": "Pair with Garmin Connect; pair HRM and power meter via ANT+",
+        "required": False,
+        "recommended": False,
+    },
+    {
+        "id": "smart_trainer",
+        "name": "Smart Trainer / Smart Bike (Wahoo Kickr, Tacx, etc.)",
+        "category": "cycling",
+        "description": "Indoor cycling with direct power measurement and controllable resistance",
+        "data_provided": ["cycling_power", "cadence", "speed"],
+        "setup": "Connect to Zwift/Garmin via ANT+ or Bluetooth",
+        "required": False,
+        "recommended": False,
+    },
+    # --- Treadmill ---
+    {
+        "id": "nordictrack_treadmill",
+        "name": "NordicTrack / ProForm Treadmill (iFit-compatible)",
+        "category": "treadmill",
+        "description": "Treadmill with iFit integration for guided workouts, auto speed/incline control",
+        "data_provided": ["treadmill_activities"],
+        "setup": "iFit subscription required; we generate zone-based workouts for the iFit Workout Creator",
+        "required": False,
+        "recommended": False,
+        "notes": "Supports up to 40% incline and -6% decline on x22i",
+    },
+    # --- Health Monitoring ---
+    {
+        "id": "garmin_scale",
+        "name": "Garmin Smart Scale (Index S2/Index 2)",
+        "category": "health",
+        "description": "Smart scale measuring weight, body fat, muscle mass, bone mass, BMI, body water",
+        "data_provided": ["weight", "body_fat", "muscle_mass", "bone_mass", "bmi", "body_water"],
+        "setup": "Pair with Garmin Connect; weigh daily at the same time for best trends",
+        "required": False,
+        "recommended": True,
+    },
+    {
+        "id": "garmin_bp_monitor",
+        "name": "Garmin Blood Pressure Monitor",
+        "category": "health",
+        "description": "Blood pressure monitor syncing to Garmin Connect",
+        "data_provided": ["blood_pressure_systolic", "blood_pressure_diastolic", "resting_pulse"],
+        "setup": "Pair with Garmin Connect; measure morning and evening during baseline",
+        "required": False,
+        "recommended": False,
+    },
+    # --- Gym Equipment ---
+    {
+        "id": "home_gym",
+        "name": "Home Gym Equipment",
+        "category": "gym",
+        "description": "Dumbbells, kettlebells, barbells, squat rack, resistance bands, etc.",
+        "data_provided": [],
+        "setup": "Log workouts in Hevy; tell the system what you have so workouts use available equipment",
+        "required": False,
+        "recommended": False,
+    },
+    # --- Software Integrations ---
+    {
+        "id": "garmin_connect",
+        "name": "Garmin Connect",
+        "category": "software",
+        "description": "Central data hub -- all Garmin device data flows here. Primary data source for activities, HR, sleep, body composition, vitals.",
+        "data_provided": ["activities", "heart_rate", "hrv", "sleep", "stress", "body_battery",
+                          "spo2", "vo2max", "body_composition", "blood_pressure", "running_power",
+                          "cycling_power", "training_effect", "lactate_threshold"],
+        "setup": "Create account at connect.garmin.com; provide credentials in addon config",
+        "required": True,
+        "credentials": ["garmin_email", "garmin_password"],
+    },
+    {
+        "id": "hevy",
+        "name": "Hevy",
+        "category": "software",
+        "description": "Strength training logger -- tracks sets, reps, weight, RPE per exercise",
+        "data_provided": ["strength_sets", "exercise_history", "personal_records"],
+        "setup": "Create account; get API key from Hevy app settings",
+        "required": False,
+        "recommended": True,
+        "credentials": ["hevy_api_key"],
+    },
+    {
+        "id": "strava",
+        "name": "Strava",
+        "category": "software",
+        "description": "Social fitness platform with route planning and segment tracking",
+        "data_provided": ["activities_social", "segments", "routes"],
+        "setup": "Connect Garmin Connect to Strava for auto-sync; no direct API integration needed",
+        "required": False,
+        "recommended": False,
+        "notes": "Data flows from Garmin -- no credentials needed in the addon",
+    },
+    {
+        "id": "ifit",
+        "name": "iFit",
+        "category": "software",
+        "description": "Guided treadmill workouts with auto speed/incline. We generate structured workouts for the iFit Workout Creator.",
+        "data_provided": ["treadmill_workouts"],
+        "setup": "iFit subscription; use ifit.com Workout Creator to enter generated workouts",
+        "required": False,
+        "recommended": False,
+        "notes": "No API -- workouts are generated as step tables for manual entry",
+    },
+    {
+        "id": "zwift",
+        "name": "Zwift",
+        "category": "software",
+        "description": "Virtual cycling and running platform with structured workouts",
+        "data_provided": ["indoor_cycling", "indoor_running"],
+        "setup": "Connect smart trainer via ANT+/BLE; activities auto-sync to Garmin Connect",
+        "required": False,
+        "recommended": False,
+        "notes": "Data flows to Garmin Connect -- no direct integration needed",
+    },
+]
+
+
+@mcp.tool
+def get_supported_integrations(ctx: Context, category: str = "") -> dict:
+    """Get the list of all supported hardware and software integrations.
+
+    This is used during onboarding to show new users what equipment and
+    software we can work with, so they can indicate what they have.
+
+    Optional category filter: wearable, cycling, treadmill, health, gym, software"""
+    items = SUPPORTED_INTEGRATIONS
+    if category:
+        items = [i for i in items if i["category"] == category.lower()]
+
+    required = [i for i in items if i.get("required")]
+    recommended = [i for i in items if i.get("recommended") and not i.get("required")]
+    optional = [i for i in items if not i.get("required") and not i.get("recommended")]
+
+    categories = sorted({i["category"] for i in SUPPORTED_INTEGRATIONS})
+
+    return {
+        "required": required,
+        "recommended": recommended,
+        "optional": optional,
+        "categories": categories,
+        "total": len(items),
+        "instructions": (
+            "Present these to the user, starting with required integrations, "
+            "then recommended, then optional. Ask which ones they have. "
+            "Store their selections with set_user_integrations."
+        ),
+    }
+
+
+@mcp.tool
+def set_user_integrations(ctx: Context, integrations: list[str], equipment_notes: dict | None = None) -> dict:
+    """Store which integrations and hardware the user has.
+
+    integrations: list of integration IDs from get_supported_integrations
+        (e.g. ['garmin_connect', 'garmin_fenix', 'garmin_hrm_pro', 'hevy', 'smart_trainer'])
+    equipment_notes: optional dict of integration_id -> note string
+        (e.g. {'smart_trainer': 'Wahoo Kickr v5', 'home_gym': 'Dumbbells, 20kg kettlebell, squat rack'})
+    """
+    slug = _uslug(ctx)
+    valid_ids = {i["id"] for i in SUPPORTED_INTEGRATIONS}
+    unknown = [i for i in integrations if i not in valid_ids]
+    if unknown:
+        raise ToolError(f"Unknown integration IDs: {unknown}. Use get_supported_integrations to see valid IDs.")
+
+    import yaml as _yaml
+    athlete = _load_yaml(ATHLETE_PATH)
+    user = athlete.setdefault("users", {}).setdefault(slug, {})
+
+    user_integrations = []
+    for int_id in integrations:
+        entry: dict[str, Any] = {"id": int_id}
+        ref = next((i for i in SUPPORTED_INTEGRATIONS if i["id"] == int_id), None)
+        if ref:
+            entry["name"] = ref["name"]
+            entry["category"] = ref["category"]
+        if equipment_notes and int_id in equipment_notes:
+            entry["notes"] = equipment_notes[int_id]
+        user_integrations.append(entry)
+
+    user["integrations"] = user_integrations
+
+    with open(ATHLETE_PATH, "w") as f:
+        _yaml.dump(athlete, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    cred_needed = []
+    for int_id in integrations:
+        ref = next((i for i in SUPPORTED_INTEGRATIONS if i["id"] == int_id), None)
+        if ref and ref.get("credentials"):
+            cred_needed.append({"integration": int_id, "credentials": ref["credentials"]})
+
+    return {
+        "stored": len(user_integrations),
+        "integrations": [i["id"] for i in user_integrations],
+        "credentials_needed": cred_needed,
+        "next_steps": (
+            "If credentials_needed is not empty, ensure those are configured in "
+            "the addon config or secrets. Then proceed with garmin_authenticate "
+            "and generate_fitness_assessment."
+        ),
+    }
+
+
+@mcp.tool
+def get_user_integrations(ctx: Context) -> dict:
+    """Get the user's configured integrations and hardware."""
+    slug = _uslug(ctx)
+    athlete = _load_yaml(ATHLETE_PATH)
+    user_data = athlete.get("users", {}).get(slug, {})
+    integrations = user_data.get("integrations", [])
+
+    if not integrations:
+        return {
+            "integrations": None,
+            "suggestion": (
+                "No integrations configured yet. Call get_supported_integrations "
+                "to show the user what's available, then set_user_integrations "
+                "to store their selections."
+            ),
+        }
+
+    return {"integrations": integrations, "count": len(integrations)}
+
+
 # ---------------------------------------------------------------------------
 # Health check endpoint
 # ---------------------------------------------------------------------------

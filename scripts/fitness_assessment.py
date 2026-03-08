@@ -827,11 +827,13 @@ def generate_action_items(
             })
         elif "critical_power" in field:
             items.append({
-                "id": "stryd-cp",
-                "title": "Get Critical Power from Stryd",
+                "id": "running-cp",
+                "title": "Establish running Critical Power",
                 "description": (
-                    "Open the Stryd app, go to Power tab, note your "
-                    "Critical Power. Sets your running power zones."
+                    "Your Garmin watch + HRM Pro provide native running power. "
+                    "Options: (1) structured CP test (3-min + 9-min all-out), "
+                    "(2) accumulate varied runs and estimate from power-duration "
+                    "curve, (3) check Stryd app if you have one."
                 ),
                 "category": "testing", "priority": "high",
                 "status": "pending", "created": today,

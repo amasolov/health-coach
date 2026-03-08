@@ -75,11 +75,15 @@ users:
         created: "2026-03-08"
         due: null
         completed: null
-      - id: stryd-cp
-        title: "Get Critical Power from Stryd"
+      - id: running-cp
+        title: "Establish running Critical Power"
         description: >-
-          Open the Stryd app, go to the Power tab, and note your
-          Critical Power value. This sets your running power zones.
+          Your Garmin Fenix 8 + HRM Pro provide native running power data.
+          Options to establish CP: (1) Do a structured CP test -- a 3-min
+          all-out effort followed by a 9-min all-out effort on separate days,
+          (2) accumulate 4-6 weeks of varied-intensity runs and we can estimate
+          CP from your best power-duration curve, or (3) if you have Stryd,
+          check its Critical Power value in the Stryd app.
         category: testing
         priority: high
         status: pending
