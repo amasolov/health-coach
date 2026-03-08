@@ -531,11 +531,37 @@ def _generate_recommendations(
     body_comp: dict,
     vitals: dict,
     strength: dict,
+    goals: dict | None = None,
 ) -> list[str]:
-    """Generate data-driven recommendations based on the assessment."""
+    """Generate data-driven recommendations based on the assessment and user goals."""
     recs = []
+    goals = goals or {}
 
-    # Training volume
+    primary = goals.get("primary_goal", "")
+    avail_hrs = goals.get("available_hours_per_week")
+    experience = goals.get("experience_level", "")
+    preferred = goals.get("preferred_sports", [])
+    constraints = goals.get("constraints", [])
+    secondary = goals.get("secondary_goals", [])
+
+    is_ultra = any(
+        kw in primary.lower()
+        for kw in ("utmb", "ultra", "trail", "100k", "100mi", "50k")
+    )
+    is_marathon = any(
+        kw in primary.lower()
+        for kw in ("marathon", "42k")
+    ) and not is_ultra
+    wants_body_comp = any(
+        kw in str(secondary).lower()
+        for kw in ("body composition", "lose weight", "lean", "fat")
+    )
+
+    # Goal context
+    if primary:
+        recs.append(f"Goal: {primary}. All recommendations below are shaped by this.")
+
+    # Training volume vs goal
     avg_hrs = overview.get("avg_weekly_hours", 0)
     if avg_hrs == 0:
         recs.append(
@@ -543,19 +569,40 @@ def _generate_recommendations(
             "training with a different tracker or took time off, that's fine "
             "-- we'll build from here."
         )
-    elif avg_hrs < 3:
-        recs.append(
-            f"Average weekly volume is {avg_hrs} hours -- a moderate starting "
-            f"point. Aim to gradually build to 5-6 hours/week for general "
-            f"endurance improvement."
-        )
-    elif avg_hrs > 10:
-        recs.append(
-            f"Average weekly volume is {avg_hrs} hours -- solid training load. "
-            f"Focus on quality over quantity and ensure adequate recovery."
-        )
+    elif is_ultra:
+        if avg_hrs < 6:
+            recs.append(
+                f"Average weekly volume is {avg_hrs} hours. For ultra/trail "
+                f"goals, you'll eventually need 8-12+ hours/week. Build "
+                f"gradually -- no more than 10% increase per week."
+            )
+        elif avg_hrs < 10:
+            recs.append(
+                f"Average weekly volume is {avg_hrs} hours -- good foundation "
+                f"for ultra training. Continue building with a focus on long "
+                f"runs and back-to-back sessions."
+            )
+    elif is_marathon:
+        if avg_hrs < 5:
+            recs.append(
+                f"Average weekly volume is {avg_hrs} hours. Marathon prep "
+                f"typically needs 6-8 hours/week. Build gradually."
+            )
+    else:
+        if avg_hrs < 3:
+            target = f" (target: {avail_hrs})" if avail_hrs else ""
+            recs.append(
+                f"Average weekly volume is {avg_hrs} hours{target}. "
+                f"Aim to gradually build to 5-6 hours/week for general "
+                f"endurance improvement."
+            )
+        elif avg_hrs > 10:
+            recs.append(
+                f"Average weekly volume is {avg_hrs} hours -- solid load. "
+                f"Focus on quality over quantity and ensure adequate recovery."
+            )
 
-    # Sport distribution
+    # Sport distribution vs goals
     sports = overview.get("sport_distribution", {})
     sport_types = list(sports.keys())
     if sport_types and len(sport_types) == 1:
@@ -563,16 +610,38 @@ def _generate_recommendations(
             f"All training is {sport_types[0]}. Consider adding cross-training "
             f"to reduce injury risk and build overall fitness."
         )
-    running_pct = sports.get("running", {}).get("pct", 0)
+
+    running_pct = sum(
+        v.get("pct", 0) for k, v in sports.items()
+        if "run" in k or "trail" in k
+    )
+    cycling_pct = sum(
+        v.get("pct", 0) for k, v in sports.items()
+        if "cycl" in k or "bik" in k
+    )
     strength_pct = sum(
         v.get("pct", 0) for k, v in sports.items()
         if "strength" in k or "weight" in k
     )
-    if running_pct > 70 and strength_pct < 10:
+
+    if is_ultra and running_pct < 50 and overview.get("total_activities", 0) > 5:
+        recs.append(
+            f"Running makes up only {running_pct:.0f}% of training. For "
+            f"ultra/trail goals, running should be the primary volume "
+            f"contributor (60-70%), supplemented by cycling and strength."
+        )
+
+    if (is_ultra or is_marathon) and strength_pct < 10:
+        recs.append(
+            "Minimal strength training detected. For distance running, 2 "
+            "strength sessions per week targeting legs, core, and hips will "
+            "improve running economy, hill power, and injury resilience."
+        )
+    elif not is_ultra and not is_marathon and running_pct > 70 and strength_pct < 10:
         recs.append(
             "Training is heavily running-focused with minimal strength work. "
-            "Adding 2 strength sessions per week will improve running economy "
-            "and reduce injury risk."
+            "Adding 2 strength sessions per week improves overall fitness "
+            "and reduces injury risk."
         )
 
     # Consistency
@@ -585,19 +654,39 @@ def _generate_recommendations(
         )
 
     # Intensity distribution
-    assessment = intensity.get("polarization_assessment", "")
-    if "grey zone" in assessment.lower():
+    pol_assessment = intensity.get("polarization_assessment", "")
+    if "grey zone" in pol_assessment.lower():
         recs.append(
             "Too much training in zone 3 (tempo). For better adaptations, "
             "keep ~80% of training easy (zones 1-2) and make hard sessions "
             "truly hard (zones 4-5)."
         )
-
-    # Body composition
-    if body_comp.get("data_points", 0) == 0:
+    elif is_ultra and intensity.get("easy_pct", 0) < 70:
         recs.append(
-            "No body composition data found. Start using your Garmin smart "
-            "scale regularly to track weight and body fat trends."
+            "For ultra distances, the aerobic base is everything. Aim for "
+            "80%+ of training in zones 1-2. Save intensity for specific "
+            "threshold and VO2max sessions."
+        )
+
+    # Body composition vs goals
+    if body_comp.get("data_points", 0) == 0:
+        if wants_body_comp:
+            recs.append(
+                "You want to track body composition but no scale data was "
+                "found. Start using your Garmin smart scale daily to "
+                "establish a baseline and track progress."
+            )
+        else:
+            recs.append(
+                "No body composition data. Use your Garmin smart scale to "
+                "track weight and body fat trends over time."
+            )
+
+    if wants_body_comp and body_comp.get("weight_trend", "").startswith("gaining"):
+        recs.append(
+            "Weight is trending up while body composition improvement is a "
+            "goal. Focus on a slight caloric deficit with adequate protein "
+            "(1.6-2.0g/kg) to support training while losing fat."
         )
 
     # Vitals
@@ -607,13 +696,21 @@ def _generate_recommendations(
             "accumulated fatigue, poor sleep, or illness. Monitor closely."
         )
 
-    # Strength
+    # Strength vs goals
     if strength.get("total_sessions", 0) == 0 and overview.get("total_activities", 0) > 0:
-        recs.append(
-            "No strength training detected. For UTMB-level trail running, "
-            "strength work is essential for injury prevention and hill power. "
-            "Aim for 2 sessions per week using your available equipment."
-        )
+        if is_ultra:
+            recs.append(
+                "No strength training detected. For ultra/trail running, "
+                "strength is essential -- single-leg work, core stability, "
+                "and heavy squats/deadlifts build the durability you need "
+                "for mountain terrain."
+            )
+        elif primary:
+            recs.append(
+                "No strength training detected. Adding 2 sessions per week "
+                "will improve performance and injury resilience regardless "
+                "of your primary sport."
+            )
 
     # Longest gap
     gap = overview.get("longest_gap_days", 0)
@@ -622,6 +719,29 @@ def _generate_recommendations(
             f"Longest training gap was {gap} days. Extended breaks lose "
             f"fitness quickly -- even short sessions maintain adaptations."
         )
+
+    # Experience-specific
+    if experience == "beginner":
+        recs.append(
+            "As a beginner, prioritize consistency over intensity. Build "
+            "the habit first, then layer in structured training."
+        )
+
+    # Constraint awareness
+    for c in constraints:
+        cl = c.lower()
+        if "knee" in cl or "injur" in cl:
+            recs.append(
+                f"Noted constraint: '{c}'. Prioritize low-impact cross-"
+                f"training (cycling, swimming) and strength work to "
+                f"support the affected area."
+            )
+        elif "time" in cl or "busy" in cl or "schedule" in cl:
+            recs.append(
+                f"Noted constraint: '{c}'. Short, high-quality sessions "
+                f"(30-45 min) with clear zone targets are more effective "
+                f"than long junk miles when time is limited."
+            )
 
     return recs
 
@@ -725,6 +845,19 @@ def _compute_ctl(daily_tss: dict[str, float]) -> float:
 # Main assessment function
 # ---------------------------------------------------------------------------
 
+def _load_user_goals(slug: str) -> dict:
+    """Load goals from athlete.yaml for a user."""
+    import yaml
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "config" / "athlete.yaml"
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("users", {}).get(slug, {}).get("goals", {})
+
+
 def assess_fitness(
     slug: str,
     garmin_client: Garmin,
@@ -736,11 +869,14 @@ def assess_fitness(
 
     Returns a dict with sections: training_overview, endurance_metrics,
     intensity_analysis, body_composition, vitals, strength_summary,
-    auto_profile, missing_data, and recommendations.
+    auto_profile, missing_data, recommendations, and goals.
     """
     today = date.today()
     start = (today - timedelta(days=lookback_days)).isoformat()
     end = today.isoformat()
+
+    # Load user goals for context-aware recommendations
+    goals = _load_user_goals(slug)
 
     # --- Fetch data ---
     logger.info("Fetching %d days of activities...", lookback_days)
@@ -790,10 +926,12 @@ def assess_fitness(
         body_composition,
         vitals,
         strength_summary,
+        goals=goals,
     )
 
     return {
         "period": f"{start} to {end} ({lookback_days} days)",
+        "goals": goals or None,
         "training_overview": training_overview,
         "endurance_metrics": endurance_metrics,
         "intensity_analysis": intensity_analysis,

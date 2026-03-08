@@ -47,6 +47,28 @@ users:
       measured_date: null
       source: "garmin_scale"
 
+    goals:
+      primary_goal: "Run UTMB (long-term aspiration)"
+      target_event: null
+      target_date: null
+      secondary_goals:
+        - "Build a scientific, data-driven training framework"
+        - "Improve body composition"
+        - "See measurable performance gains"
+        - "Stay injury-free and not get bored"
+      available_hours_per_week: null
+      preferred_sports:
+        - "trail running"
+        - "treadmill (iFit)"
+        - "cycling (Zwift/Wahoo)"
+        - "strength training"
+      constraints:
+        - "Busy schedule -- need flexibility to adjust on the fly"
+      experience_level: "intermediate"
+      training_preferences:
+        likes: "iFit workouts, variety, structured sessions"
+        dislikes: "Unstructured training, manual speed changes on treadmill"
+
     training_status:
       weekly_volume_hrs: null
       longest_run_km: null

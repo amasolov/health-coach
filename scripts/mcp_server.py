@@ -404,8 +404,8 @@ def get_training_zones(ctx: Context) -> dict:
 
 @mcp.tool
 def get_athlete_profile(ctx: Context) -> dict:
-    """Get the athlete's profile: thresholds, body composition, training
-    status, and treadmill zone-to-speed mapping."""
+    """Get the athlete's profile: goals, thresholds, body composition,
+    training status, and treadmill zone-to-speed mapping."""
     slug = _uslug(ctx)
     athlete = _load_yaml(ATHLETE_PATH)
     user_data = athlete.get("users", {}).get(slug)
@@ -414,6 +414,7 @@ def get_athlete_profile(ctx: Context) -> dict:
 
     return {
         "profile": user_data.get("profile"),
+        "goals": user_data.get("goals"),
         "thresholds": user_data.get("thresholds"),
         "body": user_data.get("body"),
         "training_status": user_data.get("training_status"),
@@ -735,6 +736,183 @@ def update_athlete_profile(
             }
 
     return {"updated": field_path, "value": value}
+
+
+# ===== GOALS & ONBOARDING =====
+
+ONBOARDING_QUESTIONS = [
+    {
+        "id": "primary_goal",
+        "question": "What is your primary fitness or racing goal?",
+        "examples": [
+            "Run a marathon", "Complete UTMB", "General fitness",
+            "Lose weight", "Build muscle", "First triathlon",
+            "Improve 5K time", "Stay healthy and active",
+        ],
+        "field": "goals.primary_goal",
+    },
+    {
+        "id": "target_event",
+        "question": "Do you have a specific target event? If so, what and when?",
+        "examples": ["London Marathon April 2027", "No specific event yet"],
+        "field": "goals.target_event",
+        "optional": True,
+    },
+    {
+        "id": "secondary_goals",
+        "question": "Any secondary goals? (list as many as you like)",
+        "examples": [
+            "Improve body composition", "Build running endurance",
+            "Get stronger", "Better sleep", "Reduce stress",
+        ],
+        "field": "goals.secondary_goals",
+    },
+    {
+        "id": "available_hours",
+        "question": "How many hours per week can you realistically train?",
+        "examples": ["3-4 hours", "5-7 hours", "8-10 hours", "It varies a lot"],
+        "field": "goals.available_hours_per_week",
+    },
+    {
+        "id": "preferred_sports",
+        "question": "What sports/activities do you enjoy or want to focus on?",
+        "examples": [
+            "Running", "Trail running", "Cycling", "Swimming",
+            "Strength training", "Yoga", "Hiking",
+        ],
+        "field": "goals.preferred_sports",
+    },
+    {
+        "id": "constraints",
+        "question": "Any constraints or limitations? (injuries, schedule, equipment)",
+        "examples": [
+            "Bad knee -- can't do high impact daily",
+            "Only free mornings before 7am",
+            "No pool access", "Travel frequently",
+        ],
+        "field": "goals.constraints",
+        "optional": True,
+    },
+    {
+        "id": "experience_level",
+        "question": "How would you describe your training experience?",
+        "examples": [
+            "beginner (less than 1 year)",
+            "intermediate (1-3 years consistent)",
+            "advanced (3+ years structured training)",
+        ],
+        "field": "goals.experience_level",
+    },
+    {
+        "id": "likes_dislikes",
+        "question": "What do you enjoy about training, and what do you dislike?",
+        "examples": [
+            "Love outdoor runs, hate indoor cycling",
+            "Enjoy iFit workouts but find them unstructured",
+            "Like data and tracking, dislike monotony",
+        ],
+        "field": "goals.training_preferences",
+        "optional": True,
+    },
+]
+
+
+@mcp.tool
+def get_onboarding_questions(ctx: Context) -> dict:
+    """Get the list of onboarding questions to ask a new user about their
+    goals, preferences, and constraints. The AI should ask these
+    conversationally, one or a few at a time, then store the answers
+    using set_user_goals.
+
+    Also returns any goals already on file so the AI can skip questions
+    that have been answered."""
+    slug = _uslug(ctx)
+    athlete = _load_yaml(ATHLETE_PATH)
+    user_data = athlete.get("users", {}).get(slug, {})
+    existing_goals = user_data.get("goals", {})
+
+    answered = []
+    unanswered = []
+    for q in ONBOARDING_QUESTIONS:
+        field_key = q["field"].removeprefix("goals.")
+        parts = field_key.split(".")
+        val = existing_goals
+        for p in parts:
+            if isinstance(val, dict):
+                val = val.get(p)
+            else:
+                val = None
+                break
+
+        if val is not None:
+            answered.append({**q, "current_value": val})
+        else:
+            unanswered.append(q)
+
+    return {
+        "existing_goals": existing_goals,
+        "answered": answered,
+        "unanswered": unanswered,
+        "instructions": (
+            "Ask the unanswered questions conversationally. You don't have to "
+            "follow the exact wording -- adapt to the conversation. Store each "
+            "answer with set_user_goals. After collecting goals, run "
+            "generate_fitness_assessment for a data-driven overview."
+        ),
+    }
+
+
+@mcp.tool
+def set_user_goals(ctx: Context, goals: dict) -> dict:
+    """Store the user's goals, preferences, and constraints in their
+    athlete profile.
+
+    The goals dict can contain any of these keys:
+      - primary_goal: str
+      - target_event: str
+      - target_date: str (YYYY-MM-DD)
+      - secondary_goals: list of strings
+      - available_hours_per_week: number or str
+      - preferred_sports: list of strings
+      - constraints: list of strings
+      - experience_level: str (beginner/intermediate/advanced)
+      - training_preferences: dict with 'likes' and 'dislikes' keys
+
+    Only provided keys are updated; existing values are preserved."""
+    slug = _uslug(ctx)
+    athlete = _load_yaml(ATHLETE_PATH)
+    user = athlete.setdefault("users", {}).setdefault(slug, {})
+    existing = user.setdefault("goals", {})
+
+    for key, value in goals.items():
+        if value is not None:
+            existing[key] = value
+
+    import yaml as _yaml
+    with open(ATHLETE_PATH, "w") as f:
+        _yaml.dump(athlete, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    return {"updated_goals": existing}
+
+
+@mcp.tool
+def get_user_goals(ctx: Context) -> dict:
+    """Get the user's current goals, preferences, and constraints."""
+    slug = _uslug(ctx)
+    athlete = _load_yaml(ATHLETE_PATH)
+    user_data = athlete.get("users", {}).get(slug, {})
+    goals = user_data.get("goals", {})
+
+    if not goals:
+        return {
+            "goals": None,
+            "suggestion": (
+                "No goals set yet. Call get_onboarding_questions to get "
+                "the questions to ask this user."
+            ),
+        }
+
+    return {"goals": goals}
 
 
 # ---------------------------------------------------------------------------
