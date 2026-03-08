@@ -2,7 +2,8 @@
 
 Syncs health and fitness data from Garmin Connect and Hevy
 into a TimescaleDB database, calculates performance metrics (CTL/ATL/TSB),
-and provisions Grafana dashboards for visualization.
+provisions Grafana dashboards, and serves an MCP endpoint for AI-powered
+coaching.
 
 ## Setup
 
@@ -16,3 +17,58 @@ and provisions Grafana dashboards for visualization.
 Add additional users in the addon configuration. Each user needs their own
 Garmin Connect and/or Hevy credentials. Data is isolated per user in the
 database and filterable via the Grafana user selector dropdown.
+
+## MCP Server
+
+The addon runs a Model Context Protocol (MCP) server on port 8765
+(configurable). Each user gets a unique API key (auto-generated if left
+blank). Connect any MCP-compatible AI tool for personalized training insights.
+
+### Available Tools
+
+- **get_fitness_summary** -- current CTL/ATL/TSB, ramp rate, form status
+- **get_training_load** -- daily PMC data for a date range
+- **get_activities** -- list activities filtered by date/sport
+- **get_activity_detail** -- full metrics for a single activity
+- **get_body_composition** -- weight, body fat, muscle mass trends
+- **get_vitals** -- resting HR, HRV, blood pressure, sleep, stress
+- **get_training_zones** -- HR, power, and pace zones
+- **get_athlete_profile** -- thresholds and training status
+- **get_strength_sessions** -- Hevy strength training data
+- **list_treadmill_templates** -- available workout templates
+- **generate_treadmill_workout** -- create a structured treadmill workout
+
+### Client Configuration
+
+**Open WebUI** (Admin Settings -> External Tools):
+- URL: `http://health-tracker:8765/mcp`
+- Type: MCP (Streamable HTTP)
+- Auth: Bearer `<mcp_api_key>`
+
+**Claude Desktop** (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "health-tracker": {
+      "type": "http",
+      "url": "http://<ha-ip>:8765/mcp",
+      "headers": { "Authorization": "Bearer <mcp_api_key>" }
+    }
+  }
+}
+```
+
+**Cursor** (`.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "health-tracker": {
+      "url": "http://<ha-ip>:8765/mcp",
+      "headers": { "Authorization": "Bearer <mcp_api_key>" }
+    }
+  }
+}
+```
+
+Your MCP API key is printed in the addon log on startup. If you left the
+`mcp_api_key` field blank, a key is auto-generated and persisted.

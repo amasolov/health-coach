@@ -192,6 +192,17 @@ tasks:
       TEMPLATE: '{{.TEMPLATE | default "easy_run_45"}}'
 
   # ---------------------------------------------------------------------------
+  # MCP Server (local dev)
+  # ---------------------------------------------------------------------------
+  mcp:serve:
+    desc: Run the MCP server locally for development
+    cmds:
+      - "{{.PYTHON}} scripts/mcp_server.py"
+    env:
+      MCP_API_KEY: dev
+      MCP_HOST: "127.0.0.1"
+
+  # ---------------------------------------------------------------------------
   # HA Addon
   # ---------------------------------------------------------------------------
   addon:build:

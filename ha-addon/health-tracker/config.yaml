@@ -1,10 +1,11 @@
 name: Health Tracker
-version: "0.1.0"
+version: "0.2.0"
 slug: health-tracker
 description: >-
-  Data-driven health and fitness tracking.
-  Syncs Garmin Connect and Hevy data to TimescaleDB
-  with PMC (CTL/ATL/TSB) calculation and Grafana dashboard provisioning.
+  Data-driven health and fitness tracking with MCP server.
+  Syncs Garmin Connect and Hevy data to TimescaleDB,
+  calculates PMC (CTL/ATL/TSB), provisions Grafana dashboards,
+  and exposes an MCP endpoint for AI-powered coaching.
   Supports multiple users.
 url: "https://github.com/amasolov/alexeym-health"
 arch:
@@ -15,10 +16,15 @@ startup: services
 boot: auto
 resources:
   memory: 256
+ports:
+  8765/tcp: 8765
+ports_description:
+  8765/tcp: MCP server (Streamable HTTP)
 map:
   - config:rw
 options:
   sync_interval_minutes: 60
+  mcp_port: 8765
   db_host: "timescaledb"
   db_port: 5432
   db_name: "health"
@@ -30,11 +36,13 @@ options:
   users:
     - name: "Alexey M"
       slug: "alexey"
+      mcp_api_key: ""
       garmin_email: ""
       garmin_password: ""
       hevy_api_key: ""
 schema:
   sync_interval_minutes: "int(5,1440)"
+  mcp_port: "int(1024,65535)"
   db_host: str
   db_port: port
   db_name: str
@@ -46,6 +54,7 @@ schema:
   users:
     - name: str
       slug: str
+      mcp_api_key: "str?"
       garmin_email: str
       garmin_password: password
       hevy_api_key: "str?"
