@@ -8,6 +8,7 @@ dependencies = [
     "pyyaml",
     "python-dotenv",
     "fastmcp",
+    "garminconnect",
 ]
 
 [project.optional-dependencies]

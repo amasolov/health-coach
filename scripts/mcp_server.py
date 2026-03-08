@@ -524,6 +524,87 @@ def generate_treadmill_workout(ctx: Context, template_key: str) -> dict:
     }
 
 
+# ===== GARMIN AUTHENTICATION =====
+
+from scripts.garmin_auth import (
+    try_cached_login,
+    start_login,
+    finish_mfa_login,
+    get_auth_status,
+)
+
+
+def _get_garmin_creds(ctx: Context) -> tuple[str, str]:
+    """Look up Garmin email/password for the authenticated user."""
+    slug = _uslug(ctx)
+    for user in _TOKEN_TO_USER.values():
+        if user.get("slug") == slug:
+            email = user.get("garmin_email", "")
+            password = user.get("garmin_password", "")
+            return email, password
+    return "", ""
+
+
+@mcp.tool
+def garmin_auth_status(ctx: Context) -> dict:
+    """Check whether Garmin Connect authentication is set up and tokens are
+    valid for the current user."""
+    slug = _uslug(ctx)
+    status = get_auth_status(slug)
+    email, _ = _get_garmin_creds(ctx)
+    status["garmin_email"] = email or "(not configured)"
+    return status
+
+
+@mcp.tool
+def garmin_authenticate(ctx: Context) -> dict:
+    """Start Garmin Connect authentication. Uses the email/password from the
+    addon config. If MFA is required, returns a prompt -- the user should
+    then call garmin_submit_mfa with the code they received."""
+    slug = _uslug(ctx)
+
+    # First try cached tokens
+    client = try_cached_login(slug)
+    if client:
+        return {"status": "ok", "message": "Already authenticated with cached tokens."}
+
+    email, password = _get_garmin_creds(ctx)
+    if not email or not password:
+        raise ToolError(
+            "Garmin credentials not configured. Set garmin_email and "
+            "garmin_password in the addon config (or secrets for local dev)."
+        )
+
+    result, client = start_login(slug, email, password)
+
+    if result == "ok":
+        return {"status": "ok", "message": "Authenticated successfully. Tokens cached."}
+    elif result == "needs_mfa":
+        return {
+            "status": "needs_mfa",
+            "message": (
+                "MFA code required. Garmin has sent a code to your email. "
+                "Ask the user for the code, then call garmin_submit_mfa with it."
+            ),
+        }
+    else:
+        raise ToolError(result)
+
+
+@mcp.tool
+def garmin_submit_mfa(ctx: Context, mfa_code: str) -> dict:
+    """Complete Garmin Connect MFA authentication with the code the user
+    received (via email or authenticator app)."""
+    slug = _uslug(ctx)
+
+    result, client = finish_mfa_login(slug, mfa_code)
+
+    if result == "ok":
+        return {"status": "ok", "message": "MFA verified. Tokens cached for future use."}
+    else:
+        raise ToolError(result)
+
+
 # ---------------------------------------------------------------------------
 # Health check endpoint
 # ---------------------------------------------------------------------------
