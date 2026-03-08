@@ -612,6 +612,7 @@ from scripts.garmin_fetch import (
     merge_into_athlete_yaml,
     update_athlete_field,
 )
+from scripts.fitness_assessment import assess_fitness
 
 
 @mcp.tool
@@ -644,6 +645,60 @@ def garmin_fetch_profile(ctx: Context) -> dict:
         "written_to_config": written,
         "still_missing": result["missing"],
     }
+
+
+@mcp.tool
+def generate_fitness_assessment(
+    ctx: Context,
+    lookback_days: int = 180,
+    include_hevy: bool = True,
+) -> dict:
+    """Generate a comprehensive fitness assessment for the user by pulling
+    6 months of historical data from Garmin Connect (and optionally Hevy).
+
+    This is the recommended FIRST tool to call for a new user. It returns:
+    - training_overview: volume, frequency, consistency, sport distribution
+    - endurance_metrics: VO2max, running/cycling averages, estimated CTL
+    - intensity_analysis: HR zone distribution and polarization assessment
+    - body_composition: weight and body fat trends
+    - vitals: resting HR trend
+    - strength_summary: Hevy workout analysis (if available)
+    - auto_profile: values auto-populated into the athlete config
+    - missing_data: fields still needed, with hints and importance levels
+    - recommendations: data-driven observations and suggestions
+
+    After reviewing the assessment with the user, use update_athlete_profile
+    to fill in any remaining fields they can provide."""
+    slug = _uslug(ctx)
+
+    client = try_cached_login(slug)
+    if not client:
+        raise ToolError(
+            "Garmin not authenticated. Call garmin_authenticate first."
+        )
+
+    hevy_key = None
+    if include_hevy:
+        for user in _TOKEN_TO_USER.values():
+            if user.get("slug") == slug:
+                hevy_key = user.get("hevy_api_key")
+                break
+
+    result = assess_fitness(
+        slug=slug,
+        garmin_client=client,
+        hevy_api_key=hevy_key,
+        lookback_days=lookback_days,
+    )
+
+    profile_data = result.get("auto_profile", {})
+    if profile_data.get("fetched"):
+        written = merge_into_athlete_yaml(
+            str(ATHLETE_PATH), slug, profile_data["fetched"]
+        )
+        result["written_to_config"] = written
+
+    return result
 
 
 @mcp.tool
