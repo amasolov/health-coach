@@ -699,6 +699,20 @@ def generate_fitness_assessment(
         )
         result["written_to_config"] = written
 
+    # Merge suggested action items (only add new ones)
+    suggested = result.get("suggested_action_items", [])
+    if suggested:
+        existing = _load_action_items(slug)
+        existing_ids = {i.get("id") for i in existing}
+        added = []
+        for item in suggested:
+            if item.get("id") not in existing_ids:
+                existing.append(item)
+                added.append(item["id"])
+        if added:
+            _save_action_items(slug, existing)
+            result["action_items_added"] = added
+
     return result
 
 
@@ -913,6 +927,178 @@ def get_user_goals(ctx: Context) -> dict:
         }
 
     return {"goals": goals}
+
+
+# ===== ACTION ITEMS =====
+
+def _load_action_items(slug: str) -> list[dict]:
+    athlete = _load_yaml(ATHLETE_PATH)
+    return athlete.get("users", {}).get(slug, {}).get("action_items", [])
+
+
+def _save_action_items(slug: str, items: list[dict]) -> None:
+    import yaml as _yaml
+    athlete = _load_yaml(ATHLETE_PATH)
+    athlete.setdefault("users", {}).setdefault(slug, {})["action_items"] = items
+    with open(ATHLETE_PATH, "w") as f:
+        _yaml.dump(athlete, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+
+@mcp.tool
+def get_action_items(
+    ctx: Context, status_filter: str = ""
+) -> dict:
+    """Get the user's action items. This should be called at the START of
+    every conversation to review outstanding tasks with the user.
+
+    Optional status_filter: 'pending', 'in_progress', 'completed', or
+    blank for all items. Returns items grouped by priority."""
+    slug = _uslug(ctx)
+    items = _load_action_items(slug)
+
+    if status_filter:
+        items = [i for i in items if i.get("status") == status_filter]
+
+    high = [i for i in items if i.get("priority") == "high"]
+    medium = [i for i in items if i.get("priority") == "medium"]
+    low = [i for i in items if i.get("priority") == "low"]
+
+    pending = sum(1 for i in _load_action_items(slug) if i.get("status") == "pending")
+    in_progress = sum(1 for i in _load_action_items(slug) if i.get("status") == "in_progress")
+
+    return {
+        "high_priority": high,
+        "medium_priority": medium,
+        "low_priority": low,
+        "summary": {
+            "total": len(items),
+            "pending": pending,
+            "in_progress": in_progress,
+        },
+        "instructions": (
+            "Review these with the user. Ask about progress on in_progress "
+            "and high-priority pending items. Mark completed items and "
+            "add new ones based on the conversation."
+        ),
+    }
+
+
+@mcp.tool
+def add_action_item(
+    ctx: Context,
+    title: str,
+    description: str,
+    category: str = "training",
+    priority: str = "medium",
+    due: str = "",
+) -> dict:
+    """Add a new action item for the user.
+
+    category: testing, habit, equipment, training, setup, nutrition
+    priority: high, medium, low
+    due: optional YYYY-MM-DD deadline"""
+    slug = _uslug(ctx)
+    items = _load_action_items(slug)
+
+    item_id = title.lower().replace(" ", "-")[:40]
+    existing_ids = {i.get("id") for i in items}
+    if item_id in existing_ids:
+        base = item_id
+        n = 2
+        while item_id in existing_ids:
+            item_id = f"{base}-{n}"
+            n += 1
+
+    new_item = {
+        "id": item_id,
+        "title": title,
+        "description": description,
+        "category": category,
+        "priority": priority,
+        "status": "pending",
+        "created": date.today().isoformat(),
+        "due": due or None,
+        "completed": None,
+    }
+    items.append(new_item)
+    _save_action_items(slug, items)
+    return {"added": new_item}
+
+
+@mcp.tool
+def update_action_item(
+    ctx: Context,
+    item_id: str,
+    status: str = "",
+    priority: str = "",
+    title: str = "",
+    description: str = "",
+    due: str = "",
+    note: str = "",
+) -> dict:
+    """Update an existing action item. Use this to mark items as
+    completed, change priority, add notes, or update details.
+
+    status: pending, in_progress, completed, skipped
+    priority: high, medium, low"""
+    slug = _uslug(ctx)
+    items = _load_action_items(slug)
+
+    target = None
+    for item in items:
+        if item.get("id") == item_id:
+            target = item
+            break
+
+    if not target:
+        raise ToolError(f"Action item '{item_id}' not found")
+
+    if status:
+        target["status"] = status
+        if status == "completed":
+            target["completed"] = date.today().isoformat()
+    if priority:
+        target["priority"] = priority
+    if title:
+        target["title"] = title
+    if description:
+        target["description"] = description
+    if due:
+        target["due"] = due
+    if note:
+        existing_notes = target.get("notes", [])
+        existing_notes.append({"date": date.today().isoformat(), "text": note})
+        target["notes"] = existing_notes
+
+    _save_action_items(slug, items)
+    return {"updated": target}
+
+
+@mcp.tool
+def complete_action_item(ctx: Context, item_id: str, note: str = "") -> dict:
+    """Mark an action item as completed. Optionally add a completion note
+    (e.g. 'LTHR measured at 168 bpm')."""
+    slug = _uslug(ctx)
+    items = _load_action_items(slug)
+
+    target = None
+    for item in items:
+        if item.get("id") == item_id:
+            target = item
+            break
+
+    if not target:
+        raise ToolError(f"Action item '{item_id}' not found")
+
+    target["status"] = "completed"
+    target["completed"] = date.today().isoformat()
+    if note:
+        existing_notes = target.get("notes", [])
+        existing_notes.append({"date": date.today().isoformat(), "text": note})
+        target["notes"] = existing_notes
+
+    _save_action_items(slug, items)
+    return {"completed": target}
 
 
 # ---------------------------------------------------------------------------

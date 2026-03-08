@@ -62,6 +62,77 @@ users:
       longest_ride_km: null
       strength_sessions_per_week: null
       current_phase: null
+    action_items:
+      - id: lthr-test
+        title: "Establish running LTHR"
+        description: >-
+          Check Fenix 8 under Performance Stats > Lactate Threshold.
+          If not available, do a 30-min all-out run -- avg HR of last
+          20 min is your LTHR. This unlocks HR zone calculations.
+        category: testing
+        priority: high
+        status: pending
+        created: "2026-03-08"
+        due: null
+        completed: null
+      - id: stryd-cp
+        title: "Get Critical Power from Stryd"
+        description: >-
+          Open the Stryd app, go to the Power tab, and note your
+          Critical Power value. This sets your running power zones.
+        category: testing
+        priority: high
+        status: pending
+        created: "2026-03-08"
+        due: null
+        completed: null
+      - id: scale-habit
+        title: "Use Garmin smart scale daily"
+        description: >-
+          Step on your Garmin smart scale every morning to build a
+          body composition trend. One data point isn't enough --
+          aim for daily weigh-ins for at least 2 weeks.
+        category: habit
+        priority: medium
+        status: pending
+        created: "2026-03-08"
+        due: null
+        completed: null
+      - id: available-hours
+        title: "Set your available training hours"
+        description: >-
+          Tell the system how many hours per week you can realistically
+          train so volume recommendations are calibrated correctly.
+        category: setup
+        priority: medium
+        status: pending
+        created: "2026-03-08"
+        due: null
+        completed: null
+      - id: vo2max-outdoor
+        title: "Get Garmin VO2max estimate"
+        description: >-
+          Run outdoors with GPS and your HRM Pro chest strap a few
+          times. Garmin will estimate VO2max automatically after
+          enough data. This feeds into fitness level tracking.
+        category: testing
+        priority: medium
+        status: pending
+        created: "2026-03-08"
+        due: null
+        completed: null
+      - id: weekly-volume-3h
+        title: "Train at least 3 hours this week"
+        description: >-
+          Maintain your current 3h/week baseline. Consistency is the
+          foundation before building volume.
+        category: training
+        priority: medium
+        status: pending
+        created: "2026-03-08"
+        due: null
+        completed: null
+
     treadmill:
       zone_speed_map:
         z1_recovery:

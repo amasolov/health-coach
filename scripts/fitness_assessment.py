@@ -785,6 +785,138 @@ def _build_missing_data(profile_result: dict) -> list[dict]:
     return enriched
 
 
+def generate_action_items(
+    overview: dict,
+    endurance: dict,
+    intensity: dict,
+    body_comp: dict,
+    vitals: dict,
+    strength: dict,
+    missing_data: list[dict],
+    goals: dict | None = None,
+) -> list[dict]:
+    """Generate suggested action items based on assessment findings.
+    Returns a list of action item dicts ready to be merged into athlete.yaml."""
+    today = date.today().isoformat()
+    items: list[dict] = []
+    goals = goals or {}
+
+    is_ultra = any(
+        kw in (goals.get("primary_goal", "")).lower()
+        for kw in ("utmb", "ultra", "trail", "100k", "100mi", "50k")
+    )
+
+    # Missing critical thresholds
+    for field_info in missing_data:
+        field = field_info["field"]
+        importance = field_info.get("importance", "optional")
+        if importance == "optional":
+            continue
+
+        if "lthr_run" in field:
+            items.append({
+                "id": "lthr-test",
+                "title": "Establish running LTHR",
+                "description": (
+                    "Check Fenix 8 Performance Stats > Lactate Threshold. "
+                    "If unavailable, do a 30-min all-out run -- avg HR of "
+                    "last 20 min is your LTHR. Unlocks HR zone calculations."
+                ),
+                "category": "testing", "priority": "high",
+                "status": "pending", "created": today,
+            })
+        elif "critical_power" in field:
+            items.append({
+                "id": "stryd-cp",
+                "title": "Get Critical Power from Stryd",
+                "description": (
+                    "Open the Stryd app, go to Power tab, note your "
+                    "Critical Power. Sets your running power zones."
+                ),
+                "category": "testing", "priority": "high",
+                "status": "pending", "created": today,
+            })
+        elif "vo2max_garmin" in field:
+            items.append({
+                "id": "vo2max-outdoor",
+                "title": "Get Garmin VO2max estimate",
+                "description": (
+                    "Run outdoors with GPS and HRM Pro chest strap a few "
+                    "times. Garmin estimates VO2max after enough data."
+                ),
+                "category": "testing", "priority": "medium",
+                "status": "pending", "created": today,
+            })
+        elif "threshold_pace" in field:
+            items.append({
+                "id": "threshold-pace",
+                "title": "Establish threshold pace",
+                "description": (
+                    "Pace you can hold for ~60 min all-out. Often comes "
+                    "automatically once LTHR and outdoor runs are recorded."
+                ),
+                "category": "testing", "priority": "medium",
+                "status": "pending", "created": today,
+            })
+
+    # Body composition tracking
+    if body_comp.get("data_points", 0) < 5:
+        items.append({
+            "id": "scale-habit",
+            "title": "Use Garmin smart scale regularly",
+            "description": (
+                "Step on your Garmin smart scale every morning. Need at "
+                "least 2 weeks of data to track body composition trends."
+            ),
+            "category": "habit", "priority": "medium",
+            "status": "pending", "created": today,
+        })
+
+    # Volume goal
+    avg_hrs = overview.get("avg_weekly_hours", 0)
+    if 0 < avg_hrs < 5:
+        target = round(avg_hrs + 0.5, 1)
+        items.append({
+            "id": "weekly-volume",
+            "title": f"Train at least {target} hours this week",
+            "description": (
+                f"Current average is {avg_hrs} hrs/week. Gradually build "
+                f"by ~30 min/week. Consistency beats big jumps."
+            ),
+            "category": "training", "priority": "medium",
+            "status": "pending", "created": today,
+        })
+
+    # Strength for runners
+    if (is_ultra and strength.get("total_sessions", 0) == 0
+            and overview.get("total_activities", 0) > 0):
+        items.append({
+            "id": "start-strength",
+            "title": "Add 2 strength sessions per week",
+            "description": (
+                "For ultra/trail goals: squats, deadlifts, lunges, core "
+                "work. Use your squat rack and kettlebells. Track in Hevy."
+            ),
+            "category": "training", "priority": "high",
+            "status": "pending", "created": today,
+        })
+
+    # Available hours
+    if not goals.get("available_hours_per_week"):
+        items.append({
+            "id": "available-hours",
+            "title": "Set your available training hours",
+            "description": (
+                "Tell the system how many hours/week you can train so "
+                "volume recommendations are calibrated correctly."
+            ),
+            "category": "setup", "priority": "medium",
+            "status": "pending", "created": today,
+        })
+
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -929,6 +1061,17 @@ def assess_fitness(
         goals=goals,
     )
 
+    suggested_actions = generate_action_items(
+        training_overview,
+        endurance_metrics,
+        intensity_analysis,
+        body_composition,
+        vitals,
+        strength_summary,
+        missing_data,
+        goals=goals,
+    )
+
     return {
         "period": f"{start} to {end} ({lookback_days} days)",
         "goals": goals or None,
@@ -941,4 +1084,5 @@ def assess_fitness(
         "auto_profile": profile_result,
         "missing_data": missing_data,
         "recommendations": recommendations,
+        "suggested_action_items": suggested_actions,
     }
