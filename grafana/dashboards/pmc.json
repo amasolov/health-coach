@@ -2,7 +2,10 @@
   "dashboard": {
     "title": "Performance Management Chart",
     "uid": "health-pmc",
-    "tags": ["health-tracker", "pmc"],
+    "tags": [
+      "health-tracker",
+      "pmc"
+    ],
     "timezone": "browser",
     "editable": true,
     "time": {
@@ -37,7 +40,12 @@
         "id": 1,
         "title": "Performance Management Chart (CTL / ATL / TSB)",
         "type": "timeseries",
-        "gridPos": { "h": 14, "w": 24, "x": 0, "y": 0 },
+        "gridPos": {
+          "h": 14,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        },
         "datasource": "$datasource",
         "targets": [
           {
@@ -61,43 +69,107 @@
           },
           "overrides": [
             {
-              "matcher": { "id": "byName", "options": "Fitness (CTL)" },
+              "matcher": {
+                "id": "byName",
+                "options": "Fitness (CTL)"
+              },
               "properties": [
-                { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                }
               ]
             },
             {
-              "matcher": { "id": "byName", "options": "Fatigue (ATL)" },
+              "matcher": {
+                "id": "byName",
+                "options": "Fatigue (ATL)"
+              },
               "properties": [
-                { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "red"
+                  }
+                }
               ]
             },
             {
-              "matcher": { "id": "byName", "options": "Form (TSB)" },
+              "matcher": {
+                "id": "byName",
+                "options": "Form (TSB)"
+              },
               "properties": [
-                { "id": "color", "value": { "mode": "fixed", "fixedColor": "yellow" } },
-                { "id": "custom.fillOpacity", "value": 10 }
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "yellow"
+                  }
+                },
+                {
+                  "id": "custom.fillOpacity",
+                  "value": 10
+                }
               ]
             },
             {
-              "matcher": { "id": "byRegexp", "options": ".*projected.*" },
+              "matcher": {
+                "id": "byRegexp",
+                "options": ".*projected.*"
+              },
               "properties": [
-                { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
-                { "id": "custom.fillOpacity", "value": 5 }
+                {
+                  "id": "custom.lineStyle",
+                  "value": {
+                    "fill": "dash",
+                    "dash": [
+                      10,
+                      10
+                    ]
+                  }
+                },
+                {
+                  "id": "custom.fillOpacity",
+                  "value": 5
+                }
               ]
             }
           ]
         },
         "options": {
-          "tooltip": { "mode": "multi" },
-          "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }
-        }
+          "tooltip": {
+            "mode": "multi"
+          },
+          "legend": {
+            "displayMode": "table",
+            "placement": "bottom",
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        },
+        "links": [
+          {
+            "title": "View Activities",
+            "url": "/d/health-activities/?var-user=$user&${__url_time_range}"
+          }
+        ]
       },
       {
         "id": 2,
         "title": "Daily TSS",
         "type": "barchart",
-        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 14
+        },
         "datasource": "$datasource",
         "targets": [
           {
@@ -108,17 +180,32 @@
         ],
         "fieldConfig": {
           "defaults": {
-            "color": { "mode": "palette-classic" },
-            "custom": { "fillOpacity": 80 }
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "fillOpacity": 80
+            }
           }
-        }
+        },
+        "links": [
+          {
+            "title": "View Activities",
+            "url": "/d/health-activities/?var-user=$user&${__url_time_range}"
+          }
+        ]
       },
       {
         "id": 3,
         "title": "CTL Ramp Rate (week-over-week)",
         "description": "Safe range: -2 to +7. Above +7 increases injury risk.",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 22
+        },
         "datasource": "$datasource",
         "targets": [
           {
@@ -129,18 +216,32 @@
         ],
         "fieldConfig": {
           "defaults": {
-            "color": { "mode": "fixed", "fixedColor": "orange" },
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "orange"
+            },
             "custom": {
               "lineWidth": 2,
               "fillOpacity": 15,
-              "thresholdsStyle": { "mode": "area" }
+              "thresholdsStyle": {
+                "mode": "area"
+              }
             },
             "thresholds": {
               "mode": "absolute",
               "steps": [
-                { "value": null, "color": "green" },
-                { "value": 5, "color": "yellow" },
-                { "value": 7, "color": "red" }
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 5,
+                  "color": "yellow"
+                },
+                {
+                  "value": 7,
+                  "color": "red"
+                }
               ]
             }
           }
@@ -150,7 +251,12 @@
         "id": 4,
         "title": "Current Status",
         "type": "stat",
-        "gridPos": { "h": 5, "w": 24, "x": 0, "y": 30 },
+        "gridPos": {
+          "h": 5,
+          "w": 24,
+          "x": 0,
+          "y": 30
+        },
         "datasource": "$datasource",
         "targets": [
           {
@@ -170,12 +276,59 @@
           }
         ],
         "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
           "orientation": "horizontal"
-        }
+        },
+        "links": [
+          {
+            "title": "View Recovery",
+            "url": "/d/health-vitals/?var-user=$user&${__url_time_range}"
+          }
+        ]
       }
     ],
-    "schemaVersion": 39
+    "schemaVersion": 39,
+    "links": [
+      {
+        "title": "Home",
+        "url": "/d/health-home/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "home",
+        "tooltip": "Athlete Home"
+      },
+      {
+        "title": "Activities",
+        "url": "/d/health-activities/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "play",
+        "tooltip": "Activities Overview"
+      },
+      {
+        "title": "Vitals",
+        "url": "/d/health-vitals/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "heart",
+        "tooltip": "Vitals & Recovery"
+      },
+      {
+        "title": "Body Comp",
+        "url": "/d/health-body/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "user",
+        "tooltip": "Body Composition"
+      },
+      {
+        "title": "Strength",
+        "url": "/d/health-strength/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "fire",
+        "tooltip": "Strength Training"
+      }
+    ]
   },
   "overwrite": true
 }

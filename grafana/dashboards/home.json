@@ -1,0 +1,742 @@
+{
+  "dashboard": {
+    "title": "Athlete Home",
+    "uid": "health-home",
+    "tags": [
+      "health-tracker"
+    ],
+    "timezone": "browser",
+    "editable": true,
+    "time": {
+      "from": "now-30d",
+      "to": "now"
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "user",
+          "type": "query",
+          "datasource": "TimescaleDB",
+          "query": "SELECT id AS __value, display_name AS __text FROM users ORDER BY display_name",
+          "refresh": 1,
+          "current": {},
+          "label": "Athlete"
+        },
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "postgres",
+          "current": {
+            "text": "TimescaleDB",
+            "value": "TimescaleDB"
+          },
+          "label": "Data Source"
+        }
+      ]
+    },
+    "links": [
+      {
+        "title": "PMC",
+        "url": "/d/health-pmc/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "bolt",
+        "tooltip": "Performance Management Chart"
+      },
+      {
+        "title": "Activities",
+        "url": "/d/health-activities/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "play",
+        "tooltip": "Activities Overview"
+      },
+      {
+        "title": "Vitals",
+        "url": "/d/health-vitals/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "heart",
+        "tooltip": "Vitals & Recovery"
+      },
+      {
+        "title": "Body Comp",
+        "url": "/d/health-body/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "user",
+        "tooltip": "Body Composition"
+      },
+      {
+        "title": "Strength",
+        "url": "/d/health-strength/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "fire",
+        "tooltip": "Strength Training"
+      }
+    ],
+    "panels": [
+      {
+        "id": 1,
+        "title": "",
+        "type": "text",
+        "gridPos": {
+          "h": 2,
+          "w": 24,
+          "x": 0,
+          "y": 0
+        },
+        "options": {
+          "mode": "markdown",
+          "content": "# Athlete Dashboard\nUse the **Athlete** dropdown above to switch users. Click the dashboard links in the top bar to drill into specific areas."
+        }
+      },
+      {
+        "id": 10,
+        "title": "Fitness Status",
+        "type": "stat",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 0,
+          "y": 2
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT ctl AS \"CTL (Fitness)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 15,
+                  "color": "yellow"
+                },
+                {
+                  "value": 30,
+                  "color": "green"
+                },
+                {
+                  "value": 60,
+                  "color": "blue"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        },
+        "links": [
+          {
+            "title": "View PMC",
+            "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Fatigue",
+        "type": "stat",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 6,
+          "y": 2
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT atl AS \"ATL (Fatigue)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 30,
+                  "color": "yellow"
+                },
+                {
+                  "value": 50,
+                  "color": "orange"
+                },
+                {
+                  "value": 70,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        },
+        "links": [
+          {
+            "title": "View PMC",
+            "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Form (TSB)",
+        "type": "stat",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 12,
+          "y": 2
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT tsb AS \"TSB (Form)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": -10,
+                  "color": "orange"
+                },
+                {
+                  "value": 5,
+                  "color": "green"
+                },
+                {
+                  "value": 25,
+                  "color": "yellow"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        },
+        "links": [
+          {
+            "title": "View PMC",
+            "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Ramp Rate",
+        "type": "stat",
+        "gridPos": {
+          "h": 5,
+          "w": 6,
+          "x": 18,
+          "y": 2
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT ramp AS \"Ramp\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "blue"
+                },
+                {
+                  "value": 0,
+                  "color": "green"
+                },
+                {
+                  "value": 5,
+                  "color": "yellow"
+                },
+                {
+                  "value": 7,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          }
+        },
+        "links": [
+          {
+            "title": "View PMC",
+            "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
+          }
+        ]
+      },
+      {
+        "id": 20,
+        "title": "Recovery",
+        "type": "stat",
+        "gridPos": {
+          "h": 5,
+          "w": 24,
+          "x": 0,
+          "y": 7
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT resting_hr AS \"Resting HR\" FROM vitals WHERE user_id = $user AND resting_hr IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "B",
+            "rawSql": "SELECT hrv_ms AS \"HRV (ms)\" FROM vitals WHERE user_id = $user AND hrv_ms IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "C",
+            "rawSql": "SELECT sleep_score AS \"Sleep\" FROM vitals WHERE user_id = $user AND sleep_score IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "D",
+            "rawSql": "SELECT body_battery_high AS \"Body Battery\" FROM vitals WHERE user_id = $user AND body_battery_high IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "E",
+            "rawSql": "SELECT stress_avg AS \"Stress\" FROM vitals WHERE user_id = $user AND stress_avg IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "HRV (ms)"
+              },
+              "properties": [
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": null,
+                        "color": "red"
+                      },
+                      {
+                        "value": 30,
+                        "color": "yellow"
+                      },
+                      {
+                        "value": 50,
+                        "color": "green"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Sleep"
+              },
+              "properties": [
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": null,
+                        "color": "red"
+                      },
+                      {
+                        "value": 60,
+                        "color": "yellow"
+                      },
+                      {
+                        "value": 80,
+                        "color": "green"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Stress"
+              },
+              "properties": [
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": null,
+                        "color": "green"
+                      },
+                      {
+                        "value": 25,
+                        "color": "yellow"
+                      },
+                      {
+                        "value": 40,
+                        "color": "orange"
+                      },
+                      {
+                        "value": 60,
+                        "color": "red"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "colorMode": "background",
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "orientation": "horizontal"
+        },
+        "links": [
+          {
+            "title": "View Vitals",
+            "url": "/d/health-vitals/?var-user=$user&${__url_time_range}"
+          }
+        ]
+      },
+      {
+        "id": 30,
+        "title": "Weekly Training Volume (hours)",
+        "type": "barchart",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 12
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time_bucket('1 week', time) AS time, ROUND(SUM(duration_s) / 3600.0, 1) AS \"Hours\" FROM activities WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+            "format": "time_series"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "blue"
+            },
+            "custom": {
+              "fillOpacity": 80
+            }
+          }
+        },
+        "links": [
+          {
+            "title": "View Activities",
+            "url": "/d/health-activities/?var-user=$user&${__url_time_range}"
+          }
+        ]
+      },
+      {
+        "id": 31,
+        "title": "CTL / ATL / TSB (mini)",
+        "type": "timeseries",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 12
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, ctl AS \"CTL\", atl AS \"ATL\", tsb AS \"TSB\" FROM training_load WHERE user_id = $user AND source = 'calculated' AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "lineWidth": 1,
+              "fillOpacity": 0,
+              "showPoints": "never"
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "CTL"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "ATL"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "red"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "TSB"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "yellow"
+                  }
+                },
+                {
+                  "id": "custom.fillOpacity",
+                  "value": 10
+                }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom"
+          }
+        },
+        "links": [
+          {
+            "title": "View PMC",
+            "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
+          }
+        ]
+      },
+      {
+        "id": 40,
+        "title": "Body Composition",
+        "type": "stat",
+        "gridPos": {
+          "h": 4,
+          "w": 12,
+          "x": 0,
+          "y": 20
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT weight_kg AS \"Weight (kg)\" FROM body_composition WHERE user_id = $user AND weight_kg IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "B",
+            "rawSql": "SELECT body_fat_pct AS \"Body Fat (%)\" FROM body_composition WHERE user_id = $user AND body_fat_pct IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "C",
+            "rawSql": "SELECT muscle_mass_kg AS \"Muscle (kg)\" FROM body_composition WHERE user_id = $user AND muscle_mass_kg IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "orientation": "horizontal"
+        },
+        "links": [
+          {
+            "title": "View Body Composition",
+            "url": "/d/health-body/?var-user=$user&from=now-6M&to=now"
+          }
+        ]
+      },
+      {
+        "id": 41,
+        "title": "Strength (last 4 weeks)",
+        "type": "stat",
+        "gridPos": {
+          "h": 4,
+          "w": 12,
+          "x": 12,
+          "y": 20
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT COUNT(DISTINCT workout_id) AS \"Workouts\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
+            "format": "table"
+          },
+          {
+            "refId": "B",
+            "rawSql": "SELECT COUNT(*) FILTER (WHERE set_type = 'normal') AS \"Working Sets\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
+            "format": "table"
+          },
+          {
+            "refId": "C",
+            "rawSql": "SELECT COUNT(DISTINCT muscle_group) AS \"Muscle Groups\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks' AND muscle_group != ''",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "orientation": "horizontal"
+        },
+        "links": [
+          {
+            "title": "View Strength",
+            "url": "/d/health-strength/?var-user=$user&${__url_time_range}"
+          }
+        ]
+      },
+      {
+        "id": 50,
+        "title": "Recent Activities",
+        "type": "table",
+        "gridPos": {
+          "h": 10,
+          "w": 24,
+          "x": 0,
+          "y": 24
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time::date AS \"Date\", activity_type AS \"Sport\", title AS \"Title\", ROUND(duration_s / 60.0) AS \"Min\", ROUND((distance_m / 1000.0)::numeric, 1) AS \"km\", avg_hr AS \"HR\", avg_power AS \"Power\", ROUND(tss::numeric, 0) AS \"TSS\" FROM activities WHERE user_id = $user AND $__timeFilter(time) ORDER BY time DESC LIMIT 15",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "overrides": [
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Date"
+              },
+              "properties": [
+                {
+                  "id": "links",
+                  "value": [
+                    {
+                      "title": "Activities on ${__value.text}",
+                      "url": "/d/health-activities/?var-user=$user&from=${__value.raw}&to=${__value.raw}"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Sport"
+              },
+              "properties": [
+                {
+                  "id": "links",
+                  "value": [
+                    {
+                      "title": "Filter by ${__value.text}",
+                      "url": "/d/health-activities/?var-user=$user&var-sport=${__value.text}&${__url_time_range}"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "schemaVersion": 39
+  },
+  "overwrite": true
+}

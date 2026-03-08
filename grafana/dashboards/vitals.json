@@ -2,10 +2,16 @@
   "dashboard": {
     "title": "Vitals & Recovery",
     "uid": "health-vitals",
-    "tags": ["health-tracker", "vitals"],
+    "tags": [
+      "health-tracker",
+      "vitals"
+    ],
     "timezone": "browser",
     "editable": true,
-    "time": { "from": "now-30d", "to": "now" },
+    "time": {
+      "from": "now-30d",
+      "to": "now"
+    },
     "templating": {
       "list": [
         {
@@ -21,7 +27,10 @@
           "name": "datasource",
           "type": "datasource",
           "query": "postgres",
-          "current": { "text": "TimescaleDB", "value": "TimescaleDB" },
+          "current": {
+            "text": "TimescaleDB",
+            "value": "TimescaleDB"
+          },
           "label": "Data Source"
         }
       ]
@@ -31,69 +40,157 @@
         "id": 1,
         "title": "Resting Heart Rate",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
         "datasource": "$datasource",
-        "targets": [{
-          "refId": "A",
-          "rawSql": "SELECT time, resting_hr AS \"Resting HR\" FROM vitals WHERE user_id = $user AND resting_hr IS NOT NULL AND $__timeFilter(time) ORDER BY time",
-          "format": "time_series"
-        }],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, resting_hr AS \"Resting HR\" FROM vitals WHERE user_id = $user AND resting_hr IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
         "fieldConfig": {
           "defaults": {
-            "color": { "mode": "fixed", "fixedColor": "red" },
-            "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "always", "pointSize": 4 },
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "red"
+            },
+            "custom": {
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "showPoints": "always",
+              "pointSize": 4
+            },
             "unit": "bpm"
           }
-        }
+        },
+        "links": [
+          {
+            "title": "View PMC",
+            "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
+          }
+        ]
       },
       {
         "id": 2,
         "title": "Heart Rate Variability (HRV)",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
         "datasource": "$datasource",
-        "targets": [{
-          "refId": "A",
-          "rawSql": "SELECT time, hrv_ms AS \"HRV (ms)\" FROM vitals WHERE user_id = $user AND hrv_ms IS NOT NULL AND $__timeFilter(time) ORDER BY time",
-          "format": "time_series"
-        }],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, hrv_ms AS \"HRV (ms)\" FROM vitals WHERE user_id = $user AND hrv_ms IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
         "fieldConfig": {
           "defaults": {
-            "color": { "mode": "fixed", "fixedColor": "green" },
-            "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "always", "pointSize": 4 },
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "green"
+            },
+            "custom": {
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "showPoints": "always",
+              "pointSize": 4
+            },
             "unit": "ms"
           }
-        }
+        },
+        "links": [
+          {
+            "title": "View Activities",
+            "url": "/d/health-activities/?var-user=$user&${__url_time_range}"
+          }
+        ]
       },
       {
         "id": 3,
         "title": "Sleep Score",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
         "datasource": "$datasource",
-        "targets": [{
-          "refId": "A",
-          "rawSql": "SELECT time, sleep_score AS \"Sleep Score\", sleep_duration_min / 60.0 AS \"Sleep Hours\" FROM vitals WHERE user_id = $user AND sleep_score IS NOT NULL AND $__timeFilter(time) ORDER BY time",
-          "format": "time_series"
-        }],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, sleep_score AS \"Sleep Score\", sleep_duration_min / 60.0 AS \"Sleep Hours\" FROM vitals WHERE user_id = $user AND sleep_score IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
         "fieldConfig": {
-          "defaults": { "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 4 } },
+          "defaults": {
+            "custom": {
+              "lineWidth": 2,
+              "showPoints": "always",
+              "pointSize": 4
+            }
+          },
           "overrides": [
             {
-              "matcher": { "id": "byName", "options": "Sleep Score" },
+              "matcher": {
+                "id": "byName",
+                "options": "Sleep Score"
+              },
               "properties": [
-                { "id": "color", "value": { "mode": "fixed", "fixedColor": "dark-blue" } },
-                { "id": "custom.axisPlacement", "value": "left" },
-                { "id": "max", "value": 100 }
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "dark-blue"
+                  }
+                },
+                {
+                  "id": "custom.axisPlacement",
+                  "value": "left"
+                },
+                {
+                  "id": "max",
+                  "value": 100
+                }
               ]
             },
             {
-              "matcher": { "id": "byName", "options": "Sleep Hours" },
+              "matcher": {
+                "id": "byName",
+                "options": "Sleep Hours"
+              },
               "properties": [
-                { "id": "color", "value": { "mode": "fixed", "fixedColor": "light-blue" } },
-                { "id": "custom.axisPlacement", "value": "right" },
-                { "id": "unit", "value": "h" },
-                { "id": "custom.fillOpacity", "value": 15 }
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "light-blue"
+                  }
+                },
+                {
+                  "id": "custom.axisPlacement",
+                  "value": "right"
+                },
+                {
+                  "id": "unit",
+                  "value": "h"
+                },
+                {
+                  "id": "custom.fillOpacity",
+                  "value": 15
+                }
               ]
             }
           ]
@@ -103,36 +200,88 @@
         "id": 4,
         "title": "Stress & Body Battery",
         "type": "timeseries",
-        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
         "datasource": "$datasource",
-        "targets": [{
-          "refId": "A",
-          "rawSql": "SELECT time, body_battery_high AS \"Body Battery (High)\", body_battery_low AS \"Body Battery (Low)\", stress_avg AS \"Avg Stress\" FROM vitals WHERE user_id = $user AND $__timeFilter(time) ORDER BY time",
-          "format": "time_series"
-        }],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, body_battery_high AS \"Body Battery (High)\", body_battery_low AS \"Body Battery (Low)\", stress_avg AS \"Avg Stress\" FROM vitals WHERE user_id = $user AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
         "fieldConfig": {
-          "defaults": { "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 4 } },
+          "defaults": {
+            "custom": {
+              "lineWidth": 2,
+              "showPoints": "always",
+              "pointSize": 4
+            }
+          },
           "overrides": [
             {
-              "matcher": { "id": "byName", "options": "Body Battery (High)" },
+              "matcher": {
+                "id": "byName",
+                "options": "Body Battery (High)"
+              },
               "properties": [
-                { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } },
-                { "id": "custom.axisPlacement", "value": "left" }
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "green"
+                  }
+                },
+                {
+                  "id": "custom.axisPlacement",
+                  "value": "left"
+                }
               ]
             },
             {
-              "matcher": { "id": "byName", "options": "Body Battery (Low)" },
+              "matcher": {
+                "id": "byName",
+                "options": "Body Battery (Low)"
+              },
               "properties": [
-                { "id": "color", "value": { "mode": "fixed", "fixedColor": "light-green" } },
-                { "id": "custom.fillBelowTo", "value": "Body Battery (High)" },
-                { "id": "custom.fillOpacity", "value": 15 }
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "light-green"
+                  }
+                },
+                {
+                  "id": "custom.fillBelowTo",
+                  "value": "Body Battery (High)"
+                },
+                {
+                  "id": "custom.fillOpacity",
+                  "value": 15
+                }
               ]
             },
             {
-              "matcher": { "id": "byName", "options": "Avg Stress" },
+              "matcher": {
+                "id": "byName",
+                "options": "Avg Stress"
+              },
               "properties": [
-                { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } },
-                { "id": "custom.axisPlacement", "value": "right" }
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "orange"
+                  }
+                },
+                {
+                  "id": "custom.axisPlacement",
+                  "value": "right"
+                }
               ]
             }
           ]
@@ -142,17 +291,31 @@
         "id": 5,
         "title": "SpO2",
         "type": "timeseries",
-        "gridPos": { "h": 6, "w": 12, "x": 0, "y": 16 },
+        "gridPos": {
+          "h": 6,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
         "datasource": "$datasource",
-        "targets": [{
-          "refId": "A",
-          "rawSql": "SELECT time, spo2_avg AS \"SpO2 (%)\" FROM vitals WHERE user_id = $user AND spo2_avg IS NOT NULL AND $__timeFilter(time) ORDER BY time",
-          "format": "time_series"
-        }],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, spo2_avg AS \"SpO2 (%)\" FROM vitals WHERE user_id = $user AND spo2_avg IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
         "fieldConfig": {
           "defaults": {
-            "color": { "mode": "fixed", "fixedColor": "cyan" },
-            "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 4 },
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "cyan"
+            },
+            "custom": {
+              "lineWidth": 2,
+              "showPoints": "always",
+              "pointSize": 4
+            },
             "unit": "percent",
             "min": 90,
             "max": 100
@@ -163,26 +326,59 @@
         "id": 6,
         "title": "Blood Pressure",
         "type": "timeseries",
-        "gridPos": { "h": 6, "w": 12, "x": 12, "y": 16 },
+        "gridPos": {
+          "h": 6,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        },
         "datasource": "$datasource",
-        "targets": [{
-          "refId": "A",
-          "rawSql": "SELECT time, bp_systolic AS \"Systolic\", bp_diastolic AS \"Diastolic\" FROM vitals WHERE user_id = $user AND bp_systolic IS NOT NULL AND $__timeFilter(time) ORDER BY time",
-          "format": "time_series"
-        }],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, bp_systolic AS \"Systolic\", bp_diastolic AS \"Diastolic\" FROM vitals WHERE user_id = $user AND bp_systolic IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+            "format": "time_series"
+          }
+        ],
         "fieldConfig": {
           "defaults": {
-            "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 4 },
+            "custom": {
+              "lineWidth": 2,
+              "showPoints": "always",
+              "pointSize": 4
+            },
             "unit": "mmHg"
           },
           "overrides": [
             {
-              "matcher": { "id": "byName", "options": "Systolic" },
-              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+              "matcher": {
+                "id": "byName",
+                "options": "Systolic"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "red"
+                  }
+                }
+              ]
             },
             {
-              "matcher": { "id": "byName", "options": "Diastolic" },
-              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }]
+              "matcher": {
+                "id": "byName",
+                "options": "Diastolic"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "blue"
+                  }
+                }
+              ]
             }
           ]
         }
@@ -191,7 +387,12 @@
         "id": 7,
         "title": "Recovery Summary (Current)",
         "type": "stat",
-        "gridPos": { "h": 5, "w": 24, "x": 0, "y": 22 },
+        "gridPos": {
+          "h": 5,
+          "w": 24,
+          "x": 0,
+          "y": 22
+        },
         "datasource": "$datasource",
         "targets": [
           {
@@ -221,25 +422,114 @@
           }
         ],
         "options": {
-          "reduceOptions": { "calcs": ["lastNotNull"] },
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
           "orientation": "horizontal",
           "colorMode": "background"
         },
         "fieldConfig": {
           "overrides": [
             {
-              "matcher": { "id": "byName", "options": "HRV (ms)" },
-              "properties": [{ "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "value": null, "color": "red" }, { "value": 30, "color": "yellow" }, { "value": 50, "color": "green" }] } }]
+              "matcher": {
+                "id": "byName",
+                "options": "HRV (ms)"
+              },
+              "properties": [
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": null,
+                        "color": "red"
+                      },
+                      {
+                        "value": 30,
+                        "color": "yellow"
+                      },
+                      {
+                        "value": 50,
+                        "color": "green"
+                      }
+                    ]
+                  }
+                }
+              ]
             },
             {
-              "matcher": { "id": "byName", "options": "Sleep Score" },
-              "properties": [{ "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "value": null, "color": "red" }, { "value": 60, "color": "yellow" }, { "value": 80, "color": "green" }] } }]
+              "matcher": {
+                "id": "byName",
+                "options": "Sleep Score"
+              },
+              "properties": [
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": null,
+                        "color": "red"
+                      },
+                      {
+                        "value": 60,
+                        "color": "yellow"
+                      },
+                      {
+                        "value": 80,
+                        "color": "green"
+                      }
+                    ]
+                  }
+                }
+              ]
             }
           ]
         }
       }
     ],
-    "schemaVersion": 39
+    "schemaVersion": 39,
+    "links": [
+      {
+        "title": "Home",
+        "url": "/d/health-home/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "home",
+        "tooltip": "Athlete Home"
+      },
+      {
+        "title": "PMC",
+        "url": "/d/health-pmc/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "bolt",
+        "tooltip": "Performance Management Chart"
+      },
+      {
+        "title": "Activities",
+        "url": "/d/health-activities/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "play",
+        "tooltip": "Activities Overview"
+      },
+      {
+        "title": "Body Comp",
+        "url": "/d/health-body/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "user",
+        "tooltip": "Body Composition"
+      },
+      {
+        "title": "Strength",
+        "url": "/d/health-strength/?var-user=$user&${__url_time_range}",
+        "type": "link",
+        "icon": "fire",
+        "tooltip": "Strength Training"
+      }
+    ]
   },
   "overwrite": true
 }
