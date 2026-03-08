@@ -103,7 +103,12 @@ def _extract_user_profile(client: Garmin) -> dict:
 
     height = user_data.get("height") or settings.get("height")
     if height:
-        result["height_cm"] = round(float(height) / 10, 1) if float(height) > 100 else round(float(height))
+        h = float(height)
+        if h > 500:
+            h = h / 10  # millimeters -> cm
+        elif h < 3:
+            h = h * 100  # meters -> cm
+        result["height_cm"] = round(h, 1)
         sources["height_cm"] = "garmin_profile"
 
     return result, sources
