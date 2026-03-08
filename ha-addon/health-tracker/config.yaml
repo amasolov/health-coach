@@ -3,7 +3,7 @@ version: "0.1.0"
 slug: health-tracker
 description: >-
   Data-driven health and fitness tracking.
-  Syncs Garmin Connect, TrainingPeaks, and Hevy data to TimescaleDB
+  Syncs Garmin Connect and Hevy data to TimescaleDB
   with PMC (CTL/ATL/TSB) calculation and Grafana dashboard provisioning.
   Supports multiple users.
 url: "https://github.com/amasolov/alexeym-health"
@@ -32,7 +32,6 @@ options:
       slug: "alexey"
       garmin_email: ""
       garmin_password: ""
-      tp_auth_cookie: ""
       hevy_api_key: ""
 schema:
   sync_interval_minutes: "int(5,1440)"
@@ -49,5 +48,4 @@ schema:
       slug: str
       garmin_email: str
       garmin_password: password
-      tp_auth_cookie: "str?"
       hevy_api_key: "str?"

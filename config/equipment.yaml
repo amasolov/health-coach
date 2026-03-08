@@ -5,7 +5,7 @@ wearables:
   - name: Garmin Fenix 8
     type: gps_watch
     sensors: [optical_hr, barometric_alt, gps, spo2, temperature]
-    data_targets: [garmin_connect, strava, trainingpeaks]
+    data_targets: [garmin_connect, strava]
     notes: "Primary outdoor training device"
 
   - name: Garmin HRM Pro
@@ -26,14 +26,14 @@ cycling:
     type: bike_computer
     sensors: [gps, barometric_alt]
     pairs_with: [garmin_hrm_pro, wahoo_kickr]
-    data_targets: [garmin_connect, strava, trainingpeaks, zwift]
+    data_targets: [garmin_connect, strava, zwift]
     notes: "Outdoor cycling head unit"
 
   - name: Wahoo Kickr Smart Bike
     type: smart_trainer
     sensors: [power, cadence, speed]
     protocols: [ant_plus, bluetooth]
-    data_targets: [zwift, garmin_connect, trainingpeaks]
+    data_targets: [zwift, garmin_connect]
     notes: "Indoor cycling with direct power measurement"
 
 treadmill:
@@ -84,10 +84,6 @@ software:
   - name: Garmin Connect
     type: platform
     role: "Central health data hub -- HR, HRV, sleep, stress, body battery, activities"
-
-  - name: TrainingPeaks
-    type: platform
-    role: "Training planning, TSS/CTL/ATL/TSB tracking, workout analysis"
 
   - name: Strava
     type: platform

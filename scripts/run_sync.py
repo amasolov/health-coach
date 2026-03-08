@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-Placeholder sync orchestrator.
+Sync orchestrator.
 In the HA addon, iterates over users from USERS_JSON env var.
 Locally, uses USER_SLUG from .env.
+
+Data sources:
+  - Garmin Connect: activities, vitals, body composition
+  - Hevy: strength training (sets, reps, weight)
 
 Actual sync implementations (sync_garmin.py, sync_hevy.py) will be
 fleshed out once MCP authentication is established and data formats
@@ -43,13 +47,6 @@ def main() -> int:
             print(f"  [SKIP] Hevy sync not yet implemented for {slug}")
         else:
             print(f"  [SKIP] No Hevy API key for {slug}")
-
-        # TODO: Call sync_tp.py with user's TP cookie
-        tp_cookie = user.get("tp_auth_cookie")
-        if tp_cookie:
-            print(f"  [SKIP] TrainingPeaks sync not yet implemented for {slug}")
-        else:
-            print(f"  [SKIP] No TP cookie for {slug}")
 
     return 0
 

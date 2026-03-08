@@ -70,7 +70,6 @@ tasks:
             'db_password': 'DB_PASSWORD',
             'garmin_email': 'GARMIN_EMAIL',
             'garmin_password': 'GARMIN_PASSWORD',
-            'tp_auth_cookie': 'TP_AUTH_COOKIE',
             'hevy_api_key': 'HEVY_API_KEY',
             'grafana_host': 'GRAFANA_HOST',
             'grafana_port': 'GRAFANA_PORT',
