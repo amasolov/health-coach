@@ -1,0 +1,183 @@
+{
+  "dashboard": {
+    "title": "Strength Training",
+    "uid": "health-strength",
+    "tags": ["health-tracker", "strength"],
+    "timezone": "browser",
+    "editable": true,
+    "time": { "from": "now-12w", "to": "now" },
+    "templating": {
+      "list": [
+        {
+          "name": "user",
+          "type": "query",
+          "datasource": "TimescaleDB",
+          "query": "SELECT id AS __value, display_name AS __text FROM users ORDER BY display_name",
+          "refresh": 1,
+          "current": {},
+          "label": "Athlete"
+        },
+        {
+          "name": "exercise",
+          "type": "query",
+          "datasource": "TimescaleDB",
+          "query": "SELECT DISTINCT exercise_name AS __value, exercise_name AS __text FROM strength_sets WHERE user_id = $user ORDER BY exercise_name",
+          "refresh": 2,
+          "includeAll": true,
+          "allValue": "%",
+          "current": { "text": "All", "value": "$__all" },
+          "label": "Exercise"
+        },
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "postgres",
+          "current": { "text": "TimescaleDB", "value": "TimescaleDB" },
+          "label": "Data Source"
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Weekly Strength Volume (sets)",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time_bucket('1 week', time) AS time, COUNT(*) AS \"Sets\" FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "green" },
+            "custom": { "fillOpacity": 80 }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Weekly Volume by Muscle Group",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time_bucket('1 week', time) AS time, COALESCE(NULLIF(muscle_group, ''), 'other') AS metric, COUNT(*) AS value FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND $__timeFilter(time) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": { "fillOpacity": 80, "stacking": { "mode": "normal" } }
+          }
+        },
+        "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] } }
+      },
+      {
+        "id": 3,
+        "title": "Muscle Group Balance (last 4 weeks)",
+        "type": "piechart",
+        "gridPos": { "h": 10, "w": 8, "x": 0, "y": 8 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT COALESCE(NULLIF(muscle_group, ''), 'other') AS metric, COUNT(*) AS value FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND time >= NOW() - INTERVAL '4 weeks' GROUP BY 1 ORDER BY 2 DESC",
+          "format": "table"
+        }],
+        "options": {
+          "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] },
+          "pieType": "donut"
+        }
+      },
+      {
+        "id": 4,
+        "title": "Top Exercises (last 4 weeks)",
+        "type": "barchart",
+        "gridPos": { "h": 10, "w": 16, "x": 8, "y": 8 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT exercise_name AS \"Exercise\", COUNT(*) AS \"Sets\", ROUND(MAX(weight_kg)::numeric, 1) AS \"Max Weight (kg)\", MAX(reps) AS \"Max Reps\" FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND time >= NOW() - INTERVAL '4 weeks' GROUP BY 1 ORDER BY 2 DESC LIMIT 15",
+          "format": "table"
+        }],
+        "fieldConfig": {
+          "defaults": { "color": { "mode": "palette-classic" } }
+        },
+        "options": { "xField": "Exercise" }
+      },
+      {
+        "id": 5,
+        "title": "Exercise Progress (weight x reps, filtered)",
+        "type": "timeseries",
+        "gridPos": { "h": 10, "w": 24, "x": 0, "y": 18 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time, weight_kg AS \"Weight (kg)\", reps AS \"Reps\" FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND weight_kg IS NOT NULL AND exercise_name LIKE '$exercise' AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": { "custom": { "showPoints": "always", "pointSize": 5, "lineWidth": 0 } },
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Weight (kg)" },
+              "properties": [
+                { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } },
+                { "id": "custom.axisPlacement", "value": "left" },
+                { "id": "unit", "value": "masskg" }
+              ]
+            },
+            {
+              "matcher": { "id": "byName", "options": "Reps" },
+              "properties": [
+                { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } },
+                { "id": "custom.axisPlacement", "value": "right" }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "tooltip": { "mode": "multi" }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Estimated 1RM Trend (top exercises)",
+        "description": "Estimated using Epley formula: 1RM = weight * (1 + reps/30)",
+        "type": "timeseries",
+        "gridPos": { "h": 10, "w": 24, "x": 0, "y": 28 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "WITH ranked AS ( SELECT time::date AS day, exercise_name, weight_kg * (1 + reps / 30.0) AS est_1rm, ROW_NUMBER() OVER (PARTITION BY exercise_name, time::date ORDER BY weight_kg * (1 + reps / 30.0) DESC) AS rn FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND weight_kg > 0 AND reps > 0 AND reps <= 12 AND $__timeFilter(time) AND exercise_name IN ( SELECT exercise_name FROM strength_sets WHERE user_id = $user AND weight_kg > 0 AND time >= NOW() - INTERVAL '4 weeks' GROUP BY exercise_name ORDER BY MAX(weight_kg) DESC LIMIT 6 ) ) SELECT day AS time, exercise_name AS metric, ROUND(est_1rm::numeric, 1) AS value FROM ranked WHERE rn = 1 ORDER BY day",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 5 },
+            "unit": "masskg"
+          }
+        },
+        "options": {
+          "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Recent Workouts",
+        "type": "table",
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 38 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time::date AS \"Date\", workout_id AS \"Workout\", COUNT(DISTINCT exercise_name) AS \"Exercises\", COUNT(*) FILTER (WHERE set_type = 'normal') AS \"Working Sets\", ROUND(SUM(COALESCE(weight_kg, 0) * COALESCE(reps, 0))::numeric, 0) AS \"Total Volume (kg)\" FROM strength_sets WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1, 2 ORDER BY 1 DESC LIMIT 20",
+          "format": "table"
+        }]
+      }
+    ],
+    "schemaVersion": 39
+  },
+  "overwrite": true
+}

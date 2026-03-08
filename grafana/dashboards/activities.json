@@ -1,0 +1,193 @@
+{
+  "dashboard": {
+    "title": "Activities Overview",
+    "uid": "health-activities",
+    "tags": ["health-tracker", "activities"],
+    "timezone": "browser",
+    "editable": true,
+    "time": { "from": "now-12w", "to": "now" },
+    "templating": {
+      "list": [
+        {
+          "name": "user",
+          "type": "query",
+          "datasource": "TimescaleDB",
+          "query": "SELECT id AS __value, display_name AS __text FROM users ORDER BY display_name",
+          "refresh": 1,
+          "current": {},
+          "label": "Athlete"
+        },
+        {
+          "name": "sport",
+          "type": "custom",
+          "current": { "text": "All", "value": "" },
+          "options": [
+            { "text": "All", "value": "", "selected": true },
+            { "text": "Trail Running", "value": "trail_running" },
+            { "text": "Treadmill", "value": "treadmill_running" },
+            { "text": "Running", "value": "running" },
+            { "text": "Cycling (Virtual)", "value": "virtual_ride" },
+            { "text": "Gravel Cycling", "value": "gravel_cycling" },
+            { "text": "Hiking", "value": "hiking" },
+            { "text": "Climbing", "value": "indoor_climbing" },
+            { "text": "Strength", "value": "strength_training" },
+            { "text": "Yoga", "value": "yoga" }
+          ],
+          "label": "Sport"
+        },
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "postgres",
+          "current": { "text": "TimescaleDB", "value": "TimescaleDB" },
+          "label": "Data Source"
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Weekly Training Volume (hours)",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time_bucket('1 week', time) AS time, ROUND(SUM(duration_s) / 3600.0, 1) AS \"Hours\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') GROUP BY 1 ORDER BY 1",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "blue" },
+            "custom": { "fillOpacity": 80 }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Weekly Activity Count by Sport",
+        "type": "barchart",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time_bucket('1 week', time) AS time, activity_type AS metric, COUNT(*) AS value FROM activities WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1, 2 ORDER BY 1",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "palette-classic" },
+            "custom": { "fillOpacity": 80, "stacking": { "mode": "normal" } }
+          }
+        },
+        "options": { "legend": { "displayMode": "table", "placement": "right" } }
+      },
+      {
+        "id": 3,
+        "title": "Activity Duration & TSS",
+        "type": "timeseries",
+        "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, ROUND(duration_s / 60.0, 0) AS \"Duration (min)\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') ORDER BY time",
+            "format": "time_series"
+          },
+          {
+            "refId": "B",
+            "rawSql": "SELECT time, tss AS \"TSS\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') AND tss IS NOT NULL ORDER BY time",
+            "format": "time_series"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "custom": { "showPoints": "always", "pointSize": 6, "lineWidth": 0 } },
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Duration (min)" },
+              "properties": [
+                { "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } },
+                { "id": "custom.axisPlacement", "value": "left" }
+              ]
+            },
+            {
+              "matcher": { "id": "byName", "options": "TSS" },
+              "properties": [
+                { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } },
+                { "id": "custom.axisPlacement", "value": "right" }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "tooltip": { "mode": "multi" },
+          "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max", "sum"] }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Heart Rate Distribution",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time, avg_hr AS \"Avg HR\", max_hr AS \"Max HR\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND avg_hr IS NOT NULL AND ($sport = '' OR activity_type = '$sport') ORDER BY time",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": { "custom": { "showPoints": "always", "pointSize": 5, "lineWidth": 0 } },
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Avg HR" },
+              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+            },
+            {
+              "matcher": { "id": "byName", "options": "Max HR" },
+              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "dark-red" } }]
+            }
+          ]
+        }
+      },
+      {
+        "id": 5,
+        "title": "Running Power Trend",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time, avg_power AS \"Avg Power (W)\", normalized_power AS \"NP (W)\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND avg_power IS NOT NULL AND activity_type IN ('treadmill_running', 'trail_running', 'running') ORDER BY time",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": { "custom": { "showPoints": "always", "pointSize": 5, "lineWidth": 1 }, "unit": "watt" },
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Avg Power (W)" },
+              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } }]
+            },
+            {
+              "matcher": { "id": "byName", "options": "NP (W)" },
+              "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "dark-purple" } }]
+            }
+          ]
+        }
+      },
+      {
+        "id": 6,
+        "title": "Recent Activities",
+        "type": "table",
+        "gridPos": { "h": 10, "w": 24, "x": 0, "y": 26 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time::date AS \"Date\", activity_type AS \"Sport\", title AS \"Title\", ROUND(duration_s / 60.0) AS \"Min\", ROUND((distance_m / 1000.0)::numeric, 1) AS \"km\", avg_hr AS \"Avg HR\", avg_power AS \"Power\", ROUND(tss::numeric, 0) AS \"TSS\", ROUND(elevation_gain_m::numeric, 0) AS \"Elev\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') ORDER BY time DESC LIMIT 30",
+          "format": "table"
+        }]
+      }
+    ],
+    "schemaVersion": 39
+  },
+  "overwrite": true
+}

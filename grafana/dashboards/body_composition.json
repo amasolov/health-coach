@@ -1,0 +1,203 @@
+{
+  "dashboard": {
+    "title": "Body Composition",
+    "uid": "health-body",
+    "tags": ["health-tracker", "body"],
+    "timezone": "browser",
+    "editable": true,
+    "time": { "from": "now-6M", "to": "now" },
+    "templating": {
+      "list": [
+        {
+          "name": "user",
+          "type": "query",
+          "datasource": "TimescaleDB",
+          "query": "SELECT id AS __value, display_name AS __text FROM users ORDER BY display_name",
+          "refresh": 1,
+          "current": {},
+          "label": "Athlete"
+        },
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "postgres",
+          "current": { "text": "TimescaleDB", "value": "TimescaleDB" },
+          "label": "Data Source"
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Weight",
+        "type": "timeseries",
+        "gridPos": { "h": 10, "w": 12, "x": 0, "y": 0 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time, weight_kg AS \"Weight (kg)\" FROM body_composition WHERE user_id = $user AND weight_kg IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "blue" },
+            "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6, "fillOpacity": 10 },
+            "unit": "masskg"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Body Fat %",
+        "type": "timeseries",
+        "gridPos": { "h": 10, "w": 12, "x": 12, "y": 0 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time, body_fat_pct AS \"Body Fat (%)\" FROM body_composition WHERE user_id = $user AND body_fat_pct IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "orange" },
+            "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6, "fillOpacity": 10 },
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 15, "color": "yellow" },
+                { "value": 20, "color": "orange" },
+                { "value": 25, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Muscle Mass",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time, muscle_mass_kg AS \"Muscle Mass (kg)\" FROM body_composition WHERE user_id = $user AND muscle_mass_kg IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "green" },
+            "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6, "fillOpacity": 10 },
+            "unit": "masskg"
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "BMI",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time, bmi AS \"BMI\" FROM body_composition WHERE user_id = $user AND bmi IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "purple" },
+            "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6 },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "yellow" },
+                { "value": 18.5, "color": "green" },
+                { "value": 25, "color": "yellow" },
+                { "value": 30, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Current Body Composition",
+        "type": "stat",
+        "gridPos": { "h": 5, "w": 24, "x": 0, "y": 18 },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT weight_kg AS \"Weight (kg)\" FROM body_composition WHERE user_id = $user AND weight_kg IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "B",
+            "rawSql": "SELECT body_fat_pct AS \"Body Fat (%)\" FROM body_composition WHERE user_id = $user AND body_fat_pct IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "C",
+            "rawSql": "SELECT muscle_mass_kg AS \"Muscle (kg)\" FROM body_composition WHERE user_id = $user AND muscle_mass_kg IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "D",
+            "rawSql": "SELECT bmi AS \"BMI\" FROM body_composition WHERE user_id = $user AND bmi IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          },
+          {
+            "refId": "E",
+            "rawSql": "SELECT body_water_pct AS \"Water (%)\" FROM body_composition WHERE user_id = $user AND body_water_pct IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "reduceOptions": { "calcs": ["lastNotNull"] },
+          "orientation": "horizontal"
+        }
+      },
+      {
+        "id": 6,
+        "title": "Body Water %",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time, body_water_pct AS \"Body Water (%)\" FROM body_composition WHERE user_id = $user AND body_water_pct IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "light-blue" },
+            "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6, "fillOpacity": 10 },
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Bone Mass",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+        "datasource": "$datasource",
+        "targets": [{
+          "refId": "A",
+          "rawSql": "SELECT time, bone_mass_kg AS \"Bone Mass (kg)\" FROM body_composition WHERE user_id = $user AND bone_mass_kg IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+          "format": "time_series"
+        }],
+        "fieldConfig": {
+          "defaults": {
+            "color": { "mode": "fixed", "fixedColor": "semi-dark-orange" },
+            "custom": { "lineWidth": 2, "showPoints": "always", "pointSize": 6, "fillOpacity": 10 },
+            "unit": "masskg"
+          }
+        }
+      }
+    ],
+    "schemaVersion": 39
+  },
+  "overwrite": true
+}
