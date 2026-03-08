@@ -27,7 +27,27 @@ DASHBOARDS_DIR = ROOT / "grafana" / "dashboards"
 def get_grafana_url() -> str:
     host = os.environ.get("GRAFANA_HOST", "localhost")
     port = os.environ.get("GRAFANA_PORT", "3000")
-    return f"http://{host}:{port}"
+    base = f"http://{host}:{port}"
+
+    # Detect HA ingress: if port returns a redirect to hassio_ingress, follow it
+    ingress_path = os.environ.get("GRAFANA_INGRESS_PATH", "")
+    if ingress_path:
+        return f"{base}{ingress_path}"
+
+    try:
+        import httpx as _httpx
+        resp = _httpx.get(f"{base}/api/health", follow_redirects=False, timeout=5)
+        if resp.status_code in (301, 302):
+            location = resp.headers.get("location", "")
+            if "hassio_ingress" in location:
+                import re
+                match = re.search(r"(/api/hassio_ingress/[^/]+)", location)
+                if match:
+                    return f"{base}{match.group(1)}"
+    except Exception:
+        pass
+
+    return base
 
 
 def get_api_key() -> str | None:
@@ -41,28 +61,36 @@ def ensure_datasource(client: httpx.Client) -> None:
         print(f"  Datasource 'TimescaleDB' already exists (uid={resp.json().get('uid', '?')})")
         return
 
+    # When Grafana and TimescaleDB are both HA addons, they talk via
+    # the internal addon hostname. From outside (Tailscale), we use
+    # the Tailscale IP, but Grafana needs the internal address.
+    db_host_for_grafana = os.environ.get("GRAFANA_DB_HOST", "")
+    if not db_host_for_grafana:
+        db_host_for_grafana = os.environ.get("DB_HOST", "localhost")
+
     ds_payload = {
         "name": "TimescaleDB",
-        "type": "postgres",
+        "type": "grafana-postgresql-datasource",
         "access": "proxy",
-        "url": f"{os.environ.get('DB_HOST', 'localhost')}:{os.environ.get('DB_PORT', '5432')}",
+        "url": f"{db_host_for_grafana}:{os.environ.get('DB_PORT', '5432')}",
         "database": os.environ.get("DB_NAME", "health"),
         "user": os.environ.get("DB_USER", "postgres"),
         "jsonData": {
             "sslmode": "disable",
-            "postgresVersion": 1500,
+            "postgresVersion": 1700,
             "timescaledb": True,
         },
         "secureJsonData": {
             "password": os.environ.get("DB_PASSWORD", ""),
         },
-        "isDefault": True,
+        "isDefault": False,
     }
     resp = client.post("/api/datasources", json=ds_payload)
     if resp.status_code in (200, 409):
-        print(f"  Datasource 'TimescaleDB' created")
+        result = resp.json()
+        print(f"  Datasource 'TimescaleDB' created (uid={result.get('datasource', {}).get('uid', result.get('uid', '?'))})")
     else:
-        print(f"  WARN: Datasource creation: {resp.status_code} {resp.text[:200]}")
+        print(f"  WARN: Datasource creation: {resp.status_code} {resp.text[:300]}")
 
 
 def push_dashboard(client: httpx.Client, dashboard_path: Path) -> bool:
