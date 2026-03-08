@@ -605,6 +605,83 @@ def garmin_submit_mfa(ctx: Context, mfa_code: str) -> dict:
         raise ToolError(result)
 
 
+# ===== ATHLETE PROFILE SETUP =====
+
+from scripts.garmin_fetch import (
+    fetch_garmin_profile,
+    merge_into_athlete_yaml,
+    update_athlete_field,
+)
+
+
+@mcp.tool
+def garmin_fetch_profile(ctx: Context) -> dict:
+    """Fetch athlete profile data from Garmin Connect and merge into the
+    config. Auto-populates: user profile (DOB, sex, height), body
+    composition, resting HR, max HR (from recent activities), VO2max,
+    lactate threshold (HR + pace + power), and cycling FTP.
+
+    Only fills fields that are currently null -- never overwrites.
+    Returns what was fetched, what was written, and what's still missing
+    with hints on how to obtain each value."""
+    slug = _uslug(ctx)
+
+    client = try_cached_login(slug)
+    if not client:
+        raise ToolError(
+            "Garmin not authenticated. Call garmin_authenticate first."
+        )
+
+    result = fetch_garmin_profile(slug, client)
+
+    written = merge_into_athlete_yaml(
+        str(ATHLETE_PATH), slug, result["fetched"]
+    )
+
+    return {
+        "fetched": result["fetched"],
+        "sources": result["sources"],
+        "written_to_config": written,
+        "still_missing": result["missing"],
+    }
+
+
+@mcp.tool
+def update_athlete_profile(
+    ctx: Context, field_path: str, value: float | int | str
+) -> dict:
+    """Update a single field in the athlete profile config.
+
+    field_path is dot-separated relative to the user, for example:
+      - thresholds.heart_rate.max_hr
+      - thresholds.cycling.ftp
+      - body.weight_kg
+      - profile.date_of_birth
+      - training_status.weekly_volume_hrs
+
+    The value type should match the field (number for metrics,
+    string for dates/text)."""
+    slug = _uslug(ctx)
+    update_athlete_field(str(ATHLETE_PATH), slug, field_path, value)
+
+    # Auto-compute ftp_wkg when both FTP and weight are available
+    athlete = _load_yaml(ATHLETE_PATH)
+    user = athlete.get("users", {}).get(slug, {})
+    if "ftp" in field_path or "weight" in field_path:
+        ftp = (user.get("thresholds", {}).get("cycling", {}).get("ftp"))
+        weight = user.get("body", {}).get("weight_kg")
+        if ftp and weight and weight > 0:
+            wkg = round(ftp / weight, 2)
+            update_athlete_field(str(ATHLETE_PATH), slug, "thresholds.cycling.ftp_wkg", wkg)
+            return {
+                "updated": field_path,
+                "value": value,
+                "also_computed": {"thresholds.cycling.ftp_wkg": wkg},
+            }
+
+    return {"updated": field_path, "value": value}
+
+
 # ---------------------------------------------------------------------------
 # Health check endpoint
 # ---------------------------------------------------------------------------
