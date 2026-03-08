@@ -13,6 +13,9 @@ from __future__ import annotations
 import json
 import os
 import sys
+
+from dotenv import load_dotenv
+load_dotenv()
 from pathlib import Path
 
 import httpx

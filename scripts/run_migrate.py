@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
-import glob
 import os
 import sys
 from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv()
 
 import psycopg2
 

@@ -21,6 +21,9 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import psycopg2
 
 CTL_TIME_CONSTANT = 42

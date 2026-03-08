@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""
+Sync Hevy strength training data into TimescaleDB.
+
+Pulls workouts via the Hevy REST API (v1) and stores individual sets.
+Uses incremental sync: pages through workouts newest-first and stops
+when it encounters a workout already in the database.
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime
+from typing import Any
+
+import httpx
+import psycopg2
+
+HEVY_BASE = "https://api.hevyapp.com/v1"
+PAGE_SIZE = 10
+
+
+# ---------------------------------------------------------------------------
+# Hevy API helpers
+# ---------------------------------------------------------------------------
+
+def _hevy_get(
+    path: str,
+    api_key: str,
+    params: dict | None = None,
+) -> dict:
+    headers = {"api-key": api_key, "accept": "application/json"}
+    resp = httpx.get(f"{HEVY_BASE}{path}", headers=headers, params=params or {}, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _fetch_exercise_templates(api_key: str) -> dict[str, dict]:
+    """Build a lookup of exercise_template_id -> {title, type, muscle_group}."""
+    templates: dict[str, dict] = {}
+    page = 1
+    while True:
+        data = _hevy_get("/exercise_templates", api_key, {"page": page, "pageSize": 100})
+        for t in data.get("exercise_templates", []):
+            templates[t["id"]] = {
+                "title": t.get("title", ""),
+                "type": t.get("type", ""),
+                "muscle_group": t.get("primary_muscle_group", ""),
+            }
+        if page >= data.get("page_count", 1):
+            break
+        page += 1
+    return templates
+
+
+# ---------------------------------------------------------------------------
+# Data extraction
+# ---------------------------------------------------------------------------
+
+def _parse_iso(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    s = s.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _extract_sets(
+    workout: dict,
+    templates: dict[str, dict],
+) -> list[dict]:
+    """Flatten a Hevy workout into individual set rows."""
+    workout_id = workout.get("id", "")
+    workout_start = _parse_iso(workout.get("start_time"))
+    if not workout_start:
+        return []
+
+    rows: list[dict] = []
+    for exercise in workout.get("exercises", []):
+        tmpl_id = exercise.get("exercise_template_id", "")
+        tmpl = templates.get(tmpl_id, {})
+
+        exercise_name = exercise.get("title") or tmpl.get("title", "Unknown")
+        exercise_type = tmpl.get("type", "")
+        muscle_group = tmpl.get("muscle_group", "")
+
+        for s in exercise.get("sets", []):
+            rows.append({
+                "time": workout_start,
+                "workout_id": workout_id,
+                "exercise_name": exercise_name,
+                "exercise_type": exercise_type,
+                "muscle_group": muscle_group,
+                "set_number": s.get("index", 0) + 1,
+                "set_type": s.get("type", "normal"),
+                "weight_kg": s.get("weight_kg"),
+                "reps": s.get("reps"),
+                "rpe": s.get("rpe"),
+                "duration_s": s.get("duration_seconds"),
+                "distance_m": s.get("distance_meters"),
+            })
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# DB operations
+# ---------------------------------------------------------------------------
+
+def _get_conn():
+    return psycopg2.connect(
+        host=os.environ.get("DB_HOST", "localhost"),
+        port=os.environ.get("DB_PORT", "5432"),
+        dbname=os.environ.get("DB_NAME", "health"),
+        user=os.environ.get("DB_USER", "postgres"),
+        password=os.environ.get("DB_PASSWORD", ""),
+    )
+
+
+def _workout_exists(cur, user_id: int, workout_id: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM strength_sets WHERE user_id = %s AND workout_id = %s LIMIT 1",
+        (user_id, workout_id),
+    )
+    return cur.fetchone() is not None
+
+
+def _insert_set(cur, user_id: int, data: dict) -> None:
+    cur.execute("""
+        INSERT INTO strength_sets (
+            time, user_id, workout_id, exercise_name, exercise_type,
+            muscle_group, set_number, set_type,
+            weight_kg, reps, rpe, duration_s, distance_m
+        ) VALUES (
+            %(time)s, %(user_id)s, %(workout_id)s, %(exercise_name)s, %(exercise_type)s,
+            %(muscle_group)s, %(set_number)s, %(set_type)s,
+            %(weight_kg)s, %(reps)s, %(rpe)s, %(duration_s)s, %(distance_m)s
+        )
+    """, {**data, "user_id": user_id})
+
+
+# ---------------------------------------------------------------------------
+# Main sync
+# ---------------------------------------------------------------------------
+
+def sync_user(
+    slug: str,
+    user_id: int,
+    api_key: str,
+) -> dict:
+    """Sync all Hevy workouts for a user. Returns summary."""
+    if not api_key:
+        return {"error": f"No Hevy API key for {slug}"}
+
+    conn = _get_conn()
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    try:
+        print(f"    Fetching exercise templates from Hevy...")
+        templates = _fetch_exercise_templates(api_key)
+        print(f"    Loaded {len(templates)} exercise templates")
+
+        total_workouts = 0
+        total_sets = 0
+        page = 1
+
+        while True:
+            data = _hevy_get("/workouts", api_key, {"page": page, "pageSize": PAGE_SIZE})
+            workouts = data.get("workouts", [])
+            page_count = data.get("page_count", 1)
+
+            if not workouts:
+                break
+
+            stop = False
+            for workout in workouts:
+                wid = workout.get("id", "")
+                if _workout_exists(cur, user_id, wid):
+                    stop = True
+                    break
+
+                sets = _extract_sets(workout, templates)
+                for s in sets:
+                    _insert_set(cur, user_id, s)
+
+                total_workouts += 1
+                total_sets += len(sets)
+
+            if stop or page >= page_count:
+                break
+            page += 1
+
+        print(f"    Inserted {total_workouts} workouts ({total_sets} sets)")
+        return {
+            "workouts_inserted": total_workouts,
+            "sets_inserted": total_sets,
+            "templates_loaded": len(templates),
+        }
+    finally:
+        cur.close()
+        conn.close()
