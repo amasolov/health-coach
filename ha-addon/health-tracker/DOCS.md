@@ -72,3 +72,14 @@ blank). Connect any MCP-compatible AI tool for personalized training insights.
 
 Your MCP API key is printed in the addon log on startup. If you left the
 `mcp_api_key` field blank, a key is auto-generated and persisted.
+
+## Open WebUI Integration (planned)
+
+Full Open WebUI integration is planned, including:
+
+- Custom Open WebUI Function that maps the logged-in user to their MCP API
+  key automatically (no per-user MCP config needed)
+- Coaching system prompt with sports science context (CTL/ATL/TSB
+  interpretation, zone-based training, recovery guidance)
+- MCP prompt templates for common workflows: weekly review, daily
+  recommendation, race preparation, body composition check-in
