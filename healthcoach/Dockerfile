@@ -9,7 +9,7 @@ RUN apk add --no-cache \
 
 COPY requirements.txt /tmp/
 RUN apk add --no-cache --virtual .build-deps py3-pip \
-    && pip3 install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
+    && pip3 install --no-cache-dir --prefer-binary --break-system-packages -r /tmp/requirements.txt \
     && apk del .build-deps \
     && rm -rf /tmp/requirements.txt /root/.cache
 
