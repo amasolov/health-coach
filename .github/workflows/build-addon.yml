@@ -12,7 +12,7 @@ on:
       - "public/**"
       - "chainlit.md"
       - "requirements.txt"
-      - "ha-addon/healthcoach/**"
+      - "healthcoach/**"
   workflow_dispatch:
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ha-addon/healthcoach/Dockerfile
+          file: healthcoach/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: BUILD_FROM=python:3.12-alpine

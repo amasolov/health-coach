@@ -250,7 +250,7 @@ tasks:
       - >-
         podman build
         --build-arg BUILD_FROM=python:3.12-alpine
-        -f ha-addon/healthcoach/Dockerfile
+        -f healthcoach/Dockerfile
         -t healthcoach:local
         .
 
