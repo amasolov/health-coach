@@ -1,5 +1,5 @@
 [project]
-name = "alexeym-health"
+name = "health-coach"
 version = "0.1.0"
 description = "Data-driven health and fitness tracking framework"
 requires-python = ">=3.12"

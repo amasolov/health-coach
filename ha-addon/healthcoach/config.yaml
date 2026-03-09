@@ -8,8 +8,8 @@ description: >-
   exposes an MCP endpoint, and provides a Chainlit chat UI
   for AI-powered coaching via OpenRouter.
   Supports multiple users with self-service onboarding.
-url: "https://github.com/amasolov/alexeym-health"
-image: "ghcr.io/amasolov/alexeym-health/healthcoach:latest"
+url: "https://github.com/amasolov/health-coach"
+image: "ghcr.io/amasolov/health-coach/healthcoach:latest"
 arch:
   - aarch64
   - amd64
