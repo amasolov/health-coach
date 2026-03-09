@@ -416,24 +416,26 @@ You are a fitness expert who extracts structured exercise data from workout tran
 
 You will receive:
 1. A transcript of an iFit strength training workout (trainer speaking during the video)
-2. A reference list of Hevy exercise names with their muscle groups and equipment
+2. A reference list of Hevy exercises in the format: Title | ID | muscle_group | equipment
 
 Your task: Extract ONLY the main working exercises (skip warm-up and cool-down/stretching).
 For each exercise, output a JSON array of objects with these fields:
 
-- "hevy_name": The closest matching exercise from the Hevy reference list (MUST be an exact match from the list)
-- "hevy_id": The ID from the Hevy reference list if available, otherwise empty string
-- "muscle_group": Primary muscle group from the Hevy reference
+- "hevy_name": The closest matching exercise from the Hevy reference list. Use an EXACT name from the list when possible. If no good match exists, use a clear descriptive name for the exercise.
+- "hevy_id": The ID from the Hevy reference list (the second column). If you used an exact name match, include the corresponding ID. If no match, use empty string.
+- "muscle_group": Primary muscle group (e.g. quadriceps, chest, biceps, shoulders, lats, etc.)
+- "equipment": Equipment used (e.g. "dumbbell", "barbell", "kettlebell", "bodyweight", "resistance_band", "none")
 - "sets": Number of sets (integer). If the trainer says "3 rounds" or "3 sets", use that.
 - "reps": Reps per set (integer or string like "30s" for timed sets).
 - "weight": Weight suggestion based on what the trainer says ("heavy dumbbells", "medium dumbbells", "light dumbbells", or "bodyweight")
-- "notes": Brief note about form cues or variations
+- "notes": Brief note about form cues or variations the trainer mentions
 
 Rules:
 - Only include exercises from the main workout, NOT warm-up or cool-down stretches
 - If the trainer repeats the same exercise in multiple rounds, list it ONCE with total sets
-- Use EXACT names from the Hevy reference list
-- For compound movements, pick the primary exercise and note the combo
+- Prefer EXACT names and IDs from the Hevy reference list
+- If the exercise has no good match in the list, still include it with a descriptive name and empty hevy_id
+- For compound movements, pick the primary exercise and note the combo in notes
 - Output ONLY valid JSON array, no markdown, no explanation
 """
 
@@ -716,9 +718,7 @@ def stage2_analyse(
 
         print(f"    adj={adj:+.1f} | final={final_score:.1f} | {reasoning}")
 
-    if cache_new > 0:
-        _save_exercise_cache(exercise_cache)
-    print(f"  Cache stats: {cache_hits} hits, {cache_new} new extractions, {len(exercise_cache)} total cached")
+    print(f"  Cache stats: {cache_hits} hits, {cache_new} new extractions")
 
     # Pick top 3 with diversity (different primary muscle focus)
     scored.sort(key=lambda x: -x.stage2_score)
@@ -748,37 +748,84 @@ def stage2_analyse(
 # ---------------------------------------------------------------------------
 
 
+def _parse_reps_for_hevy(reps_val) -> dict:
+    """Convert reps value to Hevy set fields.
+
+    Returns dict with either {"reps": int} or {"duration_seconds": int}.
+    """
+    s = str(reps_val).strip().lower()
+
+    m = re.match(r"(\d+)\s*s(?:ec)?", s)
+    if m:
+        return {"duration_seconds": int(m.group(1))}
+
+    m = re.match(r"(\d+)\s*min", s)
+    if m:
+        return {"duration_seconds": int(m.group(1)) * 60}
+
+    try:
+        return {"reps": int(s)}
+    except (ValueError, TypeError):
+        return {"reps": 12}
+
+
 def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
-    """Create a Hevy routine from a recommendation."""
+    """Create a Hevy routine from a recommendation.
+
+    Resolves all exercises to Hevy template IDs (matching existing or creating
+    custom exercises as needed), then creates the routine via POST /v1/routines.
+    """
+    from scripts.hevy_exercise_resolver import resolve_hevy_exercises
+
+    print(f"  Resolving {len(rec.exercises)} exercises for Hevy...")
+    resolved = resolve_hevy_exercises(rec.exercises, hevy_api_key)
+
+    resolution_summary = {}
+    for ex in resolved:
+        r_type = ex.get("resolution", "unknown")
+        resolution_summary[r_type] = resolution_summary.get(r_type, 0) + 1
+    print(f"  Resolution: {resolution_summary}")
+
     exercises_payload = []
-    for ex in rec.exercises:
+    skipped = []
+    for ex in resolved:
         hevy_id = ex.get("hevy_id", "")
         if not hevy_id:
+            skipped.append(ex.get("hevy_name", "unknown"))
             continue
+
         sets_count = int(ex.get("sets", 3))
-        reps_val = ex.get("reps", 12)
-        reps = int(reps_val) if str(reps_val).isdigit() else 12
+        reps_fields = _parse_reps_for_hevy(ex.get("reps", 12))
 
         sets_payload = []
         for _ in range(sets_count):
-            sets_payload.append({
-                "type": "normal",
-                "weight_kg": None,
-                "reps": reps,
-            })
+            set_entry = {"type": "normal", **reps_fields}
+            sets_payload.append(set_entry)
+
+        notes = ex.get("notes", "")
+        weight_hint = ex.get("weight", "")
+        if weight_hint and weight_hint != "bodyweight":
+            notes = f"{weight_hint}. {notes}" if notes else weight_hint
 
         exercises_payload.append({
             "exercise_template_id": hevy_id,
             "sets": sets_payload,
-            "notes": ex.get("notes", ""),
+            "notes": notes,
         })
 
     if not exercises_payload:
-        return {"error": "No exercises with valid Hevy IDs"}
+        return {
+            "error": "No exercises could be resolved to Hevy IDs",
+            "skipped": skipped,
+            "resolution": resolution_summary,
+        }
 
     body = {
-        "title": f"iFit: {rec.title}",
-        "exercises": exercises_payload,
+        "routine": {
+            "title": f"iFit: {rec.title}",
+            "notes": f"From iFit workout. Trainer: {rec.trainer_name}",
+            "exercises": exercises_payload,
+        }
     }
 
     r = httpx.post(
@@ -795,14 +842,19 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
     if r.status_code in (200, 201):
         data = r.json()
         routine = data.get("routine", data)
-        return {
+        result = {
             "status": "created",
             "routine_id": routine.get("id", ""),
-            "title": body["title"],
-            "exercises": len(exercises_payload),
+            "title": body["routine"]["title"],
+            "exercises_created": len(exercises_payload),
+            "exercises_total": len(rec.exercises),
+            "resolution": resolution_summary,
         }
+        if skipped:
+            result["skipped_exercises"] = skipped
+        return result
     else:
-        return {"error": f"Hevy API {r.status_code}: {r.text[:200]}"}
+        return {"error": f"Hevy API {r.status_code}: {r.text[:300]}"}
 
 
 # ---------------------------------------------------------------------------

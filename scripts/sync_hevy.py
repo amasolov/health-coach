@@ -5,12 +5,17 @@ Sync Hevy strength training data into TimescaleDB.
 Pulls workouts via the Hevy REST API (v1) and stores individual sets.
 Uses incremental sync: pages through workouts newest-first and stops
 when it encounters a workout already in the database.
+
+Also syncs exercise templates for the iFit-to-Hevy routine pipeline.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -18,6 +23,10 @@ import psycopg2
 
 HEVY_BASE = "https://api.hevyapp.com/v1"
 PAGE_SIZE = 10
+CACHE_DIR = Path(__file__).resolve().parent.parent / ".ifit_capture"
+EXERCISES_JSON = CACHE_DIR / "hevy_exercises.json"
+EXERCISES_REF = CACHE_DIR / "hevy_exercise_ref.txt"
+TEMPLATES_MAX_AGE = 86400 * 3  # refresh every 3 days
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +60,61 @@ def _fetch_exercise_templates(api_key: str) -> dict[str, dict]:
             break
         page += 1
     return templates
+
+
+# ---------------------------------------------------------------------------
+# Exercise template sync (for iFit-to-Hevy routine pipeline)
+# ---------------------------------------------------------------------------
+
+def sync_exercise_templates(api_key: str, force: bool = False) -> dict:
+    """Fetch all Hevy exercise templates and cache them locally.
+
+    Produces two files used by the LLM extraction and Hevy routine creation:
+      - hevy_exercises.json: full template data with IDs
+      - hevy_exercise_ref.txt: compact reference for LLM prompts (Title | ID | muscle | equipment)
+
+    Returns stats dict.
+    """
+    if not force and EXERCISES_JSON.exists():
+        age = time.time() - EXERCISES_JSON.stat().st_mtime
+        if age < TEMPLATES_MAX_AGE:
+            with open(EXERCISES_JSON) as f:
+                existing = json.load(f)
+            print(f"    Exercise templates cache fresh ({len(existing)} templates, {age/3600:.0f}h old)")
+            return {"cached": True, "count": len(existing)}
+
+    print("    Fetching exercise templates from Hevy API...", flush=True)
+    templates: list[dict] = []
+    page = 1
+    while True:
+        data = _hevy_get("/exercise_templates", api_key, {"page": page, "pageSize": 100})
+        batch = data.get("exercise_templates", [])
+        for t in batch:
+            templates.append({
+                "id": t["id"],
+                "title": t.get("title", ""),
+                "type": t.get("type", ""),
+                "primary_muscle_group": t.get("primary_muscle_group", ""),
+                "secondary_muscle_groups": t.get("secondary_muscle_groups", []),
+                "equipment": t.get("equipment", "none"),
+                "is_custom": t.get("is_custom", False),
+            })
+        if page >= data.get("page_count", 1):
+            break
+        page += 1
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    with open(EXERCISES_JSON, "w") as f:
+        json.dump(templates, f, indent=2)
+
+    with open(EXERCISES_REF, "w") as f:
+        for t in sorted(templates, key=lambda x: x["title"]):
+            f.write(f"{t['title']} | {t['id']} | {t['primary_muscle_group']} | {t['equipment']}\n")
+
+    print(f"    Cached {len(templates)} exercise templates "
+          f"({sum(1 for t in templates if t['is_custom'])} custom)", flush=True)
+    return {"cached": False, "count": len(templates)}
 
 
 # ---------------------------------------------------------------------------

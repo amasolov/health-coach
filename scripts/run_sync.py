@@ -715,6 +715,17 @@ def main() -> int:
                 print(f"    ERROR: Hevy sync failed: {e}")
                 traceback.print_exc()
                 errors += 1
+
+            # Sync exercise templates (used by iFit-to-Hevy routine pipeline)
+            print(f"\n  [Hevy Exercise Templates]")
+            try:
+                from scripts.sync_hevy import sync_exercise_templates
+                tmpl_result = sync_exercise_templates(hevy_key)
+                print(f"    Templates: {tmpl_result.get('count', 0)} "
+                      f"({'cached' if tmpl_result.get('cached') else 'refreshed'})")
+            except Exception as e:
+                print(f"    ERROR: Exercise template sync failed: {e}")
+                traceback.print_exc()
         else:
             print(f"    SKIP: No Hevy API key configured")
 
