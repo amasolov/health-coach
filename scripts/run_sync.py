@@ -273,9 +273,9 @@ def main() -> int:
             if "error" in result:
                 print(f"    SKIP: {result['error']}")
             else:
-                print(f"    Activities: {result['activities_inserted']} new")
-                print(f"    Body comp:  {result['body_comp_inserted']} new")
-                print(f"    Vitals:     {result['vitals_inserted']} new")
+                print(f"    Activities: {result['activities_inserted']} new  (found {result.get('activities_found', '?')} from Garmin)")
+                print(f"    Body comp:  {result['body_comp_inserted']} new  (found {result.get('body_comp_found', '?')} from Garmin)")
+                print(f"    Vitals:     {result['vitals_inserted']} new  (found {result.get('vitals_found', '?')} days with data)")
         except Exception as e:
             print(f"    ERROR: Garmin sync failed: {e}")
             traceback.print_exc()
@@ -290,7 +290,7 @@ def main() -> int:
                 if "error" in result:
                     print(f"    SKIP: {result['error']}")
                 else:
-                    print(f"    Workouts: {result['workouts_inserted']} new ({result['sets_inserted']} sets)")
+                    print(f"    Workouts: {result['workouts_inserted']} new  (found {result.get('workouts_found', '?')} total, {result['sets_inserted']} sets)")
             except Exception as e:
                 print(f"    ERROR: Hevy sync failed: {e}")
                 traceback.print_exc()

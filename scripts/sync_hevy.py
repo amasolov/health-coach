@@ -149,8 +149,13 @@ def sync_user(
     slug: str,
     user_id: int,
     api_key: str,
+    full_sync: bool = False,
 ) -> dict:
-    """Sync all Hevy workouts for a user. Returns summary."""
+    """Sync all Hevy workouts for a user. Returns summary.
+
+    full_sync=True fetches every page even if a workout is already in the DB,
+    useful for backfilling historical data that was missed on initial sync.
+    """
     if not api_key:
         return {"error": f"No Hevy API key for {slug}"}
 
@@ -163,10 +168,12 @@ def sync_user(
         templates = _fetch_exercise_templates(api_key)
         print(f"    Loaded {len(templates)} exercise templates")
 
-        total_workouts = 0
+        total_workouts_seen = 0
+        total_workouts_inserted = 0
         total_sets = 0
         page = 1
 
+        print(f"    Fetching workouts{'  [FULL SYNC]' if full_sync else ''}...")
         while True:
             data = _hevy_get("/workouts", api_key, {"page": page, "pageSize": PAGE_SIZE})
             workouts = data.get("workouts", [])
@@ -178,24 +185,29 @@ def sync_user(
             stop = False
             for workout in workouts:
                 wid = workout.get("id", "")
+                total_workouts_seen += 1
+
                 if _workout_exists(cur, user_id, wid):
-                    stop = True
-                    break
+                    if not full_sync:
+                        stop = True
+                        break
+                    continue  # already stored; skip but keep paginating
 
                 sets = _extract_sets(workout, templates)
                 for s in sets:
                     _insert_set(cur, user_id, s)
 
-                total_workouts += 1
+                total_workouts_inserted += 1
                 total_sets += len(sets)
 
             if stop or page >= page_count:
                 break
             page += 1
 
-        print(f"    Inserted {total_workouts} workouts ({total_sets} sets)")
+        print(f"    Seen {total_workouts_seen} workouts, inserted {total_workouts_inserted} ({total_sets} sets)")
         return {
-            "workouts_inserted": total_workouts,
+            "workouts_found": total_workouts_seen,
+            "workouts_inserted": total_workouts_inserted,
             "sets_inserted": total_sets,
             "templates_loaded": len(templates),
         }

@@ -383,11 +383,15 @@ def sync_activities(
     slug: str,
     lookback_days: int = 180,
     tz=None,
-) -> int:
-    """Sync activities from Garmin Connect. Returns count of new activities."""
+    full_sync: bool = False,
+) -> dict:
+    """Sync activities from Garmin Connect. Returns dict with found/inserted counts."""
     today = user_today(tz)
     last = _get_last_activity_time(cur, user_id)
-    if last:
+
+    if full_sync:
+        start = "2000-01-01"
+    elif last:
         start = (last.date() - timedelta(days=1)).isoformat()
     else:
         start = (today - timedelta(days=lookback_days)).isoformat()
@@ -395,9 +399,10 @@ def sync_activities(
     end = (today + timedelta(days=1)).isoformat()
     thresholds = _load_user_thresholds(slug)
 
-    print(f"    Fetching activities from {start} to {end}...")
+    print(f"    Fetching activities from {start} to {end}{'  [FULL SYNC]' if full_sync else ''}...")
     activities = client.get_activities_by_date(start, end)
-    print(f"    Found {len(activities)} activities from Garmin")
+    found = len(activities)
+    print(f"    Found {found} activities from Garmin")
 
     inserted = 0
     for act in activities:
@@ -412,7 +417,7 @@ def sync_activities(
         _insert_activity(cur, user_id, data)
         inserted += 1
 
-    return inserted
+    return {"found": found, "inserted": inserted}
 
 
 def sync_body_composition(
@@ -421,26 +426,31 @@ def sync_body_composition(
     user_id: int,
     lookback_days: int = 180,
     tz=None,
-) -> int:
-    """Sync body composition data. Returns count of new entries."""
+    full_sync: bool = False,
+) -> dict:
+    """Sync body composition data. Returns dict with found/inserted counts."""
     today = user_today(tz)
     last = _get_last_body_comp_time(cur, user_id)
-    if last:
+
+    if full_sync:
+        start = "2000-01-01"
+    elif last:
         start = (last.date() - timedelta(days=1)).isoformat()
     else:
         start = (today - timedelta(days=lookback_days)).isoformat()
 
     end = today.isoformat()
 
-    print(f"    Fetching body composition from {start} to {end}...")
+    print(f"    Fetching body composition from {start} to {end}{'  [FULL SYNC]' if full_sync else ''}...")
     try:
         bc = client.get_body_composition(start, end)
     except Exception as e:
         print(f"    WARN: Body composition fetch failed: {e}")
-        return 0
+        return {"found": 0, "inserted": 0}
 
     entries = bc.get("dateWeightList", [])
-    print(f"    Found {len(entries)} weight entries from Garmin")
+    found = len(entries)
+    print(f"    Found {found} weight entries from Garmin")
 
     inserted = 0
     for entry in entries:
@@ -452,7 +462,7 @@ def sync_body_composition(
         _insert_body_comp(cur, user_id, data)
         inserted += 1
 
-    return inserted
+    return {"found": found, "inserted": inserted}
 
 
 def sync_vitals(
@@ -461,20 +471,25 @@ def sync_vitals(
     user_id: int,
     lookback_days: int = 30,
     tz=None,
-) -> int:
-    """Sync daily vitals (stats, sleep, HRV, respiration, BP). Returns count."""
+    full_sync: bool = False,
+) -> dict:
+    """Sync daily vitals (stats, sleep, HRV, respiration, BP). Returns dict with found/inserted."""
     today = user_today(tz)
     last = _get_last_vitals_time(cur, user_id)
-    if last:
+
+    if full_sync:
+        start_date = date(2000, 1, 1)
+    elif last:
         start_date = last.date()
     else:
         start_date = today - timedelta(days=lookback_days)
 
     end_date = today
+    days_checked = 0
     inserted = 0
     current = start_date
 
-    print(f"    Fetching vitals from {start_date} to {end_date}...")
+    print(f"    Fetching vitals from {start_date} to {end_date}{'  [FULL SYNC]' if full_sync else ''}...")
     while current <= end_date:
         day_str = current.isoformat()
 
@@ -488,6 +503,7 @@ def sync_vitals(
             current += timedelta(days=1)
             continue
 
+        days_checked += 1
         sleep = None
         hrv = None
         resp = None
@@ -522,13 +538,14 @@ def sync_vitals(
 
         current += timedelta(days=1)
 
-    return inserted
+    return {"found": days_checked, "inserted": inserted}
 
 
 def sync_user(
     slug: str,
     user_id: int,
     initial_lookback_days: int = 180,
+    full_sync: bool = False,
 ) -> dict:
     """Full sync for a single user. Returns summary counts."""
     client = try_cached_login(slug)
@@ -541,14 +558,17 @@ def sync_user(
     cur = conn.cursor()
 
     try:
-        activities = sync_activities(client, cur, user_id, slug, initial_lookback_days, tz=tz)
-        body_comp = sync_body_composition(client, cur, user_id, initial_lookback_days, tz=tz)
-        vitals = sync_vitals(client, cur, user_id, tz=tz)
+        act = sync_activities(client, cur, user_id, slug, initial_lookback_days, tz=tz, full_sync=full_sync)
+        bc = sync_body_composition(client, cur, user_id, initial_lookback_days, tz=tz, full_sync=full_sync)
+        vit = sync_vitals(client, cur, user_id, tz=tz, full_sync=full_sync)
 
         return {
-            "activities_inserted": activities,
-            "body_comp_inserted": body_comp,
-            "vitals_inserted": vitals,
+            "activities_found": act["found"],
+            "activities_inserted": act["inserted"],
+            "body_comp_found": bc["found"],
+            "body_comp_inserted": bc["inserted"],
+            "vitals_found": vit["found"],
+            "vitals_inserted": vit["inserted"],
         }
     finally:
         cur.close()

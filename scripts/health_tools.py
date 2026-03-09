@@ -1284,40 +1284,48 @@ def suggest_feature(
         return {"error": str(exc)}
 
 
-def sync_data(user_slug: str, user_id: int, hevy_api_key: str = "") -> dict:
+def sync_data(user_slug: str, user_id: int, hevy_api_key: str = "", full_sync: bool = False) -> dict:
     """Trigger an immediate data sync for the user (Garmin + Hevy).
 
-    Returns a summary of what was synced."""
+    full_sync=True ignores the incremental start date and pulls all historical
+    data from the beginning of time (Garmin: back to 2000-01-01; Hevy: all pages).
+    Use this when the normal sync shows 0 new items but data is missing.
+
+    Returns a summary of what was found and inserted."""
     from scripts.sync_garmin import sync_user as _sync_garmin
     from scripts.sync_hevy import sync_user as _sync_hevy
 
     results: dict[str, Any] = {}
 
-    garmin_result = _sync_garmin(user_slug, user_id)
+    garmin_result = _sync_garmin(user_slug, user_id, full_sync=full_sync)
     if "error" in garmin_result:
         results["garmin"] = {"status": "skipped", "reason": garmin_result["error"]}
     else:
         results["garmin"] = {
             "status": "ok",
+            "activities_found": garmin_result.get("activities_found", 0),
             "activities_new": garmin_result.get("activities_inserted", 0),
+            "body_comp_found": garmin_result.get("body_comp_found", 0),
             "body_comp_new": garmin_result.get("body_comp_inserted", 0),
+            "vitals_found": garmin_result.get("vitals_found", 0),
             "vitals_new": garmin_result.get("vitals_inserted", 0),
         }
 
     if hevy_api_key:
-        hevy_result = _sync_hevy(user_slug, user_id, hevy_api_key)
+        hevy_result = _sync_hevy(user_slug, user_id, hevy_api_key, full_sync=full_sync)
         if "error" in hevy_result:
             results["hevy"] = {"status": "skipped", "reason": hevy_result["error"]}
         else:
             results["hevy"] = {
                 "status": "ok",
+                "workouts_found": hevy_result.get("workouts_found", 0),
                 "workouts_new": hevy_result.get("workouts_inserted", 0),
                 "sets_new": hevy_result.get("sets_inserted", 0),
             }
     else:
         results["hevy"] = {"status": "skipped", "reason": "No Hevy API key configured"}
 
-    return {"synced": results}
+    return {"synced": results, "full_sync": full_sync}
 
 
 def create_hevy_routine_from_recommendation(

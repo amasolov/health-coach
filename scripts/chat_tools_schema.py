@@ -206,8 +206,23 @@ TOOL_SCHEMAS: list[dict] = [
         "type": "function",
         "function": {
             "name": "sync_data",
-            "description": "Trigger an immediate data sync from Garmin Connect and Hevy. Use when the user asks to sync, refresh, or update their data.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
+            "description": (
+                "Trigger an immediate data sync from Garmin Connect and Hevy. "
+                "Use when the user asks to sync, refresh, or update their data. "
+                "Set full_sync=true when the user says data is missing, sync returned 0 items, "
+                "or they want to pull their full history — this ignores the incremental start "
+                "date and fetches everything from the beginning of time."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "full_sync": {
+                        "type": "boolean",
+                        "description": "If true, fetch all historical data instead of just new records since last sync. Use when normal sync returns 0 but data is expected.",
+                    },
+                },
+                "required": [],
+            },
         },
     },
     # ===== GARMIN AUTH =====

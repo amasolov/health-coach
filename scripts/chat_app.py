@@ -511,17 +511,17 @@ async def run_onboarding(user: cl.User) -> None:
     garmin_status = "connected" if garmin_email else "not configured"
     hevy_status = "connected" if hevy_api_key else "not configured"
 
-    # Run initial sync immediately so data is available right away
-    async with cl.Step(name="Syncing your data", type="run") as step:
-        step.input = f"slug={slug}"
+    # Run initial full sync so all historical data is available right away
+    async with cl.Step(name="Syncing your data (full history)", type="run") as step:
+        step.input = f"slug={slug}, full_sync=True"
         sync_errors: list[str] = []
 
-        garmin_result = await asyncio.to_thread(sync_garmin_user, slug, user_id)
+        garmin_result = await asyncio.to_thread(sync_garmin_user, slug, user_id, full_sync=True)
         if "error" in garmin_result:
             sync_errors.append(f"Garmin: {garmin_result['error']}")
 
         if hevy_api_key:
-            hevy_result = await asyncio.to_thread(sync_hevy_user, slug, user_id, hevy_api_key)
+            hevy_result = await asyncio.to_thread(sync_hevy_user, slug, user_id, hevy_api_key, full_sync=True)
             if "error" in hevy_result:
                 sync_errors.append(f"Hevy: {hevy_result['error']}")
 
