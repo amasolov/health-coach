@@ -151,6 +151,33 @@ python3 /app/scripts/run_migrate.py
 echo "Setting up Chainlit chat database..."
 python3 /app/scripts/setup_chainlit_db.py || echo "WARN: Chainlit DB setup failed (chat history will be in-memory)"
 
+echo "Checking Garmin authentication for all users..."
+python3 -c "
+import json, os, sys
+sys.path.insert(0, '/app')
+from scripts import garmin_auth
+
+users_json = os.environ.get('USERS_JSON', '[]')
+for u in json.loads(users_json):
+    slug = u.get('slug', '')
+    email = u.get('garmin_email', '')
+    password = u.get('garmin_password', '')
+    if not slug or not email or not password:
+        continue
+    client = garmin_auth.try_cached_login(slug)
+    if client:
+        print(f'  Garmin OK: {slug}')
+    else:
+        print(f'  Garmin tokens missing for {slug} -- attempting re-auth...')
+        status, _ = garmin_auth.start_login(slug, email, password)
+        if status == 'ok':
+            print(f'  Garmin re-auth OK: {slug}')
+        elif status == 'needs_mfa':
+            print(f'  Garmin needs MFA for {slug} -- user must complete via chat')
+        else:
+            print(f'  Garmin re-auth failed for {slug}: {status}')
+" || echo "WARN: Garmin auth check failed"
+
 echo "Provisioning Grafana dashboards..."
 python3 /app/scripts/push_dashboards.py || echo "WARN: Grafana provisioning failed (is API key set?)"
 
