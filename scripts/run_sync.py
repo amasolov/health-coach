@@ -30,6 +30,7 @@ from scripts.strength_tss import (
     estimate_hybrid_tss,
     estimate_volume_tss,
 )
+from scripts.tz import load_user_tz
 
 
 def get_users() -> list[dict]:
@@ -110,7 +111,7 @@ def _load_user_thresholds(cur, user_id: int) -> tuple[float | None, float | None
     return resting_hr, lthr
 
 
-def backfill_strength_tss(user_id: int) -> dict:
+def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney") -> dict:
     """
     Compute estimated TSS for each Hevy workout and ensure it appears
     in the activities table.
@@ -183,11 +184,12 @@ def backfill_strength_tss(user_id: int) -> dict:
             continue
 
         # --- Try to match untagged Garmin strength activity on the same day ---
-        cur.execute("""
+        date_expr = f"(time AT TIME ZONE '{tz_name}')::date"
+        cur.execute(f"""
             SELECT source_id, avg_hr, duration_s FROM activities
             WHERE user_id = %s
               AND activity_type = 'strength_training'
-              AND time::date = %s
+              AND {date_expr} = %s
               AND source = 'garmin'
               AND (raw_data IS NULL OR raw_data->>'hevy_workout_id' IS NULL)
             ORDER BY time
@@ -261,6 +263,9 @@ def main() -> int:
             errors += 1
             continue
 
+        tz = load_user_tz(slug)
+        tz_name = str(tz)
+
         # --- Garmin Connect ---
         print(f"\n  [Garmin Connect]")
         try:
@@ -296,7 +301,7 @@ def main() -> int:
         # --- Strength TSS backfill ---
         print(f"\n  [Strength TSS]")
         try:
-            result = backfill_strength_tss(user_id)
+            result = backfill_strength_tss(user_id, tz_name=tz_name)
             print(f"    Garmin updated: {result['updated']}, Hevy-only inserted: {result['inserted']}, hybrid(HR): {result['hybrid']}")
         except Exception as e:
             print(f"    ERROR: Strength TSS backfill failed: {e}")

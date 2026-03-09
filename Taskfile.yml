@@ -248,7 +248,7 @@ tasks:
     desc: Build the HA addon Docker image locally for testing
     cmds:
       - >-
-        docker build
+        podman build
         --build-arg BUILD_FROM=python:3.12-alpine
         -f ha-addon/health-tracker/Dockerfile
         -t health-tracker:local

@@ -18,6 +18,9 @@ import math
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from scripts.tz import load_user_tz, user_today
 
 import httpx
 from garminconnect import Garmin
@@ -797,7 +800,7 @@ def generate_action_items(
 ) -> list[dict]:
     """Generate suggested action items based on assessment findings.
     Returns a list of action item dicts ready to be merged into athlete.yaml."""
-    today = date.today().isoformat()
+    today = user_today().isoformat()
     items: list[dict] = []
     goals = goals or {}
 
@@ -1005,7 +1008,8 @@ def assess_fitness(
     intensity_analysis, body_composition, vitals, strength_summary,
     auto_profile, missing_data, recommendations, and goals.
     """
-    today = date.today()
+    tz = load_user_tz(slug)
+    today = user_today(tz)
     start = (today - timedelta(days=lookback_days)).isoformat()
     end = today.isoformat()
 

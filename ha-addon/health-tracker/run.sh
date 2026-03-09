@@ -22,6 +22,10 @@ print(f'export MCP_PORT={int(opts.get(\"mcp_port\", 8765))}')
 print(f'export CHAT_PORT={int(opts.get(\"chat_port\", 8080))}')
 print(f'SYNC_INTERVAL={int(opts[\"sync_interval_minutes\"])}')
 
+chainlit_url = opts.get('chainlit_url', '')
+if chainlit_url:
+    print(f'export CHAINLIT_URL={shlex.quote(chainlit_url)}')
+
 # OAuth configuration (Google)
 gcid = opts.get('google_oauth_client_id', '')
 gcsec = opts.get('google_oauth_client_secret', '')

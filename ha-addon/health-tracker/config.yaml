@@ -9,6 +9,7 @@ description: >-
   for AI-powered coaching via OpenRouter.
   Supports multiple users.
 url: "https://github.com/amasolov/alexeym-health"
+image: "ghcr.io/amasolov/alexeym-health/health-tracker:latest"
 arch:
   - aarch64
   - amd64
@@ -17,7 +18,7 @@ hassio_api: true
 startup: services
 boot: auto
 resources:
-  memory: 512
+  memory: 1024
 ports:
   8765/tcp: 8765
   8080/tcp: 36850
@@ -27,10 +28,11 @@ ports_description:
 map:
   - config:rw
 options:
-  sync_interval_minutes: 60
+  sync_interval_minutes: 30
   mcp_port: 8765
   chat_port: 8080
   chat_model: "anthropic/claude-sonnet-4"
+  chainlit_url: "https://healthcoach.ktmb1.net"
   openrouter_api_key: ""
   google_oauth_client_id: ""
   google_oauth_client_secret: ""
@@ -60,6 +62,7 @@ schema:
   mcp_port: "int(1024,65535)"
   chat_port: "int(1024,65535)"
   chat_model: str
+  chainlit_url: "str?"
   openrouter_api_key: password
   google_oauth_client_id: "str?"
   google_oauth_client_secret: "str?"

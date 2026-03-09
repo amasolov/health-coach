@@ -13,6 +13,8 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
+from scripts.tz import user_today
+
 from garminconnect import Garmin
 
 logger = logging.getLogger(__name__)
@@ -114,14 +116,15 @@ def _extract_user_profile(client: Garmin) -> dict:
     return result, sources
 
 
-def _extract_body_composition(client: Garmin) -> tuple[dict, dict]:
+def _extract_body_composition(client: Garmin, today: date | None = None) -> tuple[dict, dict]:
     """Pull latest body composition from Garmin scale."""
     result = {}
     sources = {}
 
-    today = date.today().isoformat()
-    start = (date.today() - timedelta(days=30)).isoformat()
-    data = _safe_call(client.get_body_composition, start, today)
+    _today = today or user_today()
+    today_s = _today.isoformat()
+    start = (_today - timedelta(days=30)).isoformat()
+    data = _safe_call(client.get_body_composition, start, today_s)
     if not data:
         return result, sources
 
@@ -157,12 +160,12 @@ def _extract_body_composition(client: Garmin) -> tuple[dict, dict]:
     return result, sources
 
 
-def _extract_heart_rate(client: Garmin) -> tuple[dict, dict]:
+def _extract_heart_rate(client: Garmin, today: date | None = None) -> tuple[dict, dict]:
     """Pull resting HR from today's heart rate data."""
     result = {}
     sources = {}
 
-    today = date.today().isoformat()
+    today = (today or user_today()).isoformat()
     data = _safe_call(client.get_heart_rates, today)
     if not data:
         return result, sources
@@ -175,12 +178,12 @@ def _extract_heart_rate(client: Garmin) -> tuple[dict, dict]:
     return result, sources
 
 
-def _extract_max_metrics(client: Garmin) -> tuple[dict, dict]:
+def _extract_max_metrics(client: Garmin, today: date | None = None) -> tuple[dict, dict]:
     """Pull VO2max from max metrics endpoint."""
     result = {}
     sources = {}
 
-    today = date.today().isoformat()
+    today = (today or user_today()).isoformat()
     data = _safe_call(client.get_max_metrics, today)
     if not data:
         return result, sources
@@ -255,13 +258,14 @@ def _extract_cycling_ftp(client: Garmin, weight_kg: float | None) -> tuple[dict,
     return result, sources
 
 
-def _extract_max_hr_from_activities(client: Garmin) -> tuple[dict, dict]:
+def _extract_max_hr_from_activities(client: Garmin, today: date | None = None) -> tuple[dict, dict]:
     """Scan recent activities for the highest recorded max HR."""
     result = {}
     sources = {}
 
-    end = date.today().isoformat()
-    start = (date.today() - timedelta(days=90)).isoformat()
+    _today = today or user_today()
+    end = _today.isoformat()
+    start = (_today - timedelta(days=90)).isoformat()
     activities = _safe_call(client.get_activities_by_date, start, end)
     if not activities:
         return result, sources
@@ -323,6 +327,8 @@ def fetch_garmin_profile(slug: str, client: Garmin) -> dict:
       - "sources": where each value came from
       - "missing": fields still null with hints for how to obtain them
     """
+    from scripts.tz import load_user_tz
+    today = user_today(load_user_tz(slug))
     all_sources = {}
 
     # Profile
@@ -330,19 +336,19 @@ def fetch_garmin_profile(slug: str, client: Garmin) -> dict:
     all_sources.update(src)
 
     # Body composition
-    body, src = _extract_body_composition(client)
+    body, src = _extract_body_composition(client, today)
     all_sources.update(src)
 
     # Heart rate
-    hr, src = _extract_heart_rate(client)
+    hr, src = _extract_heart_rate(client, today)
     all_sources.update(src)
 
     # Max HR from activities
-    max_hr, src = _extract_max_hr_from_activities(client)
+    max_hr, src = _extract_max_hr_from_activities(client, today)
     all_sources.update(src)
 
     # VO2max
-    metrics, src = _extract_max_metrics(client)
+    metrics, src = _extract_max_metrics(client, today)
     all_sources.update(src)
 
     # Lactate threshold

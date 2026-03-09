@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import psycopg2
 from garminconnect import Garmin
 
 from scripts.garmin_auth import try_cached_login
+from scripts.tz import load_user_tz, ts_to_utc, user_today
 
 # ---------------------------------------------------------------------------
 # TSS estimation when Garmin doesn't provide it
@@ -78,7 +79,7 @@ def _estimate_tss(
 def _ts_to_datetime(ts_ms: int | None) -> datetime | None:
     if ts_ms is None:
         return None
-    return datetime.utcfromtimestamp(ts_ms / 1000)
+    return ts_to_utc(ts_ms)
 
 
 def _parse_garmin_datetime(s: str | None) -> datetime | None:
@@ -381,15 +382,17 @@ def sync_activities(
     user_id: int,
     slug: str,
     lookback_days: int = 180,
+    tz=None,
 ) -> int:
     """Sync activities from Garmin Connect. Returns count of new activities."""
+    today = user_today(tz)
     last = _get_last_activity_time(cur, user_id)
     if last:
         start = (last.date() - timedelta(days=1)).isoformat()
     else:
-        start = (date.today() - timedelta(days=lookback_days)).isoformat()
+        start = (today - timedelta(days=lookback_days)).isoformat()
 
-    end = (date.today() + timedelta(days=1)).isoformat()
+    end = (today + timedelta(days=1)).isoformat()
     thresholds = _load_user_thresholds(slug)
 
     print(f"    Fetching activities from {start} to {end}...")
@@ -417,15 +420,17 @@ def sync_body_composition(
     cur,
     user_id: int,
     lookback_days: int = 180,
+    tz=None,
 ) -> int:
     """Sync body composition data. Returns count of new entries."""
+    today = user_today(tz)
     last = _get_last_body_comp_time(cur, user_id)
     if last:
         start = (last.date() - timedelta(days=1)).isoformat()
     else:
-        start = (date.today() - timedelta(days=lookback_days)).isoformat()
+        start = (today - timedelta(days=lookback_days)).isoformat()
 
-    end = date.today().isoformat()
+    end = today.isoformat()
 
     print(f"    Fetching body composition from {start} to {end}...")
     try:
@@ -455,15 +460,17 @@ def sync_vitals(
     cur,
     user_id: int,
     lookback_days: int = 30,
+    tz=None,
 ) -> int:
     """Sync daily vitals (stats, sleep, HRV, respiration, BP). Returns count."""
+    today = user_today(tz)
     last = _get_last_vitals_time(cur, user_id)
     if last:
         start_date = last.date()
     else:
-        start_date = date.today() - timedelta(days=lookback_days)
+        start_date = today - timedelta(days=lookback_days)
 
-    end_date = date.today()
+    end_date = today
     inserted = 0
     current = start_date
 
@@ -528,14 +535,15 @@ def sync_user(
     if not client:
         return {"error": f"Garmin not authenticated for {slug}"}
 
+    tz = load_user_tz(slug)
     conn = _get_conn()
     conn.autocommit = True
     cur = conn.cursor()
 
     try:
-        activities = sync_activities(client, cur, user_id, slug, initial_lookback_days)
-        body_comp = sync_body_composition(client, cur, user_id, initial_lookback_days)
-        vitals = sync_vitals(client, cur, user_id)
+        activities = sync_activities(client, cur, user_id, slug, initial_lookback_days, tz=tz)
+        body_comp = sync_body_composition(client, cur, user_id, initial_lookback_days, tz=tz)
+        vitals = sync_vitals(client, cur, user_id, tz=tz)
 
         return {
             "activities_inserted": activities,

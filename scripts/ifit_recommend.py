@@ -17,11 +17,12 @@ from __future__ import annotations
 import json
 import sys
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from ifit_auth import get_auth_headers, get_valid_token
+from scripts.tz import user_now, DEFAULT_TZ
 
 GATEWAY = "https://gateway.ifit.com"
 GATEWAY_CACHE = "https://gateway-cache.ifit.com"
@@ -146,12 +147,13 @@ def fetch_recent_history(headers: dict, days: int = 14) -> list[dict]:
     """Fetch activity logs and enrich with workout metadata."""
     logs = _api_get(f"{API}/v1/activity_logs?perPage=30", headers) or []
 
-    cutoff = datetime.now() - timedelta(days=days)
+    now = user_now()
+    cutoff = now - timedelta(days=days)
     recent = []
 
     for log in logs:
         start_ts = log.get("start", 0) / 1000
-        dt = datetime.fromtimestamp(start_ts)
+        dt = datetime.fromtimestamp(start_ts, tz=timezone.utc).astimezone(DEFAULT_TZ)
         if dt < cutoff:
             continue
 
@@ -170,7 +172,7 @@ def fetch_recent_history(headers: dict, days: int = 14) -> list[dict]:
 
         recent.append({
             "date": dt,
-            "days_ago": (datetime.now() - dt).days,
+            "days_ago": (now - dt).days,
             "duration_min": log.get("duration", 0) / 60000,
             "calories": log.get("summary", {}).get("total_calories", 0),
             "workout_id": wid,

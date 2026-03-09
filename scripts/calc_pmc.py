@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import psycopg2
+
+from scripts.tz import load_user_tz, tz_date_cast, user_today
 
 CTL_TIME_CONSTANT = 42
 ATL_TIME_CONSTANT = 7
@@ -46,10 +48,11 @@ def get_users(cur) -> list[tuple[int, str]]:
     return cur.fetchall()
 
 
-def get_daily_tss(cur, user_id: int) -> dict[date, float]:
-    """Sum TSS per day for a user. Days with no TSS get 0."""
-    cur.execute("""
-        SELECT time::date AS day, COALESCE(SUM(tss), 0) AS daily_tss
+def get_daily_tss(cur, user_id: int, tz_name: str) -> dict[date, float]:
+    """Sum TSS per day for a user in their local timezone."""
+    date_expr = f"(time AT TIME ZONE '{tz_name}')::date"
+    cur.execute(f"""
+        SELECT {date_expr} AS day, COALESCE(SUM(tss), 0) AS daily_tss
         FROM activities
         WHERE user_id = %s AND tss IS NOT NULL
         GROUP BY day
@@ -58,13 +61,13 @@ def get_daily_tss(cur, user_id: int) -> dict[date, float]:
     return {row[0]: float(row[1]) for row in cur.fetchall()}
 
 
-def compute_pmc(daily_tss: dict[date, float]) -> list[dict]:
+def compute_pmc(daily_tss: dict[date, float], today: date) -> list[dict]:
     """Compute CTL/ATL/TSB for each day from the first activity to today."""
     if not daily_tss:
         return []
 
     start = min(daily_tss.keys())
-    end = date.today()
+    end = today
 
     ctl = 0.0
     atl = 0.0
@@ -149,7 +152,7 @@ def write_results(cur, user_id: int, results: list[dict]) -> None:
             INSERT INTO training_load (time, user_id, tss, ctl, atl, tsb, ramp, source)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """, (
-            datetime.combine(r["date"], datetime.min.time()),
+            datetime.combine(r["date"], datetime.min.time(), tzinfo=timezone.utc),
             user_id,
             r["tss"],
             r["ctl"],
@@ -173,12 +176,16 @@ def main() -> int:
     for user_id, slug in users:
         print(f"\n--- PMC for {slug} ---")
 
-        daily_tss = get_daily_tss(cur, user_id)
+        tz = load_user_tz(slug)
+        today = user_today(tz)
+        tz_name = str(tz)
+
+        daily_tss = get_daily_tss(cur, user_id, tz_name)
         if not daily_tss:
             print(f"  No activities with TSS found for {slug}")
             continue
 
-        results = compute_pmc(daily_tss)
+        results = compute_pmc(daily_tss, today)
         compute_ramp(results)
         projections = project_future(results)
 

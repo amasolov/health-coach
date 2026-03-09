@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import date
 from pathlib import Path
 
 import yaml
+
+from scripts.tz import load_user_tz, user_today
 
 ROOT = Path(__file__).resolve().parent.parent
 ATHLETE_PATH = ROOT / "config" / "athlete.yaml"
@@ -119,7 +120,7 @@ def process_user(slug: str, athlete_data: dict, zones_data: dict) -> bool:
         print(f"  WARN: No threshold pace -- skipping pace zones")
 
     if updated:
-        zones_data["effective_date"] = str(date.today())
+        zones_data["effective_date"] = user_today(load_user_tz(slug)).isoformat()
 
     return updated
 

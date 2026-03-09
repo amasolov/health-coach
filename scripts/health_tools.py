@@ -13,9 +13,12 @@ import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import yaml
+
+from scripts.tz import DEFAULT_TZ_NAME, load_user_tz, user_today
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -160,13 +163,15 @@ def get_training_load(
     start_date: str = "",
     end_date: str = "",
     days: int = 90,
+    tz_name: str = "",
 ) -> list[dict]:
     """Get daily TSS, CTL, ATL, TSB for a date range.  Defaults to last 90 days.
     Dates in YYYY-MM-DD format."""
+    today = user_today(ZoneInfo(tz_name) if tz_name else None)
     if not start_date:
-        start_date = (date.today() - timedelta(days=days)).isoformat()
+        start_date = (today - timedelta(days=days)).isoformat()
     if not end_date:
-        end_date = (date.today() + timedelta(days=1)).isoformat()
+        end_date = (today + timedelta(days=1)).isoformat()
 
     return query(
         """SELECT time, tss, ctl, atl, tsb, ramp, source
@@ -189,13 +194,15 @@ def get_activities(
     days: int = 30,
     sport: str = "",
     limit: int = 50,
+    tz_name: str = "",
 ) -> list[dict]:
     """List activities with metrics.  Filter by date range and/or sport type
     (running, cycling, strength_training, etc.).  Defaults to last 30 days."""
+    today = user_today(ZoneInfo(tz_name) if tz_name else None)
     if not start_date:
-        start_date = (date.today() - timedelta(days=days)).isoformat()
+        start_date = (today - timedelta(days=days)).isoformat()
     if not end_date:
-        end_date = (date.today() + timedelta(days=1)).isoformat()
+        end_date = (today + timedelta(days=1)).isoformat()
 
     sql = """SELECT time, activity_type, title, duration_s, distance_m,
                     elevation_gain_m, avg_hr, max_hr, avg_power, max_power,
@@ -238,13 +245,15 @@ def get_body_composition(
     start_date: str = "",
     end_date: str = "",
     days: int = 90,
+    tz_name: str = "",
 ) -> list[dict]:
     """Get body composition trend (weight, body fat %, muscle mass, BMI)
     over a date range.  Defaults to last 90 days."""
+    today = user_today(ZoneInfo(tz_name) if tz_name else None)
     if not start_date:
-        start_date = (date.today() - timedelta(days=days)).isoformat()
+        start_date = (today - timedelta(days=days)).isoformat()
     if not end_date:
-        end_date = (date.today() + timedelta(days=1)).isoformat()
+        end_date = (today + timedelta(days=1)).isoformat()
 
     return query(
         """SELECT time, weight_kg, body_fat_pct, muscle_mass_kg,
@@ -266,13 +275,15 @@ def get_vitals(
     start_date: str = "",
     end_date: str = "",
     days: int = 30,
+    tz_name: str = "",
 ) -> list[dict]:
     """Get daily vitals (resting HR, HRV, blood pressure, sleep, stress,
     body battery, SpO2).  Defaults to last 30 days."""
+    today = user_today(ZoneInfo(tz_name) if tz_name else None)
     if not start_date:
-        start_date = (date.today() - timedelta(days=days)).isoformat()
+        start_date = (today - timedelta(days=days)).isoformat()
     if not end_date:
-        end_date = (date.today() + timedelta(days=1)).isoformat()
+        end_date = (today + timedelta(days=1)).isoformat()
 
     return query(
         """SELECT time, resting_hr, hrv_ms, bp_systolic, bp_diastolic,
@@ -349,13 +360,15 @@ def get_strength_sessions(
     end_date: str = "",
     days: int = 30,
     exercise: str = "",
+    tz_name: str = "",
 ) -> list[dict]:
     """Get strength training sets from Hevy.  Filter by date range and/or
     exercise name (partial match).  Defaults to last 30 days."""
+    today = user_today(ZoneInfo(tz_name) if tz_name else None)
     if not start_date:
-        start_date = (date.today() - timedelta(days=days)).isoformat()
+        start_date = (today - timedelta(days=days)).isoformat()
     if not end_date:
-        end_date = (date.today() + timedelta(days=1)).isoformat()
+        end_date = (today + timedelta(days=1)).isoformat()
 
     sql = """SELECT time, workout_id, exercise_name, exercise_type,
                     muscle_group, set_number, set_type,
@@ -849,7 +862,7 @@ def add_action_item(
         "category": category,
         "priority": priority,
         "status": "pending",
-        "created": date.today().isoformat(),
+        "created": user_today(load_user_tz(user_slug)).isoformat(),
         "due": due or None,
         "completed": None,
     }
@@ -881,10 +894,11 @@ def update_action_item(
     if not target:
         raise ValueError(f"Action item '{item_id}' not found")
 
+    today_str = user_today(load_user_tz(user_slug)).isoformat()
     if status:
         target["status"] = status
         if status == "completed":
-            target["completed"] = date.today().isoformat()
+            target["completed"] = today_str
     if priority:
         target["priority"] = priority
     if title:
@@ -895,7 +909,7 @@ def update_action_item(
         target["due"] = due
     if note:
         existing_notes = target.get("notes", [])
-        existing_notes.append({"date": date.today().isoformat(), "text": note})
+        existing_notes.append({"date": today_str, "text": note})
         target["notes"] = existing_notes
 
     save_action_items(user_slug, items)
@@ -916,11 +930,12 @@ def complete_action_item(user_slug: str, item_id: str, note: str = "") -> dict:
     if not target:
         raise ValueError(f"Action item '{item_id}' not found")
 
+    today_str = user_today(load_user_tz(user_slug)).isoformat()
     target["status"] = "completed"
-    target["completed"] = date.today().isoformat()
+    target["completed"] = today_str
     if note:
         existing_notes = target.get("notes", [])
-        existing_notes.append({"date": date.today().isoformat(), "text": note})
+        existing_notes.append({"date": today_str, "text": note})
         target["notes"] = existing_notes
 
     save_action_items(user_slug, items)
