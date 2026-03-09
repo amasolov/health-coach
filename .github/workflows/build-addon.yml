@@ -40,6 +40,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract addon version
+        id: version
+        run: |
+          echo "version=$(grep '^version:' healthcoach/config.yaml | sed 's/version:[[:space:]]*//' | tr -d '\"')" >> $GITHUB_OUTPUT
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -50,6 +55,7 @@ jobs:
           build-args: BUILD_FROM=python:3.12-alpine
           tags: |
             ghcr.io/amasolov/health-coach/healthcoach:latest
+            ghcr.io/amasolov/health-coach/healthcoach:${{ steps.version.outputs.version }}
             ghcr.io/amasolov/health-coach/healthcoach:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
