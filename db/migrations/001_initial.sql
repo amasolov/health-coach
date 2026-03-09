@@ -13,8 +13,6 @@ CREATE TABLE IF NOT EXISTS users (
     display_name    TEXT NOT NULL,
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
-INSERT INTO users (slug, display_name) VALUES ('alexey', 'Alexey M')
-ON CONFLICT (slug) DO NOTHING;
 
 -- ============================================================================
 -- Athlete Profile (semi-static, versioned per user)
