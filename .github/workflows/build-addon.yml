@@ -12,7 +12,7 @@ on:
       - "public/**"
       - "chainlit.md"
       - "requirements.txt"
-      - "ha-addon/health-tracker/**"
+      - "ha-addon/healthcoach/**"
   workflow_dispatch:
 
 jobs:
@@ -44,12 +44,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ha-addon/health-tracker/Dockerfile
+          file: ha-addon/healthcoach/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: BUILD_FROM=python:3.12-alpine
           tags: |
-            ghcr.io/amasolov/alexeym-health/health-tracker:latest
-            ghcr.io/amasolov/alexeym-health/health-tracker:${{ github.sha }}
+            ghcr.io/amasolov/alexeym-health/healthcoach:latest
+            ghcr.io/amasolov/alexeym-health/healthcoach:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -1,5 +1,5 @@
 # Equipment inventory template.
-# Copy to /config/health-tracker/equipment.yaml on your Home Assistant host.
+# Copy to /config/healthcoach/equipment.yaml on your Home Assistant host.
 # Used by the AI coach for context about your available gear.
 
 wearables: []

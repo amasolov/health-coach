@@ -1,9 +1,9 @@
-# Health Tracker Addon
+# Health Coach Addon
 
-Syncs health and fitness data from Garmin Connect and Hevy
-into a TimescaleDB database, calculates performance metrics (CTL/ATL/TSB),
-provisions Grafana dashboards, and serves an MCP endpoint for AI-powered
-coaching.
+AI-powered personal health and fitness coach. Syncs data from Garmin Connect
+and Hevy into TimescaleDB, calculates performance metrics (CTL/ATL/TSB),
+provisions Grafana dashboards, and serves an MCP endpoint and Chainlit chat UI
+for AI-powered coaching.
 
 ## Setup
 
@@ -11,10 +11,13 @@ coaching.
 2. Create a database called `health` in TimescaleDB
 3. Configure this addon with your database credentials and API keys
 4. (Optional) Generate a Grafana service account API key for dashboard provisioning
+5. Place your `athlete.yaml` in `/config/healthcoach/athlete.yaml` — copy from
+   the example at `config/athlete.example.yaml` in the repository
 
 ## Multi-User
 
-Add additional users in the addon configuration. Each user needs their own
+Add additional users in the addon configuration, or enable `allow_registration`
+to let users self-register through the chat UI. Each user needs their own
 Garmin Connect and/or Hevy credentials. Data is isolated per user in the
 database and filterable via the Grafana user selector dropdown.
 
@@ -68,8 +71,8 @@ blank). Connect any MCP-compatible AI tool for personalized training insights.
 
 ### Client Configuration
 
-**Open WebUI** (Admin Settings -> External Tools):
-- URL: `http://health-tracker:8765/mcp`
+**Open WebUI** (Admin Settings → External Tools):
+- URL: `http://healthcoach:8765/mcp`
 - Type: MCP (Streamable HTTP)
 - Auth: Bearer `<mcp_api_key>`
 
@@ -77,7 +80,7 @@ blank). Connect any MCP-compatible AI tool for personalized training insights.
 ```json
 {
   "mcpServers": {
-    "health-tracker": {
+    "healthcoach": {
       "type": "http",
       "url": "http://<ha-ip>:8765/mcp",
       "headers": { "Authorization": "Bearer <mcp_api_key>" }
@@ -90,7 +93,7 @@ blank). Connect any MCP-compatible AI tool for personalized training insights.
 ```json
 {
   "mcpServers": {
-    "health-tracker": {
+    "healthcoach": {
       "url": "http://<ha-ip>:8765/mcp",
       "headers": { "Authorization": "Bearer <mcp_api_key>" }
     }
@@ -100,14 +103,3 @@ blank). Connect any MCP-compatible AI tool for personalized training insights.
 
 Your MCP API key is printed in the addon log on startup. If you left the
 `mcp_api_key` field blank, a key is auto-generated and persisted.
-
-## Open WebUI Integration (planned)
-
-Full Open WebUI integration is planned, including:
-
-- Custom Open WebUI Function that maps the logged-in user to their MCP API
-  key automatically (no per-user MCP config needed)
-- Coaching system prompt with sports science context (CTL/ATL/TSB
-  interpretation, zone-based training, recovery guidance)
-- MCP prompt templates for common workflows: weekly review, daily
-  recommendation, race preparation, body composition check-in

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MCP server for the Health Tracker addon.
+MCP server for the Health Coach addon.
 
 Exposes fitness data, training zones, body composition, vitals, and
 workout generation as MCP tools over Streamable HTTP. Each user
@@ -95,7 +95,7 @@ class BearerAuthMiddleware(Middleware):
 # ---------------------------------------------------------------------------
 
 mcp = FastMCP(
-    name="Health Tracker",
+    name="Health Coach",
     instructions=(
         "Health and fitness coaching server. All data is scoped to the "
         "authenticated user. Use the available tools to query training data, "
@@ -530,7 +530,7 @@ def main() -> None:
     _build_user_registry()
 
     user_count = len(_TOKEN_TO_USER)
-    print(f"Health Tracker MCP server starting on {MCP_HOST}:{MCP_PORT}")
+    print(f"Health Coach MCP server starting on {MCP_HOST}:{MCP_PORT}")
     print(f"  Registered users: {user_count}")
     print(f"  Endpoint: http://{MCP_HOST}:{MCP_PORT}/mcp")
 

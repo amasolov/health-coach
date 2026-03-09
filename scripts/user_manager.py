@@ -4,7 +4,7 @@ User registration and management.
 Handles creating new users in:
   - PostgreSQL (users table)
   - /data/options.json (HA addon persistent config)
-  - /config/health-tracker/athlete.yaml (athlete profile stub)
+  - /config/healthcoach/athlete.yaml (athlete profile stub)
 
 Used by the onboarding flow in chat_app.py.
 """
@@ -22,7 +22,7 @@ import psycopg2
 import yaml
 
 OPTIONS_FILE = Path("/data/options.json")
-HA_CFG_DIR = Path("/config/health-tracker")
+HA_CFG_DIR = Path("/config/healthcoach")
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ def create_athlete_config(
     timezone: str = "UTC",
 ) -> None:
     """
-    Add a new user stub to /config/health-tracker/athlete.yaml.
+    Add a new user stub to /config/healthcoach/athlete.yaml.
     Creates the file if it doesn't exist; won't overwrite an existing entry.
     """
     athlete_path = HA_CFG_DIR / "athlete.yaml"

@@ -1,15 +1,15 @@
-name: Health Tracker
+name: Health Coach
 version: "0.2.0"
-slug: health-tracker
+slug: healthcoach
 description: >-
-  Data-driven health and fitness tracking with MCP server and AI coaching.
+  AI-powered personal health and fitness coach.
   Syncs Garmin Connect and Hevy data to TimescaleDB,
   calculates PMC (CTL/ATL/TSB), provisions Grafana dashboards,
   exposes an MCP endpoint, and provides a Chainlit chat UI
   for AI-powered coaching via OpenRouter.
-  Supports multiple users.
+  Supports multiple users with self-service onboarding.
 url: "https://github.com/amasolov/alexeym-health"
-image: "ghcr.io/amasolov/alexeym-health/health-tracker:latest"
+image: "ghcr.io/amasolov/alexeym-health/healthcoach:latest"
 arch:
   - aarch64
   - amd64

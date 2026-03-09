@@ -2,7 +2,7 @@
 """
 Push Grafana dashboard JSON files via the Grafana HTTP API.
 
-Creates a 'Health Tracker' folder and provisions all dashboards into it.
+Creates a 'Health Coach' folder and provisions all dashboards into it.
 Reads dashboard files from grafana/dashboards/.
 
 Usage:
@@ -27,8 +27,8 @@ import httpx
 ROOT = Path(__file__).resolve().parent.parent
 DASHBOARDS_DIR = ROOT / "grafana" / "dashboards"
 
-FOLDER_UID = "health-tracker"
-FOLDER_TITLE = "Health Tracker"
+FOLDER_UID = "healthcoach"
+FOLDER_TITLE = "Health Coach"
 
 
 def get_grafana_url() -> str:

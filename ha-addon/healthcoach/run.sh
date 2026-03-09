@@ -86,15 +86,15 @@ if acid:
     print('echo \"  Apple OAuth: enabled\"')
 ")"
 
-echo "=== Health Tracker Addon ==="
+echo "=== Health Coach Addon ==="
 
 # ------------------------------------------------------------------
 # Personal config files (athlete.yaml, equipment.yaml, zones.yaml)
-# are NOT shipped in the image. They live in /config/health-tracker/
+# are NOT shipped in the image. They live in /config/healthcoach/
 # (HA persistent config dir) and are symlinked into /app/config/ so
 # all scripts can find them at their expected paths.
 # ------------------------------------------------------------------
-HA_CFG=/config/health-tracker
+HA_CFG=/config/healthcoach
 mkdir -p "$HA_CFG"
 
 for cfg in athlete.yaml equipment.yaml zones.yaml; do

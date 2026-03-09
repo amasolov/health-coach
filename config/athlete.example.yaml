@@ -1,5 +1,5 @@
 # Athlete configuration template.
-# Copy this file to /config/health-tracker/athlete.yaml on your Home Assistant host
+# Copy this file to /config/healthcoach/athlete.yaml on your Home Assistant host
 # and fill in your details. The addon will pick it up automatically on next start.
 #
 # Multiple users are supported -- add additional slugs under "users:".

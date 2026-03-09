@@ -354,7 +354,7 @@ async def run_onboarding(user: cl.User) -> None:
 
     await cl.Message(
         content=(
-            "Welcome to Health Tracker! I don't have you in the system yet.\n\n"
+            "Welcome to Health Coach! I don't have you in the system yet.\n\n"
             "Let's get you set up — this takes about 2 minutes. "
             "You can type `skip` at any step to configure it later."
         )
@@ -407,7 +407,7 @@ async def run_onboarding(user: cl.User) -> None:
         raw = await _ask(
             f"Enter your Garmin password.\n"
             f"⚠️ This will be stored in the HA addon config to keep your sync tokens fresh. "
-            f"Type `skip` to add it later via HA Settings → Add-ons → Health Tracker → Configuration:"
+            f"Type `skip` to add it later via HA Settings → Add-ons → Health Coach → Configuration:"
         )
         if not _is_skip(raw):
             garmin_password = raw or ""

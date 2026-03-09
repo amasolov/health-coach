@@ -1,5 +1,5 @@
 """
-OpenAI function-calling tool schemas for the health tracker.
+OpenAI function-calling tool schemas for the Health Coach.
 
 Each entry maps to a function in scripts.health_tools.  The Chainlit
 chat app sends these schemas to the LLM and dispatches tool_calls back
