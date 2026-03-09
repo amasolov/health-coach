@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 140" fill="none">
-  <!-- Heartbeat pulse  centred vertically in the banner -->
+  <!-- Heartbeat pulse   centred vertically in the banner -->
   <path d="M60 80 L120 80 L140 30 L168 118 L196 14 L224 96 L244 80 L310 80"
         stroke="#22d3ee" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
 
@@ -8,7 +8,7 @@
         font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
         font-size="64" font-weight="800" letter-spacing="6" fill="#f0f0f0">HEALTH</text>
 
-  <!-- COACH  slightly smaller, brand cyan, tight tracking -->
+  <!-- COACH   slightly smaller, brand cyan, tight tracking -->
   <text x="358" y="118"
         font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
         font-size="32" font-weight="500" letter-spacing="16" fill="#22d3ee">COACH</text>
