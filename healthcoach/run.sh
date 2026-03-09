@@ -64,6 +64,8 @@ if acid:
     print('echo \"  Apple OAuth: enabled\"')
 ")"
 
+export IFIT_TOKEN_FILE="/config/healthcoach/.ifit_token.json"
+
 echo "=== Health Coach Addon ==="
 
 # ------------------------------------------------------------------
@@ -92,6 +94,12 @@ for cfg in athlete.yaml equipment.yaml zones.yaml; do
     ln -sf "$target" "$link"
 done
 echo "Config files linked from $HA_CFG"
+
+if [[ -f "$IFIT_TOKEN_FILE" ]]; then
+    echo "iFit: token found at $IFIT_TOKEN_FILE"
+else
+    echo "iFit: no token yet -- copy .ifit_token.json to $IFIT_TOKEN_FILE to enable iFit features"
+fi
 
 # ------------------------------------------------------------------
 # Users are stored in /config/healthcoach/users.json (not options.json)

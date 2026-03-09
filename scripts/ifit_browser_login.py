@@ -18,6 +18,14 @@ import sys
 import time
 
 from dotenv import load_dotenv
+
+
+def _ifit_token_path() -> str:
+    return os.environ.get(
+        "IFIT_TOKEN_FILE",
+        "/config/healthcoach/.ifit_token.json" if os.path.isdir("/config/healthcoach")
+        else os.path.join(os.path.dirname(__file__), "..", ".ifit_token.json"),
+    )
 from playwright.sync_api import sync_playwright
 
 load_dotenv()
@@ -253,10 +261,10 @@ def main() -> int:
                     "client_secret": client_secret,
                     "timestamp": time.time(),
                 }
-                cache_path = os.path.join(os.path.dirname(__file__), "..", ".ifit_token.json")
+                cache_path = _ifit_token_path()
                 with open(cache_path, "w") as f:
                     json.dump(cache, f, indent=2)
-                print(f"  Token saved to .ifit_token.json")
+                print(f"  Token saved to {cache_path}")
 
                 # Quick test
                 me_resp = httpx.get("https://api.ifit.com/v1/me", headers={

@@ -26,7 +26,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-TOKEN_FILE = os.path.join(os.path.dirname(__file__), "..", ".ifit_token.json")
+_LOCAL_TOKEN_FILE = os.path.join(os.path.dirname(__file__), "..", ".ifit_token.json")
+TOKEN_FILE = os.environ.get(
+    "IFIT_TOKEN_FILE",
+    "/config/healthcoach/.ifit_token.json" if os.path.isdir("/config/healthcoach") else _LOCAL_TOKEN_FILE,
+)
 
 REFRESH_URL = "https://gateway.ifit.com/cockatoo/v2/login/refresh"
 GATEWAY_BASE = "https://gateway.ifit.com"

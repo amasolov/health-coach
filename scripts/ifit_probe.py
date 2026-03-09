@@ -159,19 +159,27 @@ def get_oauth_token(
             "client_secret": client_secret,
             "timestamp": time.time(),
         }
-        cache_path = os.path.join(os.path.dirname(__file__), "..", ".ifit_token.json")
+        cache_path = _ifit_token_path()
         with open(cache_path, "w") as f:
             json.dump(cache, f, indent=2)
-        print(f"      Token cached to .ifit_token.json")
+        print(f"      Token cached to {cache_path}")
         return token
 
     print(f"      Body: {resp.text[:200]}")
     return None
 
 
+def _ifit_token_path() -> str:
+    return os.environ.get(
+        "IFIT_TOKEN_FILE",
+        "/config/healthcoach/.ifit_token.json" if os.path.isdir("/config/healthcoach")
+        else os.path.join(os.path.dirname(__file__), "..", ".ifit_token.json"),
+    )
+
+
 def try_cached_token() -> str | None:
     """Load a previously cached OAuth token if still valid."""
-    cache_path = os.path.join(os.path.dirname(__file__), "..", ".ifit_token.json")
+    cache_path = _ifit_token_path()
     if not os.path.exists(cache_path):
         return None
     with open(cache_path) as f:
