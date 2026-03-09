@@ -3,6 +3,12 @@ Chainlit chat application for health coaching.
 
 Provides a conversational AI interface backed by OpenRouter, with access
 to the full suite of health tracker tools via scripts.health_tools.
+
+New-user onboarding flow (when ALLOW_REGISTRATION=true):
+  - OAuth users whose email is unknown land in a guided setup chat
+  - Password-auth users whose slug is unknown do the same
+  - Collects: name, username, timezone, Garmin credentials, Hevy API key
+  - Creates the DB record, options.json entry, and athlete.yaml stub
 """
 
 from __future__ import annotations
@@ -10,12 +16,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
-# Ensure the project root is on sys.path so ``from scripts import ...``
-# works when Chainlit loads this file via importlib.
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
@@ -25,10 +30,11 @@ from chainlit.oauth_providers import providers
 from openai import AsyncOpenAI
 
 from scripts import health_tools
+from scripts import garmin_auth
+from scripts import user_manager
 from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
 
-# Register custom Apple OAuth provider if configured
 if os.environ.get("OAUTH_APPLE_CLIENT_ID"):
     from scripts.oauth_apple import AppleOAuthProvider
     providers.append(AppleOAuthProvider())
@@ -39,6 +45,8 @@ if os.environ.get("OAUTH_APPLE_CLIENT_ID"):
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 CHAT_MODEL = os.environ.get("CHAT_MODEL", "anthropic/claude-sonnet-4")
+ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "").lower() in ("true", "1", "yes")
+SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))
 MAX_TOOL_ROUNDS = 10
 
 _client: AsyncOpenAI | None = None
@@ -55,7 +63,7 @@ def _get_client() -> AsyncOpenAI:
 
 
 # ---------------------------------------------------------------------------
-# User registry (mirrors MCP server pattern)
+# User registry
 # ---------------------------------------------------------------------------
 
 _USERS_BY_SLUG: dict[str, dict] = {}
@@ -96,8 +104,19 @@ def _build_user_registry() -> None:
 _build_user_registry()
 
 
+def _register_user_in_memory(user_entry: dict) -> None:
+    """Add a newly-registered user to the live in-memory registry."""
+    slug = user_entry.get("slug", "")
+    if not slug:
+        return
+    _USERS_BY_SLUG[slug] = user_entry
+    email = user_entry.get("email", "").lower().strip()
+    if email:
+        _USERS_BY_EMAIL[email] = user_entry
+
+
 # ---------------------------------------------------------------------------
-# Authentication -- OAuth (Google / Apple) + password fallback
+# Authentication  —  OAuth (Google / Apple) + password fallback
 # ---------------------------------------------------------------------------
 
 _OAUTH_ENABLED = bool(
@@ -113,7 +132,6 @@ if _OAUTH_ENABLED:
         raw_user_data: dict[str, str],
         default_user: cl.User,
     ) -> cl.User | None:
-        """Map a Google/Apple identity to a health-tracker user by email."""
         email = (
             raw_user_data.get("email", "")
             or default_user.identifier
@@ -124,40 +142,62 @@ if _OAUTH_ENABLED:
             return None
 
         user = _USERS_BY_EMAIL.get(email)
-        if not user:
-            return None
+        if user:
+            return cl.User(
+                identifier=email,
+                metadata={
+                    "slug": user["slug"],
+                    "first_name": user.get("first_name", user["slug"]),
+                    "last_name": user.get("last_name", ""),
+                    "email": email,
+                    "provider": provider_id,
+                },
+            )
 
-        return cl.User(
-            identifier=email,
-            metadata={
-                "slug": user["slug"],
-                "first_name": user.get("first_name", user["slug"]),
-                "last_name": user.get("last_name", ""),
-                "email": email,
-                "provider": provider_id,
-            },
-        )
+        # Unknown email — allow through for onboarding if registration is open
+        if ALLOW_REGISTRATION:
+            return cl.User(
+                identifier=email,
+                metadata={
+                    "registration_pending": True,
+                    "email": email,
+                    "display_name": raw_user_data.get("name", ""),
+                    "provider": provider_id,
+                },
+            )
+
+        return None
 
 else:
-    # Dev-only fallback: slug + MCP API key when no OAuth is configured.
     @cl.password_auth_callback
     def password_callback(username: str, password: str) -> cl.User | None:
         user = _USERS_BY_SLUG.get(username)
-        if not user:
-            return None
+        if user:
+            expected = user.get("mcp_api_key") or os.environ.get("MCP_API_KEY", "")
+            if not expected or password != expected:
+                return None
+            return cl.User(
+                identifier=user.get("email", username),
+                metadata={
+                    "slug": user["slug"],
+                    "first_name": user.get("first_name", username),
+                    "last_name": user.get("last_name", ""),
+                },
+            )
 
-        expected = user.get("mcp_api_key") or os.environ.get("MCP_API_KEY", "")
-        if not expected or password != expected:
-            return None
+        # Unknown user — allow through for onboarding if registration is open
+        if ALLOW_REGISTRATION:
+            return cl.User(
+                identifier=username,
+                metadata={
+                    "registration_pending": True,
+                    "email": username if "@" in username else "",
+                    "display_name": username,
+                    "provider": "password",
+                },
+            )
 
-        return cl.User(
-            identifier=user.get("email", username),
-            metadata={
-                "slug": user["slug"],
-                "first_name": user.get("first_name", username),
-                "last_name": user.get("last_name", ""),
-            },
-        )
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +205,6 @@ else:
 # ---------------------------------------------------------------------------
 
 def _build_system_prompt(user_slug: str, first_name: str) -> str:
-    """Construct the coaching system prompt with live fitness data."""
     parts = [
         f"You are a data-driven fitness coach for {first_name}. "
         "You have access to their complete training, health, and body "
@@ -183,7 +222,7 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
                 f"ATL (fatigue): {summary.get('atl_fatigue')} | "
                 f"TSB (form): {summary.get('tsb_form')}\n"
                 f"- Form: {summary.get('form_status')}\n"
-                f"- Ramp rate: {summary.get('ramp_rate')}%/week -- "
+                f"- Ramp rate: {summary.get('ramp_rate')}%/week — "
                 f"{summary.get('ramp_note')}\n"
             )
     except Exception:
@@ -217,7 +256,7 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         "- Consider current form (TSB) when suggesting training intensity\n"
         "- Flag concerning trends (rapid ramp rate >8%/wk, declining HRV, etc.)\n"
         "- Be specific with numbers and dates\n"
-        "- When presenting time-series data, keep text concise -- "
+        "- When presenting time-series data, keep text concise — "
         "charts will be auto-generated from the data\n"
         "- At the start of a conversation, check action items for pending tasks\n"
         "- Be encouraging but honest about the data\n"
@@ -237,7 +276,6 @@ def _execute_tool(
     user_slug: str,
     user_data: dict,
 ) -> Any:
-    """Execute a health_tools function with the right user context."""
     entry = TOOL_DISPATCH.get(tool_name)
     if not entry:
         return {"error": f"Unknown tool: {tool_name}"}
@@ -275,13 +313,225 @@ def _execute_tool(
 
 
 # ---------------------------------------------------------------------------
+# Session initialisation (shared by normal start and post-onboarding)
+# ---------------------------------------------------------------------------
+
+async def _init_session(user_slug: str, user_id: int, first_name: str, user_data: dict) -> None:
+    cl.user_session.set("user_id", user_id)
+    cl.user_session.set("user_slug", user_slug)
+    cl.user_session.set("first_name", first_name)
+    cl.user_session.set("user_data", user_data)
+
+    system_prompt = _build_system_prompt(user_slug, first_name)
+    cl.user_session.set("system_prompt", system_prompt)
+    cl.user_session.set("messages", [{"role": "system", "content": system_prompt}])
+
+
+# ---------------------------------------------------------------------------
+# Onboarding flow
+# ---------------------------------------------------------------------------
+
+async def _ask(prompt: str, timeout: int = 300) -> str | None:
+    """Helper: send an AskUserMessage and return the stripped response, or None on timeout."""
+    res = await cl.AskUserMessage(content=prompt, timeout=timeout).send()
+    if not res:
+        return None
+    return res["output"].strip()
+
+
+def _is_skip(s: str | None) -> bool:
+    return s is None or s.lower() in ("skip", "s", "no", "n", "")
+
+
+async def run_onboarding(user: cl.User) -> None:
+    """
+    Guide a new user through account setup.
+    Collects name, username, timezone, Garmin credentials, and Hevy API key,
+    then creates the DB record, options.json entry, and athlete config stub.
+    """
+    email = user.metadata.get("email", "")
+    display_name = user.metadata.get("display_name", "")
+
+    await cl.Message(
+        content=(
+            "Welcome to Health Tracker! I don't have you in the system yet.\n\n"
+            "Let's get you set up — this takes about 2 minutes. "
+            "You can type `skip` at any step to configure it later."
+        )
+    ).send()
+
+    # --- Name ---
+    first_name_hint = display_name.split()[0] if display_name else ""
+    prompt = "What's your first name?"
+    if first_name_hint:
+        prompt += f" (or press Enter to use **{first_name_hint}**)"
+    raw = await _ask(prompt)
+    first_name = (raw or first_name_hint or "User").title()
+
+    raw = await _ask("And your last name? (or `skip`)")
+    last_name = ("" if _is_skip(raw) else (raw or "").title())
+
+    # --- Username ---
+    suggested = user_manager.find_available_slug(user_manager.make_slug(first_name))
+    raw = await _ask(
+        f"Choose a username — lowercase letters and numbers only.\n"
+        f"Suggested: `{suggested}` — press Enter to accept, or type your own:"
+    )
+    if _is_skip(raw):
+        slug = suggested
+    else:
+        slug = re.sub(r"[^a-z0-9_]", "", (raw or "").lower()) or suggested
+
+    if not user_manager.slug_available(slug):
+        slug = user_manager.find_available_slug(slug)
+        await cl.Message(content=f"That username was taken — using `{slug}` instead.").send()
+
+    # --- Timezone ---
+    raw = await _ask(
+        "What's your timezone? Examples: `Australia/Sydney`, `America/New_York`, `Europe/London`\n"
+        "Type `skip` to use UTC and update it later via your athlete profile:"
+    )
+    timezone = "UTC" if _is_skip(raw) else (raw or "UTC")
+
+    # --- Garmin Connect ---
+    garmin_email = ""
+    garmin_password = ""
+
+    raw = await _ask(
+        "Do you use **Garmin Connect** for activity tracking?\n"
+        "Enter your Garmin account email, or `skip` to connect later:"
+    )
+    if not _is_skip(raw):
+        garmin_email = raw or ""
+
+        raw = await _ask(
+            f"Enter your Garmin password.\n"
+            f"⚠️ This will be stored in the HA addon config to keep your sync tokens fresh. "
+            f"Type `skip` to add it later via HA Settings → Add-ons → Health Tracker → Configuration:"
+        )
+        if not _is_skip(raw):
+            garmin_password = raw or ""
+
+            async with cl.Step(name="Connecting to Garmin Connect", type="run") as step:
+                step.input = f"email={garmin_email}"
+                status, _ = await asyncio.to_thread(
+                    garmin_auth.start_login, slug, garmin_email, garmin_password
+                )
+                step.output = status
+
+            if status == "ok":
+                await cl.Message(content="Garmin Connect: connected.").send()
+
+            elif status == "needs_mfa":
+                raw = await _ask(
+                    "Garmin requires a verification code. "
+                    "Check your email or authenticator app and enter the code:"
+                )
+                if raw and not _is_skip(raw):
+                    async with cl.Step(name="Verifying Garmin MFA", type="run") as step:
+                        step.input = "mfa_code=****"
+                        status, _ = await asyncio.to_thread(
+                            garmin_auth.finish_mfa_login, slug, raw
+                        )
+                        step.output = status
+
+                    if status == "ok":
+                        await cl.Message(content="Garmin Connect: verified.").send()
+                    else:
+                        await cl.Message(
+                            content=f"Garmin MFA failed ({status}). "
+                            "You can reconnect later by asking me to re-authenticate Garmin."
+                        ).send()
+                        garmin_email = ""
+                        garmin_password = ""
+                else:
+                    garmin_email = ""
+                    garmin_password = ""
+
+            else:
+                await cl.Message(
+                    content=f"Garmin connection failed ({status}). "
+                    "You can try again later by asking me to reconnect Garmin."
+                ).send()
+                garmin_email = ""
+                garmin_password = ""
+
+    # --- Hevy ---
+    hevy_api_key = ""
+    raw = await _ask(
+        "Do you use **Hevy** for strength training?\n"
+        "Enter your API key (find it at hevy.com → Settings → Developer), or `skip`:"
+    )
+    if not _is_skip(raw):
+        hevy_api_key = raw or ""
+
+    # --- Create the user ---
+    await cl.Message(content="Creating your account...").send()
+
+    result = await asyncio.to_thread(
+        user_manager.register_user,
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        slug=slug,
+        timezone=timezone,
+        garmin_email=garmin_email,
+        garmin_password=garmin_password,
+        hevy_api_key=hevy_api_key,
+    )
+
+    if "error" in result:
+        await cl.Message(
+            content=f"Registration failed: {result['error']}\n\nPlease refresh and try again."
+        ).send()
+        return
+
+    user_id: int = result["user_id"]
+    user_entry: dict = result["user_entry"]
+
+    _register_user_in_memory(user_entry)
+
+    garmin_status = "connected" if garmin_email else "not configured"
+    hevy_status = "connected" if hevy_api_key else "not configured"
+
+    await cl.Message(
+        content=(
+            f"All done, {first_name}! Your account is ready.\n\n"
+            f"| | Status |\n"
+            f"|---|---|\n"
+            f"| Username | `{slug}` |\n"
+            f"| Garmin Connect | {garmin_status} |\n"
+            f"| Hevy | {hevy_status} |\n\n"
+            f"Your first data sync will run within the next **{SYNC_INTERVAL} minutes**. "
+            f"Once your training history is loaded, ask me anything about your fitness!"
+        )
+    ).send()
+
+    # Transition into a normal coaching session
+    await _init_session(slug, user_id, first_name, user_entry)
+    system_prompt = _build_system_prompt(slug, first_name)
+    cl.user_session.set("messages", [{"role": "system", "content": system_prompt}])
+
+
+# ---------------------------------------------------------------------------
 # Chat handlers
 # ---------------------------------------------------------------------------
 
 @cl.on_chat_start
 async def on_chat_start():
-    """Set up the session with user context and system prompt."""
     user = cl.user_session.get("user")
+
+    # New user — run onboarding
+    if user.metadata.get("registration_pending"):
+        if not ALLOW_REGISTRATION:
+            await cl.Message(
+                content="New user registration is disabled. Please contact the administrator."
+            ).send()
+            return
+        await run_onboarding(user)
+        return
+
+    # Existing user — normal session init
     user_slug = user.metadata["slug"]
     first_name = user.metadata.get("first_name", user_slug)
 
@@ -294,17 +544,7 @@ async def on_chat_start():
         return
 
     user_data = _USERS_BY_SLUG.get(user_slug, {})
-
-    cl.user_session.set("user_id", user_id)
-    cl.user_session.set("user_slug", user_slug)
-    cl.user_session.set("first_name", first_name)
-    cl.user_session.set("user_data", user_data)
-
-    system_prompt = _build_system_prompt(user_slug, first_name)
-    cl.user_session.set("system_prompt", system_prompt)
-    cl.user_session.set("messages", [
-        {"role": "system", "content": system_prompt},
-    ])
+    await _init_session(user_slug, user_id, first_name, user_data)
 
     await cl.Message(
         content=f"Hey {first_name}! I'm your fitness coach. "
@@ -315,7 +555,6 @@ async def on_chat_start():
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    """Handle user messages with the tool-calling loop."""
     messages: list[dict] = cl.user_session.get("messages", [])
     user_id: int = cl.user_session.get("user_id")
     user_slug: str = cl.user_session.get("user_slug")
@@ -384,7 +623,6 @@ async def on_message(message: cl.Message):
             ))
 
         await cl.Message(content=final_text, elements=elements).send()
-
         cl.user_session.set("messages", messages)
         return
 

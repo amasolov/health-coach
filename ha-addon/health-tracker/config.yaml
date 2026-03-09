@@ -33,6 +33,7 @@ options:
   chat_port: 8080
   chat_model: "anthropic/claude-sonnet-4"
   chainlit_url: "https://healthcoach.ktmb1.net"
+  allow_registration: false
   openrouter_api_key: ""
   google_oauth_client_id: ""
   google_oauth_client_secret: ""
@@ -63,6 +64,7 @@ schema:
   chat_port: "int(1024,65535)"
   chat_model: str
   chainlit_url: "str?"
+  allow_registration: bool
   openrouter_api_key: password
   google_oauth_client_id: "str?"
   google_oauth_client_secret: "str?"

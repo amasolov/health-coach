@@ -26,6 +26,9 @@ chainlit_url = opts.get('chainlit_url', '')
 if chainlit_url:
     print(f'export CHAINLIT_URL={shlex.quote(chainlit_url)}')
 
+allow_reg = opts.get('allow_registration', False)
+print(f'export ALLOW_REGISTRATION={shlex.quote(\"true\" if allow_reg else \"false\")}')
+
 # OAuth configuration (Google)
 gcid = opts.get('google_oauth_client_id', '')
 gcsec = opts.get('google_oauth_client_secret', '')
