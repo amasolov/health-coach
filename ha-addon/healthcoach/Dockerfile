@@ -19,7 +19,7 @@ COPY grafana/ /app/grafana/
 COPY .chainlit/ /app/.chainlit/
 COPY public/ /app/public/
 COPY chainlit.md /app/chainlit.md
-COPY ha-addon/health-tracker/run.sh /app/run.sh
+COPY ha-addon/healthcoach/run.sh /app/run.sh
 
 WORKDIR /app
 RUN chmod +x /app/run.sh
