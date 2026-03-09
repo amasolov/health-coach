@@ -102,6 +102,18 @@ def download_json(key: str) -> Any | None:
 
 # ── Query ─────────────────────────────────────────────────────────────
 
+def delete(key: str) -> bool:
+    """Delete a single object. Returns True on success or if key didn't exist."""
+    if not is_configured():
+        return False
+    try:
+        _get_client().delete_object(Bucket=_bucket(), Key=key)
+        return True
+    except Exception as exc:
+        print(f"  R2 delete error ({key}): {exc}")
+        return False
+
+
 def exists(key: str) -> bool:
     if not is_configured():
         return False

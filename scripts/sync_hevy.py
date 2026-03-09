@@ -137,6 +137,7 @@ def _extract_sets(
 ) -> list[dict]:
     """Flatten a Hevy workout into individual set rows."""
     workout_id = workout.get("id", "")
+    routine_id = workout.get("routine_id") or None
     workout_start = _parse_iso(workout.get("start_time"))
     if not workout_start:
         return []
@@ -154,6 +155,7 @@ def _extract_sets(
             rows.append({
                 "time": workout_start,
                 "workout_id": workout_id,
+                "routine_id": routine_id,
                 "exercise_name": exercise_name,
                 "exercise_type": exercise_type,
                 "muscle_group": muscle_group,
@@ -194,11 +196,12 @@ def _workout_exists(cur, user_id: int, workout_id: str) -> bool:
 def _insert_set(cur, user_id: int, data: dict) -> None:
     cur.execute("""
         INSERT INTO strength_sets (
-            time, user_id, workout_id, exercise_name, exercise_type,
+            time, user_id, workout_id, routine_id, exercise_name, exercise_type,
             muscle_group, set_number, set_type,
             weight_kg, reps, rpe, duration_s, distance_m
         ) VALUES (
-            %(time)s, %(user_id)s, %(workout_id)s, %(exercise_name)s, %(exercise_type)s,
+            %(time)s, %(user_id)s, %(workout_id)s, %(routine_id)s,
+            %(exercise_name)s, %(exercise_type)s,
             %(muscle_group)s, %(set_number)s, %(set_type)s,
             %(weight_kg)s, %(reps)s, %(rpe)s, %(duration_s)s, %(distance_m)s
         )

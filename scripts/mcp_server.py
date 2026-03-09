@@ -571,6 +571,46 @@ def create_hevy_routine_from_recommendation(
     )
 
 
+@mcp.tool
+def get_hevy_routine_review(
+    ctx: Context, ifit_workout_id: str = "", hevy_routine_id: str = ""
+) -> dict:
+    """Review an iFit-to-Hevy routine conversion.  Shows the predicted
+    exercises alongside the current stored exercise data so the user can
+    compare and suggest corrections."""
+    return _wrap(
+        health_tools.get_hevy_routine_review,
+        _uslug(ctx), ifit_workout_id, hevy_routine_id,
+    )
+
+
+@mcp.tool
+def compare_hevy_workout(
+    ctx: Context, hevy_workout_id: str = "", days: int = 7
+) -> dict:
+    """Compare a completed Hevy workout with the iFit-predicted exercises.
+    Detects which recent Hevy workouts came from iFit routine conversions and
+    shows differences between predicted vs actual exercises, sets, reps, and
+    weights.  If hevy_workout_id is omitted, scans the last N days."""
+    return _wrap(
+        health_tools.compare_hevy_workout,
+        _uid(ctx), hevy_workout_id, days,
+    )
+
+
+@mcp.tool
+def apply_exercise_feedback(
+    ctx: Context, ifit_workout_id: str, corrections: list[dict]
+) -> dict:
+    """Apply user corrections to stored iFit exercise data.  Updates the
+    exercise extraction for a workout so future Hevy routine conversions
+    use the corrected data.  Clears the Hevy resolution cache."""
+    return _wrap(
+        health_tools.apply_exercise_feedback,
+        _uslug(ctx), ifit_workout_id, corrections,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Health check endpoint
 # ---------------------------------------------------------------------------

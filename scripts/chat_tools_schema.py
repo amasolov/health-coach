@@ -649,6 +649,123 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    # ===== iFit ↔ Hevy FEEDBACK LOOP =====
+    {
+        "type": "function",
+        "function": {
+            "name": "get_hevy_routine_review",
+            "description": (
+                "Review an iFit-to-Hevy routine conversion. Shows the predicted "
+                "exercises that were sent to Hevy alongside the current stored "
+                "exercise data from the iFit transcript. Use when a user wants "
+                "to review or verify what was converted, or before/after doing "
+                "the workout in Hevy."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ifit_workout_id": {
+                        "type": "string",
+                        "description": "The iFit workout ID to review. Provide this OR hevy_routine_id.",
+                    },
+                    "hevy_routine_id": {
+                        "type": "string",
+                        "description": "The Hevy routine ID to review. Provide this OR ifit_workout_id.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_hevy_workout",
+            "description": (
+                "Compare a completed Hevy workout with the iFit-predicted "
+                "exercises. Detects which Hevy workouts came from iFit routine "
+                "conversions and shows differences between predicted and actual "
+                "exercises, sets, reps, and weights. Use when a user says they "
+                "completed an iFit-based workout in Hevy and wants to check "
+                "accuracy, or to proactively find discrepancies."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hevy_workout_id": {
+                        "type": "string",
+                        "description": "Specific Hevy workout ID to compare. If omitted, scans recent workouts.",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Look back N days for iFit-sourced workouts. Default 7.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "apply_exercise_feedback",
+            "description": (
+                "Apply user corrections to stored iFit exercise data. Updates "
+                "the exercise extraction for a workout so future Hevy routine "
+                "conversions use the corrected data. Use when a user says an "
+                "exercise name is wrong, sets/reps are incorrect, an exercise "
+                "is missing, or an exercise should be removed."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "ifit_workout_id": {
+                        "type": "string",
+                        "description": "The iFit workout ID to correct.",
+                    },
+                    "corrections": {
+                        "type": "array",
+                        "description": "List of corrections to apply.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "action": {
+                                    "type": "string",
+                                    "description": "Type of correction: 'update', 'add', or 'remove'.",
+                                },
+                                "exercise_name": {
+                                    "type": "string",
+                                    "description": "Name of the exercise to update or remove.",
+                                },
+                                "new_name": {
+                                    "type": "string",
+                                    "description": "Corrected exercise name (for update/add).",
+                                },
+                                "sets": {
+                                    "type": "integer",
+                                    "description": "Corrected number of sets.",
+                                },
+                                "reps": {
+                                    "type": "string",
+                                    "description": "Corrected reps (e.g. '12' or '30s').",
+                                },
+                                "weight": {
+                                    "type": "string",
+                                    "description": "Corrected weight hint (e.g. 'dumbbell 15lb').",
+                                },
+                                "muscle_group": {
+                                    "type": "string",
+                                    "description": "Corrected primary muscle group.",
+                                },
+                            },
+                            "required": ["action", "exercise_name"],
+                        },
+                    },
+                },
+                "required": ["ifit_workout_id", "corrections"],
+            },
+        },
+    },
 ]
 
 
@@ -703,4 +820,8 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "discover_ifit_series":         (health_tools.discover_ifit_series, "none"),
     "recommend_strength_workout":   (health_tools.recommend_strength_workout, "slug"),
     "create_hevy_routine_from_recommendation": (health_tools.create_hevy_routine_from_recommendation, "creds"),
+    # iFit ↔ Hevy feedback loop
+    "get_hevy_routine_review":      (health_tools.get_hevy_routine_review, "slug"),
+    "compare_hevy_workout":         (health_tools.compare_hevy_workout, "uid"),
+    "apply_exercise_feedback":      (health_tools.apply_exercise_feedback, "slug"),
 }

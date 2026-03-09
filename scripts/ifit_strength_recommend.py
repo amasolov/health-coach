@@ -747,6 +747,58 @@ def stage2_analyse(
 # Hevy routine creation
 # ---------------------------------------------------------------------------
 
+R2_ROUTINE_MAP_KEY = "hevy/routine_map.json"
+
+
+def _load_routine_map() -> dict:
+    """Load the hevy_routine_id -> ifit mapping from R2."""
+    try:
+        from scripts.r2_store import is_configured, download_json
+        if is_configured():
+            data = download_json(R2_ROUTINE_MAP_KEY)
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_routine_mapping(
+    routine_id: str,
+    ifit_workout_id: str,
+    title: str,
+    predicted_exercises: list[dict],
+) -> None:
+    """Persist the Hevy routine -> iFit workout mapping to R2."""
+    if not routine_id:
+        return
+    try:
+        from scripts.r2_store import is_configured, upload_json
+        if not is_configured():
+            return
+        mapping = _load_routine_map()
+        mapping[routine_id] = {
+            "ifit_workout_id": ifit_workout_id,
+            "title": title,
+            "predicted_exercises": [
+                {
+                    "hevy_name": ex.get("hevy_name", ""),
+                    "hevy_id": ex.get("hevy_id", ""),
+                    "muscle_group": ex.get("muscle_group", ""),
+                    "sets": ex.get("sets", 0),
+                    "reps": ex.get("reps", 0),
+                    "weight": ex.get("weight", ""),
+                    "resolution": ex.get("resolution", ""),
+                }
+                for ex in predicted_exercises
+            ],
+            "created_at": datetime.now().isoformat(),
+        }
+        upload_json(R2_ROUTINE_MAP_KEY, mapping)
+        print(f"  Saved routine mapping: {routine_id} -> iFit {ifit_workout_id}")
+    except Exception as e:
+        print(f"  Warning: failed to save routine mapping: {e}")
+
 
 def _parse_reps_for_hevy(reps_val) -> dict:
     """Convert reps value to Hevy set fields.
@@ -842,9 +894,18 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
     if r.status_code in (200, 201):
         data = r.json()
         routine = data.get("routine", data)
+        routine_id = routine.get("id", "")
+
+        _save_routine_mapping(
+            routine_id=routine_id,
+            ifit_workout_id=rec.workout_id,
+            title=body["routine"]["title"],
+            predicted_exercises=resolved,
+        )
+
         result = {
             "status": "created",
-            "routine_id": routine.get("id", ""),
+            "routine_id": routine_id,
             "title": body["routine"]["title"],
             "exercises_created": len(exercises_payload),
             "exercises_total": len(rec.exercises),

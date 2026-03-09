@@ -88,6 +88,9 @@ TOOL_DISPLAY_NAMES = {
     "get_user_integrations":     "Integration Lookup",
     "suggest_feature":           "Feature Suggestion",
     "report_exercise_correction": "Exercise Data Correction",
+    "get_hevy_routine_review":   "Hevy Routine Review",
+    "compare_hevy_workout":      "Hevy ↔ iFit Comparison",
+    "apply_exercise_feedback":   "Exercise Feedback Update",
 }
 ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "").lower() in ("true", "1", "yes")
 SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))

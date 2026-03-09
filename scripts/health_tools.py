@@ -1956,3 +1956,342 @@ def create_hevy_routine_from_recommendation(
         return {"error": "hevy_api_key required to create a routine."}
 
     return create_hevy_routine(rec, hevy_api_key)
+
+
+# ---------------------------------------------------------------------------
+# iFit ↔ Hevy feedback loop
+# ---------------------------------------------------------------------------
+
+
+def _load_routine_map() -> dict:
+    """Load the Hevy routine_id -> iFit workout mapping from R2."""
+    try:
+        from scripts.r2_store import is_configured, download_json
+        if is_configured():
+            data = download_json("hevy/routine_map.json")
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def get_hevy_routine_review(
+    user_slug: str,
+    ifit_workout_id: str = "",
+    hevy_routine_id: str = "",
+) -> dict:
+    """Review an iFit-to-Hevy routine conversion.
+
+    Looks up the routine mapping by either the iFit workout ID or the Hevy
+    routine ID and returns the predicted exercises alongside the current
+    stored exercise data so the user can compare and suggest corrections.
+    """
+    mapping = _load_routine_map()
+    if not mapping:
+        return {"error": "No iFit-to-Hevy routine conversions found."}
+
+    entry = None
+    matched_routine_id = ""
+
+    if hevy_routine_id and hevy_routine_id in mapping:
+        entry = mapping[hevy_routine_id]
+        matched_routine_id = hevy_routine_id
+    elif ifit_workout_id:
+        for rid, m in mapping.items():
+            if m.get("ifit_workout_id") == ifit_workout_id:
+                entry = m
+                matched_routine_id = rid
+                break
+
+    if not entry:
+        available = [
+            {"routine_id": rid, "title": m.get("title", ""), "ifit_workout_id": m.get("ifit_workout_id", "")}
+            for rid, m in list(mapping.items())[-10:]
+        ]
+        return {
+            "error": "No matching routine conversion found.",
+            "hint": "Provide either an ifit_workout_id or hevy_routine_id.",
+            "recent_conversions": available,
+        }
+
+    ifit_wid = entry.get("ifit_workout_id", "")
+
+    current_exercises = None
+    try:
+        from scripts.r2_store import is_configured, download_json
+        if is_configured():
+            current_exercises = download_json(f"exercises/{ifit_wid}.json")
+    except Exception:
+        pass
+
+    return {
+        "hevy_routine_id": matched_routine_id,
+        "ifit_workout_id": ifit_wid,
+        "title": entry.get("title", ""),
+        "created_at": entry.get("created_at", ""),
+        "predicted_exercises": entry.get("predicted_exercises", []),
+        "current_stored_exercises": current_exercises,
+        "hint": (
+            "Review the predicted_exercises (what was sent to Hevy) and "
+            "current_stored_exercises (LLM extraction from iFit transcript). "
+            "If something is wrong, use apply_exercise_feedback to correct it."
+        ),
+    }
+
+
+def compare_hevy_workout(
+    user_id: int,
+    hevy_workout_id: str = "",
+    days: int = 7,
+) -> dict:
+    """Compare a completed Hevy workout with its iFit-predicted exercises.
+
+    If hevy_workout_id is not provided, scans recent workouts (last N days)
+    for any that originated from an iFit-converted routine and compares
+    the first match found.
+    """
+    mapping = _load_routine_map()
+    if not mapping:
+        return {"error": "No iFit-to-Hevy routine conversions recorded yet."}
+
+    conn = _get_conn()
+    cur = conn.cursor()
+    try:
+        if hevy_workout_id:
+            cur.execute("""
+                SELECT workout_id, routine_id, exercise_name, set_number,
+                       weight_kg, reps, duration_s, set_type
+                FROM strength_sets
+                WHERE user_id = %s AND workout_id = %s
+                ORDER BY set_number
+            """, (user_id, hevy_workout_id))
+        else:
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            cur.execute("""
+                SELECT workout_id, routine_id, exercise_name, set_number,
+                       weight_kg, reps, duration_s, set_type
+                FROM strength_sets
+                WHERE user_id = %s AND time >= %s AND routine_id IS NOT NULL
+                ORDER BY time DESC, set_number
+            """, (user_id, cutoff))
+
+        rows = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+
+    if not rows:
+        if hevy_workout_id:
+            return {"error": f"No sets found for workout {hevy_workout_id}."}
+        return {
+            "error": f"No iFit-sourced workouts found in the last {days} days.",
+            "hint": "Complete a Hevy workout that was created from an iFit recommendation, then try again.",
+        }
+
+    target_workout_id = rows[0][0]
+    target_routine_id = rows[0][1]
+
+    actual_exercises: dict[str, dict] = {}
+    for _, _, name, set_num, weight, reps, dur, stype in rows:
+        if rows[0][0] != _ and _ != target_workout_id:
+            continue
+        if name not in actual_exercises:
+            actual_exercises[name] = {"sets": 0, "reps": [], "weights": [], "durations": []}
+        ex = actual_exercises[name]
+        ex["sets"] += 1
+        if reps is not None:
+            ex["reps"].append(int(reps))
+        if weight is not None:
+            ex["weights"].append(float(weight))
+        if dur is not None:
+            ex["durations"].append(int(dur))
+
+    for ex in actual_exercises.values():
+        if ex["reps"]:
+            ex["typical_reps"] = max(set(ex["reps"]), key=ex["reps"].count)
+        if ex["weights"]:
+            ex["typical_weight_kg"] = round(max(ex["weights"]), 1)
+
+    predicted_entry = mapping.get(target_routine_id, {}) if target_routine_id else {}
+    predicted_exercises = predicted_entry.get("predicted_exercises", [])
+    ifit_workout_id = predicted_entry.get("ifit_workout_id", "")
+
+    if not predicted_exercises and target_routine_id:
+        return {
+            "workout_id": target_workout_id,
+            "routine_id": target_routine_id,
+            "actual_exercises": actual_exercises,
+            "note": (
+                "This workout came from a Hevy routine but no iFit mapping was found. "
+                "It may have been created before the mapping feature was added."
+            ),
+        }
+
+    predicted_names = {ex.get("hevy_name", "").lower(): ex for ex in predicted_exercises}
+    actual_names = {name.lower(): data for name, data in actual_exercises.items()}
+
+    differences: list[dict] = []
+
+    for pred_ex in predicted_exercises:
+        pname = pred_ex.get("hevy_name", "")
+        pname_lower = pname.lower()
+        if pname_lower in actual_names:
+            actual = actual_names[pname_lower]
+            diffs = {}
+            pred_sets = int(pred_ex.get("sets", 0))
+            if pred_sets and pred_sets != actual["sets"]:
+                diffs["sets"] = {"predicted": pred_sets, "actual": actual["sets"]}
+            pred_reps = pred_ex.get("reps", "")
+            if pred_reps and actual.get("typical_reps"):
+                try:
+                    pr = int(str(pred_reps).rstrip("s"))
+                    if pr != actual["typical_reps"]:
+                        diffs["reps"] = {"predicted": pr, "actual": actual["typical_reps"]}
+                except ValueError:
+                    pass
+            if diffs:
+                differences.append({"exercise": pname, "status": "modified", **diffs})
+        else:
+            differences.append({"exercise": pname, "status": "predicted_but_not_done"})
+
+    for aname in actual_names:
+        if aname not in predicted_names:
+            differences.append({"exercise": aname, "status": "done_but_not_predicted"})
+
+    return {
+        "workout_id": target_workout_id,
+        "routine_id": target_routine_id,
+        "ifit_workout_id": ifit_workout_id,
+        "title": predicted_entry.get("title", ""),
+        "actual_exercises": {
+            name: {"sets": d["sets"], "typical_reps": d.get("typical_reps"), "typical_weight_kg": d.get("typical_weight_kg")}
+            for name, d in actual_exercises.items()
+        },
+        "predicted_exercises": [
+            {"name": ex.get("hevy_name", ""), "sets": ex.get("sets"), "reps": ex.get("reps"), "weight": ex.get("weight", "")}
+            for ex in predicted_exercises
+        ],
+        "differences": differences,
+        "match_score": f"{len(predicted_exercises) - len([d for d in differences if d['status'] != 'modified'])}/{len(predicted_exercises)} exercises matched",
+        "hint": (
+            "Review the differences above. If the actual workout better reflects "
+            "the iFit workout, use apply_exercise_feedback to update the stored data."
+        ),
+    }
+
+
+def apply_exercise_feedback(
+    user_slug: str,
+    ifit_workout_id: str,
+    corrections: list[dict],
+) -> dict:
+    """Apply user corrections to stored iFit exercise data.
+
+    Each correction dict can have:
+      - action: "update", "add", or "remove"
+      - exercise_name: name of the exercise to update/remove
+      - new_name: (optional) corrected exercise name
+      - sets: (optional) corrected number of sets
+      - reps: (optional) corrected reps
+      - weight: (optional) corrected weight hint
+      - muscle_group: (optional) corrected muscle group
+      - notes: (optional) notes about the correction
+
+    Updates exercises/{workout_id}.json in R2 and clears the Hevy
+    resolved cache so the next routine creation uses the corrected data.
+    """
+    import json as _json
+
+    try:
+        from scripts.r2_store import is_configured, download_json, upload_json
+        if not is_configured():
+            return {"error": "R2 storage not configured."}
+    except ImportError:
+        return {"error": "R2 storage module not available."}
+
+    exercises = download_json(f"exercises/{ifit_workout_id}.json")
+    if not exercises or not isinstance(exercises, list):
+        return {"error": f"No stored exercises found for workout {ifit_workout_id}."}
+
+    changes_applied = []
+    original_count = len(exercises)
+
+    for correction in corrections:
+        action = correction.get("action", "update")
+        target_name = correction.get("exercise_name", "").lower().strip()
+
+        if action == "add":
+            new_ex = {
+                "hevy_name": correction.get("new_name", correction.get("exercise_name", "New Exercise")),
+                "hevy_id": "",
+                "muscle_group": correction.get("muscle_group", "other"),
+                "sets": correction.get("sets", 3),
+                "reps": correction.get("reps", 12),
+                "weight": correction.get("weight", ""),
+                "notes": correction.get("notes", "User-corrected"),
+                "user_corrected": True,
+            }
+            exercises.append(new_ex)
+            changes_applied.append({"action": "added", "exercise": new_ex["hevy_name"]})
+            continue
+
+        if action == "remove":
+            before = len(exercises)
+            exercises = [
+                ex for ex in exercises
+                if ex.get("hevy_name", "").lower().strip() != target_name
+            ]
+            if len(exercises) < before:
+                changes_applied.append({"action": "removed", "exercise": target_name})
+            else:
+                changes_applied.append({"action": "not_found", "exercise": target_name})
+            continue
+
+        matched = False
+        for ex in exercises:
+            if ex.get("hevy_name", "").lower().strip() == target_name:
+                if "new_name" in correction:
+                    ex["hevy_name"] = correction["new_name"]
+                if "sets" in correction:
+                    ex["sets"] = correction["sets"]
+                if "reps" in correction:
+                    ex["reps"] = correction["reps"]
+                if "weight" in correction:
+                    ex["weight"] = correction["weight"]
+                if "muscle_group" in correction:
+                    ex["muscle_group"] = correction["muscle_group"]
+                if "notes" in correction:
+                    ex["notes"] = correction["notes"]
+                ex["hevy_id"] = ""
+                ex["user_corrected"] = True
+                changes_applied.append({"action": "updated", "exercise": ex["hevy_name"]})
+                matched = True
+                break
+
+        if not matched:
+            changes_applied.append({"action": "not_found", "exercise": target_name})
+
+    ok = upload_json(f"exercises/{ifit_workout_id}.json", exercises)
+    if not ok:
+        return {"error": "Failed to save corrected exercises to R2."}
+
+    try:
+        from scripts.r2_store import delete as r2_delete
+        resolved_key = f"hevy/resolved/{ifit_workout_id}.json"
+        if r2_delete(resolved_key):
+            changes_applied.append({"action": "cleared_hevy_cache", "key": resolved_key})
+    except Exception:
+        pass
+
+    return {
+        "status": "applied",
+        "ifit_workout_id": ifit_workout_id,
+        "original_exercise_count": original_count,
+        "updated_exercise_count": len(exercises),
+        "changes": changes_applied,
+        "hint": (
+            "Exercise data updated. The next time this iFit workout is "
+            "converted to a Hevy routine, it will use the corrected exercises."
+        ),
+    }
