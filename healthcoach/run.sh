@@ -57,28 +57,6 @@ if not auth_secret:
     json.dump(opts, open('$OPTIONS_FILE', 'w'), indent=2)
 print(f'export CHAINLIT_AUTH_SECRET={shlex.quote(auth_secret)}')
 
-# Auto-generate MCP API keys for users that don't have them
-users = opts['users']
-changed = False
-for u in users:
-    if not u.get('mcp_api_key'):
-        u['mcp_api_key'] = secrets.token_urlsafe(32)
-        changed = True
-
-print(f'export USERS_JSON={shlex.quote(json.dumps(users))}')
-
-# Persist auto-generated keys back to options.json
-if changed:
-    json.dump(opts, open('$OPTIONS_FILE', 'w'), indent=2)
-    print('echo \"INFO: Auto-generated MCP API keys for users without them\"', flush=True)
-
-# Print user info in the addon log
-for u in users:
-    slug = u.get('slug', '?')
-    email = u.get('email', '')
-    key = u.get('mcp_api_key', '')
-    print(f'echo \"  User {slug} ({email}): MCP key {key}\"')
-
 # Print OAuth status
 if gcid:
     print('echo \"  Google OAuth: enabled\"')
@@ -114,6 +92,43 @@ for cfg in athlete.yaml equipment.yaml zones.yaml; do
     ln -sf "$target" "$link"
 done
 echo "Config files linked from $HA_CFG"
+
+# ------------------------------------------------------------------
+# Users are stored in /config/healthcoach/users.json (not options.json)
+# so that user credentials survive addon option resets and to avoid
+# complex nested-object schemas that the HA supervisor rejects.
+# ------------------------------------------------------------------
+eval "$(python3 -c "
+import json, secrets, shlex
+from pathlib import Path
+
+users_file = Path('/config/healthcoach/users.json')
+
+if not users_file.exists():
+    users = []
+    print('echo \"INFO: users.json not found -- no users configured. Use the chat UI to register.\"')
+else:
+    users = json.loads(users_file.read_text())
+
+# Auto-generate MCP API keys for users that don't have them
+changed = False
+for u in users:
+    if not u.get('mcp_api_key'):
+        u['mcp_api_key'] = secrets.token_urlsafe(32)
+        changed = True
+
+if changed:
+    users_file.write_text(json.dumps(users, indent=2))
+    print('echo \"INFO: Auto-generated MCP API keys for new users\"')
+
+print(f'export USERS_JSON={shlex.quote(json.dumps(users))}')
+
+for u in users:
+    slug = u.get('slug', '?')
+    email = u.get('email', '')
+    key = u.get('mcp_api_key', '')
+    print(f'echo \"  User {slug} ({email}): MCP key {key}\"')
+")"
 echo "DB: ${DB_HOST}:${DB_PORT}/${DB_NAME}"
 echo "Grafana: ${GRAFANA_HOST}:${GRAFANA_PORT}"
 echo "MCP server: port ${MCP_PORT}"

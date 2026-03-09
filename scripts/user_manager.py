@@ -3,7 +3,7 @@ User registration and management.
 
 Handles creating new users in:
   - PostgreSQL (users table)
-  - /data/options.json (HA addon persistent config)
+  - /config/healthcoach/users.json (persistent user store)
   - /config/healthcoach/athlete.yaml (athlete profile stub)
 
 Used by the onboarding flow in chat_app.py.
@@ -21,8 +21,8 @@ from typing import Any
 import psycopg2
 import yaml
 
-OPTIONS_FILE = Path("/data/options.json")
 HA_CFG_DIR = Path("/config/healthcoach")
+USERS_FILE = HA_CFG_DIR / "users.json"
 
 
 # ---------------------------------------------------------------------------
@@ -71,28 +71,24 @@ def create_db_user(slug: str, display_name: str) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# options.json helpers (HA addon only)
+# users.json helpers
 # ---------------------------------------------------------------------------
 
-def add_user_to_options(user_entry: dict) -> bool:
+def add_user_to_users_file(user_entry: dict) -> bool:
     """
-    Append a user entry to /data/options.json.
-    Returns True on success, False if not running inside the HA addon.
+    Append a user entry to /config/healthcoach/users.json.
+    Creates the file if it doesn't exist.
     """
-    if not OPTIONS_FILE.exists():
-        return False
+    HA_CFG_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        opts = json.loads(OPTIONS_FILE.read_text())
+        users = json.loads(USERS_FILE.read_text()) if USERS_FILE.exists() else []
         # Idempotent: remove any existing entry with the same slug
-        opts["users"] = [
-            u for u in opts.get("users", [])
-            if u.get("slug") != user_entry["slug"]
-        ]
-        opts["users"].append(user_entry)
-        OPTIONS_FILE.write_text(json.dumps(opts, indent=2))
+        users = [u for u in users if u.get("slug") != user_entry["slug"]]
+        users.append(user_entry)
+        USERS_FILE.write_text(json.dumps(users, indent=2))
         return True
     except Exception as e:
-        print(f"ERROR: add_user_to_options failed: {e}")
+        print(f"ERROR: add_user_to_users_file failed: {e}")
         return False
 
 
@@ -255,7 +251,7 @@ def register_user(
         "hevy_api_key": hevy_api_key,
     }
 
-    add_user_to_options(user_entry)
+    add_user_to_users_file(user_entry)
     create_athlete_config(slug, first_name, last_name, timezone)
 
     return {

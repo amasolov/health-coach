@@ -47,15 +47,6 @@ options:
   grafana_host: "a0d7b954-grafana"
   grafana_port: 3000
   grafana_api_key: ""
-  users:
-    - first_name: "Alexey"
-      last_name: "M"
-      slug: "alexey"
-      email: ""
-      mcp_api_key: ""
-      garmin_email: ""
-      garmin_password: ""
-      hevy_api_key: ""
 schema:
   sync_interval_minutes: "int(5,1440)"
   mcp_port: "int(1024,65535)"
@@ -78,12 +69,3 @@ schema:
   grafana_host: str
   grafana_port: port
   grafana_api_key: "str?"
-  users:
-    - first_name: str
-      last_name: str
-      slug: str
-      email: str
-      mcp_api_key: "str?"
-      garmin_email: str
-      garmin_password: password
-      hevy_api_key: "str?"
