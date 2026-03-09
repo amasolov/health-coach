@@ -577,6 +577,28 @@ async def run_onboarding(user: cl.User) -> None:
 # Chat handlers
 # ---------------------------------------------------------------------------
 
+@cl.set_starters
+async def set_starters() -> list[cl.Starter]:
+    return [
+        cl.Starter(
+            label="How am I doing this week?",
+            message="Give me a summary of my training this week — volume, intensity, TSS, and how I'm trending.",
+        ),
+        cl.Starter(
+            label="What should I do today?",
+            message="Based on my recent training load and recovery, what should I do today?",
+        ),
+        cl.Starter(
+            label="Show my PMC",
+            message="Show me my performance management chart — CTL, ATL, and TSB trend.",
+        ),
+        cl.Starter(
+            label="Recent activities",
+            message="List my last 7 days of activities with TSS and key metrics.",
+        ),
+    ]
+
+
 @cl.on_chat_start
 async def on_chat_start():
     user = cl.user_session.get("user")
@@ -605,12 +627,6 @@ async def on_chat_start():
 
     user_data = _USERS_BY_SLUG.get(user_slug, {})
     await _init_session(user_slug, user_id, first_name, user_data)
-
-    await cl.Message(
-        content=f"Hey {first_name}! I'm your fitness coach. "
-        "I have access to your training data, vitals, body composition, "
-        "and more. How can I help you today?"
-    ).send()
 
 
 @cl.on_chat_resume
