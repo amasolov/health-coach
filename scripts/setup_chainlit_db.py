@@ -24,7 +24,7 @@ DDL = """
 CREATE TABLE IF NOT EXISTS users (
     "id"         UUID PRIMARY KEY,
     "identifier" TEXT NOT NULL UNIQUE,
-    "metadata"   JSONB NOT NULL,
+    "metadata"   TEXT NOT NULL,
     "createdAt"  TEXT
 );
 
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS threads (
     "userId"         UUID,
     "userIdentifier" TEXT,
     "tags"           TEXT[],
-    "metadata"       JSONB,
+    "metadata"       TEXT,
     FOREIGN KEY ("userId") REFERENCES users("id") ON DELETE CASCADE
 );
 
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS steps (
     "streaming"     BOOLEAN NOT NULL,
     "waitForAnswer" BOOLEAN,
     "isError"       BOOLEAN,
-    "metadata"      JSONB,
+    "metadata"      TEXT,
     "tags"          TEXT[],
     "input"         TEXT,
     "output"        TEXT,
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS steps (
     "command"       TEXT,
     "start"         TEXT,
     "end"           TEXT,
-    "generation"    JSONB,
+    "generation"    TEXT,
     "showInput"     TEXT,
     "language"      TEXT,
     "indent"        INT,
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS elements (
     "language"     TEXT,
     "forId"        UUID,
     "mime"         TEXT,
-    "props"        JSONB,
+    "props"        TEXT,
     FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
 );
 
@@ -90,6 +90,54 @@ CREATE TABLE IF NOT EXISTS feedbacks (
     "comment"  TEXT,
     FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
 );
+"""
+
+# Migrate any existing JSONB columns to TEXT so Chainlit's LIKE queries work.
+MIGRATIONS = """
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='users' AND column_name='metadata' AND data_type='jsonb'
+  ) THEN
+    ALTER TABLE users ALTER COLUMN "metadata" TYPE TEXT USING "metadata"::text;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='threads' AND column_name='metadata' AND data_type='jsonb'
+  ) THEN
+    ALTER TABLE threads ALTER COLUMN "metadata" TYPE TEXT USING "metadata"::text;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='steps' AND column_name='metadata' AND data_type='jsonb'
+  ) THEN
+    ALTER TABLE steps ALTER COLUMN "metadata" TYPE TEXT USING "metadata"::text;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='steps' AND column_name='generation' AND data_type='jsonb'
+  ) THEN
+    ALTER TABLE steps ALTER COLUMN "generation" TYPE TEXT USING "generation"::text;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='elements' AND column_name='props' AND data_type='jsonb'
+  ) THEN
+    ALTER TABLE elements ALTER COLUMN "props" TYPE TEXT USING "props"::text;
+  END IF;
+END $$;
 """
 
 
@@ -120,12 +168,13 @@ def main() -> int:
         print(f"  WARNING: Could not check/create {CHAT_DB}: {exc}")
         return 1
 
-    # Apply schema idempotently
+    # Apply schema idempotently then migrate JSONB → TEXT columns
     try:
         conn = _conn(CHAT_DB)
         conn.autocommit = True
         cur = conn.cursor()
         cur.execute(DDL)
+        cur.execute(MIGRATIONS)
         print(f"  Chainlit schema ready in {CHAT_DB}")
         conn.close()
     except Exception as exc:
