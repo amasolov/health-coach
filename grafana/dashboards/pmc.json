@@ -37,14 +37,148 @@
     },
     "panels": [
       {
+        "id": 10,
+        "title": "",
+        "type": "text",
+        "gridPos": {
+          "h": 6,
+          "w": 16,
+          "x": 0,
+          "y": 0
+        },
+        "options": {
+          "mode": "markdown",
+          "content": "## How to read this chart\n\n| Metric | What it means | Think of it as\u2026 |\n|---|---|---|\n| **Fitness (CTL)** | Your long-term training load (42-day average). Higher = fitter. | How much your body is *used to* doing |\n| **Fatigue (ATL)** | Your short-term training load (7-day average). Higher = more tired. | How much you've done *recently* |\n| **Form (TSB)** | Fitness minus Fatigue. Shows how fresh or fatigued you are *right now*. | Your readiness to perform |\n\n**Key rule:** When Fatigue (red) rises far above Fitness (blue), you're accumulating risk. The yellow Form line going deeply negative means you're digging a hole \u2014 good for building fitness, dangerous if it stays there too long."
+        }
+      },
+      {
+        "id": 11,
+        "title": "Today's Advice",
+        "type": "stat",
+        "gridPos": {
+          "h": 6,
+          "w": 8,
+          "x": 16,
+          "y": 0
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT round(tsb::numeric, 1) AS \"TSB\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "textMode": "value",
+          "colorMode": "background_solid",
+          "justifyMode": "center"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "type": "range",
+                "options": {
+                  "from": -9999,
+                  "to": -30,
+                  "result": {
+                    "text": "REST DAY\nInjury & illness risk",
+                    "index": 0
+                  }
+                }
+              },
+              {
+                "type": "range",
+                "options": {
+                  "from": -30,
+                  "to": -10,
+                  "result": {
+                    "text": "EASY DAY\nOverreaching \u2014 back off",
+                    "index": 1
+                  }
+                }
+              },
+              {
+                "type": "range",
+                "options": {
+                  "from": -10,
+                  "to": 5,
+                  "result": {
+                    "text": "TRAIN\nGood zone for hard work",
+                    "index": 2
+                  }
+                }
+              },
+              {
+                "type": "range",
+                "options": {
+                  "from": 5,
+                  "to": 25,
+                  "result": {
+                    "text": "FRESH\nReady for a big session",
+                    "index": 3
+                  }
+                }
+              },
+              {
+                "type": "range",
+                "options": {
+                  "from": 25,
+                  "to": 9999,
+                  "result": {
+                    "text": "TOO FRESH\nFitness fading \u2014 train!",
+                    "index": 4
+                  }
+                }
+              }
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "dark-red"
+                },
+                {
+                  "value": -30,
+                  "color": "dark-orange"
+                },
+                {
+                  "value": -10,
+                  "color": "#b5a20f"
+                },
+                {
+                  "value": 5,
+                  "color": "dark-green"
+                },
+                {
+                  "value": 25,
+                  "color": "dark-blue"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          }
+        }
+      },
+      {
         "id": 1,
         "title": "Performance Management Chart (CTL / ATL / TSB)",
+        "description": "The main chart. Blue = long-term fitness, Red = recent fatigue, Yellow = freshness/form. Dashed lines show projections based on your average training load.",
         "type": "timeseries",
         "gridPos": {
           "h": 14,
           "w": 24,
           "x": 0,
-          "y": 0
+          "y": 6
         },
         "datasource": "$datasource",
         "targets": [
@@ -64,8 +198,11 @@
             "custom": {
               "lineWidth": 2,
               "fillOpacity": 0,
-              "showPoints": "never"
-            }
+              "showPoints": "never",
+              "axisLabel": ""
+            },
+            "unit": "none",
+            "decimals": 1
           },
           "overrides": [
             {
@@ -80,6 +217,10 @@
                     "mode": "fixed",
                     "fixedColor": "blue"
                   }
+                },
+                {
+                  "id": "custom.lineWidth",
+                  "value": 3
                 }
               ]
             },
@@ -108,12 +249,54 @@
                   "id": "color",
                   "value": {
                     "mode": "fixed",
-                    "fixedColor": "yellow"
+                    "fixedColor": "#FADE2A"
                   }
                 },
                 {
                   "id": "custom.fillOpacity",
-                  "value": 10
+                  "value": 8
+                },
+                {
+                  "id": "custom.fillBelowTo",
+                  "value": "tsb_zero"
+                },
+                {
+                  "id": "custom.lineWidth",
+                  "value": 2
+                },
+                {
+                  "id": "custom.thresholdsStyle",
+                  "value": {
+                    "mode": "dashed+area"
+                  }
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": null,
+                        "color": "red"
+                      },
+                      {
+                        "value": -30,
+                        "color": "orange"
+                      },
+                      {
+                        "value": -10,
+                        "color": "transparent"
+                      },
+                      {
+                        "value": 5,
+                        "color": "transparent"
+                      },
+                      {
+                        "value": 25,
+                        "color": "super-light-blue"
+                      }
+                    ]
+                  }
                 }
               ]
             },
@@ -135,7 +318,56 @@
                 },
                 {
                   "id": "custom.fillOpacity",
-                  "value": 5
+                  "value": 3
+                },
+                {
+                  "id": "custom.lineWidth",
+                  "value": 1
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "CTL (projected)"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "light-blue"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "ATL (projected)"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "super-light-red"
+                  }
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "TSB (projected)"
+              },
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {
+                    "mode": "fixed",
+                    "fixedColor": "super-light-yellow"
+                  }
                 }
               ]
             }
@@ -143,13 +375,16 @@
         },
         "options": {
           "tooltip": {
-            "mode": "multi"
+            "mode": "multi",
+            "sort": "none"
           },
           "legend": {
             "displayMode": "table",
             "placement": "bottom",
             "calcs": [
-              "lastNotNull"
+              "lastNotNull",
+              "min",
+              "max"
             ]
           }
         },
@@ -161,14 +396,200 @@
         ]
       },
       {
+        "id": 4,
+        "title": "Current Status",
+        "description": "Your current fitness level. Red = very low, orange = low, yellow = building, green = solid, blue = elite.",
+        "type": "stat",
+        "gridPos": {
+          "h": 5,
+          "w": 8,
+          "x": 0,
+          "y": 20
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "CTL",
+            "rawSql": "SELECT round(ctl::numeric, 1) AS \"Fitness (CTL)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "orientation": "auto",
+          "textMode": "auto",
+          "colorMode": "background_solid"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "decimals": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 15,
+                  "color": "orange"
+                },
+                {
+                  "value": 25,
+                  "color": "yellow"
+                },
+                {
+                  "value": 40,
+                  "color": "green"
+                },
+                {
+                  "value": 70,
+                  "color": "blue"
+                }
+              ]
+            }
+          }
+        },
+        "links": [
+          {
+            "title": "View Recovery",
+            "url": "/d/health-vitals/?var-user=$user&${__url_time_range}"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Current Fatigue",
+        "description": "Your recent fatigue. Green = rested, yellow = moderate fatigue, orange = high fatigue, red = very high \u2014 rest needed.",
+        "type": "stat",
+        "gridPos": {
+          "h": 5,
+          "w": 8,
+          "x": 8,
+          "y": 20
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "ATL",
+            "rawSql": "SELECT round(atl::numeric, 1) AS \"Fatigue (ATL)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "orientation": "auto",
+          "textMode": "auto",
+          "colorMode": "background_solid"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "decimals": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 30,
+                  "color": "yellow"
+                },
+                {
+                  "value": 50,
+                  "color": "orange"
+                },
+                {
+                  "value": 70,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Current Form",
+        "description": "Fitness minus Fatigue \u2014 your readiness. Red = danger (rest!), orange = overreaching, yellow = tired but OK, green = fresh, blue = very fresh.",
+        "type": "stat",
+        "gridPos": {
+          "h": 5,
+          "w": 8,
+          "x": 16,
+          "y": 20
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "TSB",
+            "rawSql": "SELECT round(tsb::numeric, 1) AS \"Form (TSB)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "orientation": "auto",
+          "textMode": "auto",
+          "colorMode": "background_solid"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "decimals": 1,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": -30,
+                  "color": "orange"
+                },
+                {
+                  "value": -10,
+                  "color": "yellow"
+                },
+                {
+                  "value": 5,
+                  "color": "green"
+                },
+                {
+                  "value": 25,
+                  "color": "super-light-blue"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
         "id": 2,
-        "title": "Daily TSS",
+        "title": "Daily Training Stress (TSS)",
+        "description": "Each bar is one day's training load. TSS combines duration and intensity into a single number. A typical easy run is ~30-50 TSS, a hard session 80-150, a big race day 200+. Rest days are 0.",
         "type": "barchart",
         "gridPos": {
           "h": 8,
           "w": 24,
           "x": 0,
-          "y": 14
+          "y": 25
         },
         "datasource": "$datasource",
         "targets": [
@@ -180,11 +601,34 @@
         ],
         "fieldConfig": {
           "defaults": {
-            "color": {
-              "mode": "palette-classic"
-            },
+            "unit": "none",
+            "decimals": 0,
             "custom": {
               "fillOpacity": 80
+            },
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 80,
+                  "color": "yellow"
+                },
+                {
+                  "value": 150,
+                  "color": "orange"
+                },
+                {
+                  "value": 250,
+                  "color": "red"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
             }
           }
         },
@@ -197,14 +641,14 @@
       },
       {
         "id": 3,
-        "title": "CTL Ramp Rate (week-over-week)",
-        "description": "Safe range: -2 to +7. Above +7 increases injury risk.",
+        "title": "CTL Ramp Rate (week-over-week fitness change)",
+        "description": "How fast your fitness (CTL) is changing. A safe ramp is 3-5 points/week. Above 7 significantly increases injury and illness risk. Negative means you're losing fitness.",
         "type": "timeseries",
         "gridPos": {
           "h": 8,
           "w": 24,
           "x": 0,
-          "y": 22
+          "y": 33
         },
         "datasource": "$datasource",
         "targets": [
@@ -216,6 +660,8 @@
         ],
         "fieldConfig": {
           "defaults": {
+            "unit": "none",
+            "decimals": 1,
             "color": {
               "mode": "fixed",
               "fixedColor": "orange"
@@ -224,14 +670,19 @@
               "lineWidth": 2,
               "fillOpacity": 15,
               "thresholdsStyle": {
-                "mode": "area"
-              }
+                "mode": "dashed+area"
+              },
+              "axisLabel": "CTL \u0394 / week"
             },
             "thresholds": {
               "mode": "absolute",
               "steps": [
                 {
                   "value": null,
+                  "color": "blue"
+                },
+                {
+                  "value": -2,
                   "color": "green"
                 },
                 {
@@ -240,6 +691,10 @@
                 },
                 {
                   "value": 7,
+                  "color": "orange"
+                },
+                {
+                  "value": 10,
                   "color": "red"
                 }
               ]
@@ -248,47 +703,19 @@
         }
       },
       {
-        "id": 4,
-        "title": "Current Status",
-        "type": "stat",
+        "id": 13,
+        "title": "",
+        "type": "text",
         "gridPos": {
           "h": 5,
           "w": 24,
           "x": 0,
-          "y": 30
+          "y": 41
         },
-        "datasource": "$datasource",
-        "targets": [
-          {
-            "refId": "CTL",
-            "rawSql": "SELECT ctl AS \"Fitness (CTL)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "ATL",
-            "rawSql": "SELECT atl AS \"Fatigue (ATL)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "TSB",
-            "rawSql": "SELECT tsb AS \"Form (TSB)\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          }
-        ],
         "options": {
-          "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
-          },
-          "orientation": "horizontal"
-        },
-        "links": [
-          {
-            "title": "View Recovery",
-            "url": "/d/health-vitals/?var-user=$user&${__url_time_range}"
-          }
-        ]
+          "mode": "markdown",
+          "content": "### Quick reference\n\n| Metric | Safe zone | Watch out | Danger |\n|---|---|---|---|\n| **Fitness (CTL)** | 25-60 (recreational athlete) | < 20 (detraining) | Sudden jumps > 10/week |\n| **Fatigue (ATL)** | Below your CTL | 1.0-1.5\u00d7 your CTL | > 1.5\u00d7 your CTL |\n| **Form (TSB)** | -10 to +15 | -10 to -30 (overreaching) | Below -30 (injury/illness risk) |\n| **Ramp Rate** | +3 to +5 / week | +5 to +7 / week | Above +7 / week |\n| **Daily TSS** | 30-80 (typical session) | 150+ (very hard day) | 250+ (extreme \u2014 race only) |\n\n**The golden rule:** Never increase your training load by more than 10% per week. If Form drops below -30 for more than a few days, take a rest day \u2014 your immune system is compromised and injury risk spikes."
+        }
       }
     ],
     "schemaVersion": 39,

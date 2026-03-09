@@ -86,14 +86,9 @@ def ensure_folder(client: httpx.Client, uid: str, title: str, parent_uid: str = 
 # Datasource
 # ---------------------------------------------------------------------------
 
-def ensure_datasource(client: httpx.Client) -> None:
-    resp = client.get("/api/datasources/name/TimescaleDB")
-    if resp.status_code == 200:
-        print(f"  Datasource 'TimescaleDB' exists (uid={resp.json().get('uid', '?')})")
-        return
-
+def _ds_payload() -> dict:
     db_host = os.environ.get("GRAFANA_DB_HOST", "") or os.environ.get("DB_HOST", "localhost")
-    ds_payload = {
+    return {
         "name": "TimescaleDB",
         "type": "grafana-postgresql-datasource",
         "access": "proxy",
@@ -104,11 +99,79 @@ def ensure_datasource(client: httpx.Client) -> None:
         "secureJsonData": {"password": os.environ.get("DB_PASSWORD", "")},
         "isDefault": False,
     }
-    resp = client.post("/api/datasources", json=ds_payload)
+
+
+def _try_supervisor_datasource() -> bool:
+    """Create datasource via HA Supervisor ingress (admin-level access)."""
+    supervisor_token = os.environ.get("SUPERVISOR_TOKEN", "")
+    if not supervisor_token:
+        return False
+
+    sup_headers = {"Authorization": f"Bearer {supervisor_token}"}
+    try:
+        resp = httpx.post(
+            "http://supervisor/ingress/session",
+            headers=sup_headers,
+            json={"addon": "a0d7b954_grafana"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return False
+        session = resp.json().get("data", {}).get("session", "")
+        if not session:
+            return False
+    except Exception:
+        return False
+
+    grafana_host = os.environ.get("GRAFANA_HOST", "a0d7b954-grafana")
+    grafana_port = os.environ.get("GRAFANA_PORT", "3000")
+    grafana_url = f"http://{grafana_host}:{grafana_port}"
+
+    try:
+        resp = httpx.post(
+            f"{grafana_url}/api/datasources",
+            json=_ds_payload(),
+            cookies={"ingress_session": session},
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        if resp.status_code in (200, 409):
+            print("  Datasource 'TimescaleDB' created (via Supervisor ingress)")
+            return True
+        print(f"  Supervisor ingress attempt: {resp.status_code} {resp.text[:200]}")
+    except Exception as exc:
+        print(f"  Supervisor ingress attempt failed: {exc}")
+    return False
+
+
+def ensure_datasource(client: httpx.Client) -> None:
+    resp = client.get("/api/datasources/name/TimescaleDB")
+    if resp.status_code == 200:
+        print(f"  Datasource 'TimescaleDB' exists (uid={resp.json().get('uid', '?')})")
+        return
+
+    payload = _ds_payload()
+    resp = client.post("/api/datasources", json=payload)
     if resp.status_code in (200, 409):
-        print(f"  Datasource 'TimescaleDB' created")
-    else:
-        print(f"  WARN: Datasource creation: {resp.status_code} {resp.text[:300]}")
+        print("  Datasource 'TimescaleDB' created")
+        return
+
+    if resp.status_code == 403 and _try_supervisor_datasource():
+        return
+
+    db_url = payload["url"]
+    print(f"  WARN: Cannot auto-create datasource ({resp.status_code})")
+    print(f"  The API key lacks datasources:create permission.")
+    print(f"  Create it once in the Grafana UI  ->  Connections > Data sources > Add:")
+    print(f"    Name:       TimescaleDB")
+    print(f"    Type:       PostgreSQL")
+    print(f"    Host:       {db_url}")
+    print(f"    Database:   {payload['database']}")
+    print(f"    User:       {payload['user']}")
+    print(f"    TLS/SSL:    disable")
+    print(f"    TimescaleDB: ON")
+    print(f"    PostgreSQL:  17")
+    print(f"  Or upgrade the service account to Admin role in Grafana.")
 
 
 # ---------------------------------------------------------------------------

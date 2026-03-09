@@ -74,6 +74,7 @@ tasks:
             'grafana_host': 'GRAFANA_HOST',
             'grafana_port': 'GRAFANA_PORT',
             'grafana_api_key': 'GRAFANA_API_KEY',
+            'grafana_db_host': 'GRAFANA_DB_HOST',
         }
         with open('.env', 'w') as out:
             for key, env_var in mapping.items():
@@ -209,6 +210,36 @@ tasks:
     env:
       MCP_API_KEY: dev
       MCP_HOST: "127.0.0.1"
+
+  # ---------------------------------------------------------------------------
+  # Chat UI (local dev)
+  # ---------------------------------------------------------------------------
+  chat:serve:
+    desc: Run the Chainlit chat UI locally (password auth; set OAUTH_* in .env for OAuth)
+    cmds:
+      - "{{.VENV}}/bin/chainlit run scripts/chat_app.py --port 8080 --host 127.0.0.1"
+    env:
+      CHAINLIT_AUTH_SECRET: '{{.CHAINLIT_AUTH_SECRET | default "dev-secret-change-me-in-production"}}'
+      CHAT_MODEL: '{{.CHAT_MODEL | default "anthropic/claude-sonnet-4"}}'
+      MCP_API_KEY: dev
+
+  # ---------------------------------------------------------------------------
+  # iFit
+  # ---------------------------------------------------------------------------
+  ifit:auth:
+    desc: Authenticate with iFit (opens browser for Auth0 login)
+    cmds:
+      - "{{.PYTHON}} scripts/ifit_auth.py"
+
+  ifit:check:
+    desc: Verify iFit authentication
+    cmds:
+      - "{{.PYTHON}} scripts/ifit_auth.py --check"
+
+  ifit:probe:
+    desc: Probe iFit API endpoints (requires auth first)
+    cmds:
+      - "{{.PYTHON}} scripts/ifit_probe.py"
 
   # ---------------------------------------------------------------------------
   # HA Addon

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 48" fill="none">
+  <!-- Heartbeat line -->
+  <path d="M4 28 L18 28 L22 16 L28 38 L34 10 L40 32 L44 28 L56 28"
+        stroke="#22d3ee" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- KTMB1 text -->
+  <text x="64" y="24" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size="22" font-weight="800" letter-spacing="1" fill="#f0f0f0">KTMB1</text>
+  <!-- Health Coach text -->
+  <text x="64" y="42" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif"
+        font-size="12" font-weight="500" letter-spacing="2" fill="#22d3ee">HEALTH COACH</text>
+</svg>

@@ -9,6 +9,10 @@ dependencies = [
     "python-dotenv",
     "fastmcp",
     "garminconnect",
+    "chainlit",
+    "openai",
+    "plotly",
+    "PyJWT[crypto]",
 ]
 
 [project.optional-dependencies]

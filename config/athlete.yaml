@@ -137,6 +137,20 @@ users:
         due: null
         completed: null
 
+    ifit:
+      favourite_trainers:
+        - Hannah Eden
+        - Gideon Akande
+        - John Peel
+      available_equipment:
+        - Mat
+        - Dumbbells
+        - Resistance Bands
+        - Kettlebell
+      preferred_duration_min: [20, 45]
+      min_rating: 4.0
+      software_number: "424992"
+
     treadmill:
       zone_speed_map:
         z1_recovery:

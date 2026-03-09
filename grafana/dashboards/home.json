@@ -73,29 +73,136 @@
     ],
     "panels": [
       {
-        "id": 1,
-        "title": "",
-        "type": "text",
+        "id": 15,
+        "title": "Today's Advice",
+        "description": "Based on your current Form (TSB = Fitness minus Fatigue). This tells you whether your body is ready for hard training or needs rest.",
+        "type": "stat",
         "gridPos": {
-          "h": 2,
-          "w": 24,
           "x": 0,
-          "y": 0
+          "y": 0,
+          "w": 24,
+          "h": 3
         },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT round(tsb::numeric, 1) AS \"TSB\" FROM training_load WHERE user_id = $user AND source = 'calculated' ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
         "options": {
-          "mode": "markdown",
-          "content": "# Athlete Dashboard\nUse the **Athlete** dropdown above to switch users. Click the dashboard links in the top bar to drill into specific areas."
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "textMode": "value",
+          "colorMode": "background_solid",
+          "justifyMode": "center"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "type": "range",
+                "options": {
+                  "from": -9999,
+                  "to": -30,
+                  "result": {
+                    "text": "REST DAY \u2014 injury & illness risk",
+                    "index": 0
+                  }
+                }
+              },
+              {
+                "type": "range",
+                "options": {
+                  "from": -30,
+                  "to": -10,
+                  "result": {
+                    "text": "EASY DAY \u2014 back off or recover",
+                    "index": 1
+                  }
+                }
+              },
+              {
+                "type": "range",
+                "options": {
+                  "from": -10,
+                  "to": 5,
+                  "result": {
+                    "text": "TRAIN \u2014 good zone for hard work",
+                    "index": 2
+                  }
+                }
+              },
+              {
+                "type": "range",
+                "options": {
+                  "from": 5,
+                  "to": 25,
+                  "result": {
+                    "text": "FRESH \u2014 ready for a big session",
+                    "index": 3
+                  }
+                }
+              },
+              {
+                "type": "range",
+                "options": {
+                  "from": 25,
+                  "to": 9999,
+                  "result": {
+                    "text": "TOO FRESH \u2014 fitness fading, train!",
+                    "index": 4
+                  }
+                }
+              }
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "dark-red"
+                },
+                {
+                  "value": -30,
+                  "color": "dark-orange"
+                },
+                {
+                  "value": -10,
+                  "color": "#b5a20f"
+                },
+                {
+                  "value": 5,
+                  "color": "dark-green"
+                },
+                {
+                  "value": 25,
+                  "color": "dark-blue"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
         }
       },
       {
         "id": 10,
-        "title": "Fitness Status",
-        "type": "stat",
+        "title": "Fitness (CTL)",
+        "type": "gauge",
         "gridPos": {
-          "h": 5,
-          "w": 6,
           "x": 0,
-          "y": 2
+          "y": 3,
+          "w": 6,
+          "h": 5
         },
         "datasource": "$datasource",
         "targets": [
@@ -107,6 +214,8 @@
         ],
         "fieldConfig": {
           "defaults": {
+            "min": 0,
+            "max": 80,
             "thresholds": {
               "mode": "absolute",
               "steps": [
@@ -116,10 +225,14 @@
                 },
                 {
                   "value": 15,
+                  "color": "orange"
+                },
+                {
+                  "value": 25,
                   "color": "yellow"
                 },
                 {
-                  "value": 30,
+                  "value": 40,
                   "color": "green"
                 },
                 {
@@ -127,33 +240,41 @@
                   "color": "blue"
                 }
               ]
+            },
+            "color": {
+              "mode": "thresholds"
             }
           }
         },
         "options": {
-          "colorMode": "background",
           "reduceOptions": {
             "calcs": [
               "lastNotNull"
-            ]
-          }
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
         },
         "links": [
           {
             "title": "View PMC",
             "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
           }
-        ]
+        ],
+        "description": "Long-term training load (42-day average). Higher = fitter. Builds slowly over weeks of consistent training."
       },
       {
         "id": 11,
-        "title": "Fatigue",
-        "type": "stat",
+        "title": "Fatigue (ATL)",
+        "type": "gauge",
         "gridPos": {
-          "h": 5,
-          "w": 6,
           "x": 6,
-          "y": 2
+          "y": 3,
+          "w": 6,
+          "h": 5
         },
         "datasource": "$datasource",
         "targets": [
@@ -165,6 +286,8 @@
         ],
         "fieldConfig": {
           "defaults": {
+            "min": 0,
+            "max": 80,
             "thresholds": {
               "mode": "absolute",
               "steps": [
@@ -181,37 +304,45 @@
                   "color": "orange"
                 },
                 {
-                  "value": 70,
+                  "value": 65,
                   "color": "red"
                 }
               ]
+            },
+            "color": {
+              "mode": "thresholds"
             }
           }
         },
         "options": {
-          "colorMode": "background",
           "reduceOptions": {
             "calcs": [
               "lastNotNull"
-            ]
-          }
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
         },
         "links": [
           {
             "title": "View PMC",
             "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
           }
-        ]
+        ],
+        "description": "Short-term fatigue (7-day average). Higher = more tired. Rises quickly after hard sessions, drops with rest."
       },
       {
         "id": 12,
         "title": "Form (TSB)",
-        "type": "stat",
+        "type": "gauge",
         "gridPos": {
-          "h": 5,
-          "w": 6,
           "x": 12,
-          "y": 2
+          "y": 3,
+          "w": 6,
+          "h": 5
         },
         "datasource": "$datasource",
         "targets": [
@@ -228,6 +359,10 @@
               "steps": [
                 {
                   "value": null,
+                  "color": "dark-red"
+                },
+                {
+                  "value": -30,
                   "color": "red"
                 },
                 {
@@ -235,41 +370,55 @@
                   "color": "orange"
                 },
                 {
+                  "value": 0,
+                  "color": "yellow"
+                },
+                {
                   "value": 5,
                   "color": "green"
                 },
                 {
                   "value": 25,
-                  "color": "yellow"
+                  "color": "blue"
                 }
               ]
+            },
+            "min": -40,
+            "max": 40,
+            "color": {
+              "mode": "thresholds"
             }
           }
         },
         "options": {
-          "colorMode": "background",
           "reduceOptions": {
             "calcs": [
               "lastNotNull"
-            ]
-          }
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
         },
         "links": [
           {
             "title": "View PMC",
             "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
           }
-        ]
+        ],
+        "description": "Form = Fitness minus Fatigue. Negative means tired. +5 to +25 is the sweet spot for performance."
       },
       {
         "id": 13,
         "title": "Ramp Rate",
-        "type": "stat",
+        "type": "gauge",
         "gridPos": {
-          "h": 5,
-          "w": 6,
           "x": 18,
-          "y": 2
+          "y": 3,
+          "w": 6,
+          "h": 5
         },
         "datasource": "$datasource",
         "targets": [
@@ -286,10 +435,14 @@
               "steps": [
                 {
                   "value": null,
-                  "color": "blue"
+                  "color": "red"
                 },
                 {
                   "value": 0,
+                  "color": "yellow"
+                },
+                {
+                  "value": 3,
                   "color": "green"
                 },
                 {
@@ -298,182 +451,365 @@
                 },
                 {
                   "value": 7,
-                  "color": "red"
+                  "color": "orange"
                 }
               ]
+            },
+            "min": -5,
+            "max": 10,
+            "color": {
+              "mode": "thresholds"
             }
           }
         },
         "options": {
-          "colorMode": "background",
           "reduceOptions": {
             "calcs": [
               "lastNotNull"
-            ]
-          }
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
         },
         "links": [
           {
             "title": "View PMC",
             "url": "/d/health-pmc/?var-user=$user&${__url_time_range}"
           }
-        ]
+        ],
+        "description": "How fast your fitness is changing per week. +3 to +5 is ideal. Above +7 risks burnout. Negative means detraining."
       },
       {
-        "id": 20,
-        "title": "Recovery",
-        "type": "stat",
+        "id": 21,
+        "title": "Resting HR",
+        "description": "Resting heart rate. Lower is better \u2014 shows cardiovascular fitness. A sudden rise may signal overtraining or illness.",
+        "type": "gauge",
         "gridPos": {
-          "h": 5,
-          "w": 24,
           "x": 0,
-          "y": 7
+          "y": 8,
+          "w": 5,
+          "h": 5
         },
         "datasource": "$datasource",
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT resting_hr AS \"Resting HR\" FROM vitals WHERE user_id = $user AND resting_hr IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "B",
-            "rawSql": "SELECT hrv_ms AS \"HRV (ms)\" FROM vitals WHERE user_id = $user AND hrv_ms IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "C",
-            "rawSql": "SELECT sleep_score AS \"Sleep\" FROM vitals WHERE user_id = $user AND sleep_score IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "D",
-            "rawSql": "SELECT body_battery_high AS \"Body Battery\" FROM vitals WHERE user_id = $user AND body_battery_high IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "E",
-            "rawSql": "SELECT stress_avg AS \"Stress\" FROM vitals WHERE user_id = $user AND stress_avg IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "rawSql": "SELECT resting_hr AS \"BPM\" FROM vitals WHERE user_id = $user AND resting_hr IS NOT NULL ORDER BY time DESC LIMIT 1",
             "format": "table"
           }
         ],
         "fieldConfig": {
-          "overrides": [
-            {
-              "matcher": {
-                "id": "byName",
-                "options": "HRV (ms)"
-              },
-              "properties": [
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
                 {
-                  "id": "thresholds",
-                  "value": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": null,
-                        "color": "red"
-                      },
-                      {
-                        "value": 30,
-                        "color": "yellow"
-                      },
-                      {
-                        "value": 50,
-                        "color": "green"
-                      }
-                    ]
-                  }
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 60,
+                  "color": "#73BF69"
+                },
+                {
+                  "value": 70,
+                  "color": "yellow"
+                },
+                {
+                  "value": 80,
+                  "color": "orange"
+                },
+                {
+                  "value": 90,
+                  "color": "red"
                 }
               ]
             },
-            {
-              "matcher": {
-                "id": "byName",
-                "options": "Sleep"
-              },
-              "properties": [
-                {
-                  "id": "thresholds",
-                  "value": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": null,
-                        "color": "red"
-                      },
-                      {
-                        "value": 60,
-                        "color": "yellow"
-                      },
-                      {
-                        "value": 80,
-                        "color": "green"
-                      }
-                    ]
-                  }
-                }
-              ]
+            "color": {
+              "mode": "thresholds"
             },
-            {
-              "matcher": {
-                "id": "byName",
-                "options": "Stress"
-              },
-              "properties": [
-                {
-                  "id": "thresholds",
-                  "value": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": null,
-                        "color": "green"
-                      },
-                      {
-                        "value": 25,
-                        "color": "yellow"
-                      },
-                      {
-                        "value": 40,
-                        "color": "orange"
-                      },
-                      {
-                        "value": 60,
-                        "color": "red"
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-          ]
+            "min": 35,
+            "max": 100
+          },
+          "overrides": []
         },
         "options": {
-          "colorMode": "background",
           "reduceOptions": {
             "calcs": [
               "lastNotNull"
-            ]
+            ],
+            "fields": "",
+            "values": false
           },
-          "orientation": "horizontal"
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 22,
+        "title": "HRV",
+        "description": "Heart Rate Variability. Higher = better recovered. A sudden drop means your body is under stress.",
+        "type": "gauge",
+        "gridPos": {
+          "x": 5,
+          "y": 8,
+          "w": 5,
+          "h": 5
         },
-        "links": [
+        "datasource": "$datasource",
+        "targets": [
           {
-            "title": "View Vitals",
-            "url": "/d/health-vitals/?var-user=$user&${__url_time_range}"
+            "refId": "A",
+            "rawSql": "SELECT hrv_ms AS \"ms\" FROM vitals WHERE user_id = $user AND hrv_ms IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
           }
-        ]
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 20,
+                  "color": "orange"
+                },
+                {
+                  "value": 40,
+                  "color": "yellow"
+                },
+                {
+                  "value": 60,
+                  "color": "green"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            },
+            "min": 0,
+            "max": 120
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 23,
+        "title": "Sleep Score",
+        "description": "Sleep quality score. 85+ is excellent recovery. Below 70 \u2014 consider an easier training day.",
+        "type": "gauge",
+        "gridPos": {
+          "x": 10,
+          "y": 8,
+          "w": 5,
+          "h": 5
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT sleep_score AS \"Score\" FROM vitals WHERE user_id = $user AND sleep_score IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 50,
+                  "color": "orange"
+                },
+                {
+                  "value": 70,
+                  "color": "yellow"
+                },
+                {
+                  "value": 85,
+                  "color": "green"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            },
+            "min": 0,
+            "max": 100
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 24,
+        "title": "Body Battery",
+        "description": "Energy reserve (0-100). Above 75 means go hard. Below 50 means take it easy.",
+        "type": "gauge",
+        "gridPos": {
+          "x": 15,
+          "y": 8,
+          "w": 5,
+          "h": 5
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT body_battery_high AS \"Energy\" FROM vitals WHERE user_id = $user AND body_battery_high IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 25,
+                  "color": "orange"
+                },
+                {
+                  "value": 50,
+                  "color": "yellow"
+                },
+                {
+                  "value": 75,
+                  "color": "green"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            },
+            "min": 0,
+            "max": 100
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 25,
+        "title": "Stress",
+        "description": "Average stress level. Under 25 is calm. Above 40 \u2014 your body needs recovery, not hard training.",
+        "type": "gauge",
+        "gridPos": {
+          "x": 20,
+          "y": 8,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT stress_avg AS \"Avg\" FROM vitals WHERE user_id = $user AND stress_avg IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 25,
+                  "color": "yellow"
+                },
+                {
+                  "value": 40,
+                  "color": "orange"
+                },
+                {
+                  "value": 60,
+                  "color": "red"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            },
+            "min": 0,
+            "max": 100
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
       },
       {
         "id": 30,
         "title": "Weekly Training Volume (hours)",
         "type": "barchart",
         "gridPos": {
-          "h": 8,
-          "w": 12,
           "x": 0,
-          "y": 12
+          "y": 13,
+          "w": 12,
+          "h": 8
         },
         "datasource": "$datasource",
         "targets": [
@@ -506,10 +842,10 @@
         "title": "CTL / ATL / TSB (mini)",
         "type": "timeseries",
         "gridPos": {
-          "h": 8,
-          "w": 12,
           "x": 12,
-          "y": 12
+          "y": 13,
+          "w": 12,
+          "h": 8
         },
         "datasource": "$datasource",
         "targets": [
@@ -593,100 +929,393 @@
         ]
       },
       {
-        "id": 40,
-        "title": "Body Composition",
+        "id": 42,
+        "title": "Weight",
+        "description": "Current body weight with 8-week trend. Gradual changes are healthy \u2014 sudden swings may indicate hydration or measurement issues.",
         "type": "stat",
         "gridPos": {
-          "h": 4,
-          "w": 12,
           "x": 0,
-          "y": 20
+          "y": 21,
+          "w": 4,
+          "h": 5
         },
         "datasource": "$datasource",
-        "targets": [
-          {
-            "refId": "A",
-            "rawSql": "SELECT weight_kg AS \"Weight (kg)\" FROM body_composition WHERE user_id = $user AND weight_kg IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "B",
-            "rawSql": "SELECT body_fat_pct AS \"Body Fat (%)\" FROM body_composition WHERE user_id = $user AND body_fat_pct IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "C",
-            "rawSql": "SELECT muscle_mass_kg AS \"Muscle (kg)\" FROM body_composition WHERE user_id = $user AND muscle_mass_kg IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          }
-        ],
-        "options": {
-          "reduceOptions": {
-            "calcs": [
-              "lastNotNull"
-            ]
-          },
-          "orientation": "horizontal"
-        },
         "links": [
           {
             "title": "View Body Composition",
             "url": "/d/health-body/?var-user=$user&from=now-6M&to=now"
           }
-        ]
-      },
-      {
-        "id": 41,
-        "title": "Strength (last 4 weeks)",
-        "type": "stat",
-        "gridPos": {
-          "h": 4,
-          "w": 12,
-          "x": 12,
-          "y": 20
-        },
-        "datasource": "$datasource",
+        ],
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT COUNT(DISTINCT workout_id) AS \"Workouts\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
-            "format": "table"
-          },
-          {
-            "refId": "B",
-            "rawSql": "SELECT COUNT(*) FILTER (WHERE set_type = 'normal') AS \"Working Sets\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
-            "format": "table"
-          },
-          {
-            "refId": "C",
-            "rawSql": "SELECT COUNT(DISTINCT muscle_group) AS \"Muscle Groups\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks' AND muscle_group != ''",
-            "format": "table"
+            "rawSql": "SELECT time, weight_kg AS \"kg\" FROM body_composition WHERE user_id = $user AND weight_kg IS NOT NULL AND time >= NOW() - INTERVAL '8 weeks' ORDER BY time",
+            "format": "time_series"
           }
         ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "decimals": 1,
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "#3274D9"
+            }
+          },
+          "overrides": []
+        },
         "options": {
           "reduceOptions": {
             "calcs": [
               "lastNotNull"
             ]
           },
-          "orientation": "horizontal"
+          "colorMode": "background_solid",
+          "graphMode": "area",
+          "justifyMode": "center",
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 43,
+        "title": "Body Fat",
+        "description": "Body fat percentage. For men: 6-13% athletic, 14-17% fit, 18-24% average. For women: 14-20% athletic, 21-24% fit, 25-31% average.",
+        "type": "gauge",
+        "gridPos": {
+          "x": 4,
+          "y": 21,
+          "w": 4,
+          "h": 5
         },
+        "datasource": "$datasource",
+        "links": [
+          {
+            "title": "View Body Composition",
+            "url": "/d/health-body/?var-user=$user&from=now-6M&to=now"
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT body_fat_pct AS \"%\" FROM body_composition WHERE user_id = $user AND body_fat_pct IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 5,
+            "max": 35,
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "blue"
+                },
+                {
+                  "value": 13,
+                  "color": "green"
+                },
+                {
+                  "value": 20,
+                  "color": "yellow"
+                },
+                {
+                  "value": 25,
+                  "color": "orange"
+                },
+                {
+                  "value": 30,
+                  "color": "red"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 44,
+        "title": "Muscle Mass",
+        "description": "Skeletal muscle mass with 8-week trend. Rising = your strength training is building muscle.",
+        "type": "stat",
+        "gridPos": {
+          "x": 8,
+          "y": 21,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": "$datasource",
+        "links": [
+          {
+            "title": "View Body Composition",
+            "url": "/d/health-body/?var-user=$user&from=now-6M&to=now"
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT time, muscle_mass_kg AS \"kg\" FROM body_composition WHERE user_id = $user AND muscle_mass_kg IS NOT NULL AND time >= NOW() - INTERVAL '8 weeks' ORDER BY time",
+            "format": "time_series"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "none",
+            "decimals": 1,
+            "color": {
+              "mode": "fixed",
+              "fixedColor": "#56A64B"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "colorMode": "background_solid",
+          "graphMode": "area",
+          "justifyMode": "center",
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 45,
+        "title": "Workouts (4w)",
+        "description": "Number of strength sessions in the last 4 weeks. 12-16 is solid consistency for most programs.",
+        "type": "stat",
+        "gridPos": {
+          "x": 12,
+          "y": 21,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": "$datasource",
         "links": [
           {
             "title": "View Strength",
             "url": "/d/health-strength/?var-user=$user&${__url_time_range}"
           }
-        ]
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT COUNT(DISTINCT workout_id) AS \"Sessions\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 4,
+                  "color": "orange"
+                },
+                {
+                  "value": 8,
+                  "color": "yellow"
+                },
+                {
+                  "value": 12,
+                  "color": "green"
+                },
+                {
+                  "value": 20,
+                  "color": "blue"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "colorMode": "background_solid",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 46,
+        "title": "Working Sets (4w)",
+        "description": "Total working sets over 4 weeks. Higher volume generally means more stimulus for growth.",
+        "type": "stat",
+        "gridPos": {
+          "x": 16,
+          "y": 21,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": "$datasource",
+        "links": [
+          {
+            "title": "View Strength",
+            "url": "/d/health-strength/?var-user=$user&${__url_time_range}"
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT COUNT(*) FILTER (WHERE set_type = 'normal') AS \"Sets\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 50,
+                  "color": "orange"
+                },
+                {
+                  "value": 100,
+                  "color": "yellow"
+                },
+                {
+                  "value": 200,
+                  "color": "green"
+                },
+                {
+                  "value": 400,
+                  "color": "blue"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ]
+          },
+          "colorMode": "background_solid",
+          "graphMode": "none",
+          "justifyMode": "center",
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 47,
+        "title": "Muscles Hit (4w)",
+        "description": "Distinct muscle groups trained in 4 weeks. 10+ means well-rounded coverage.",
+        "type": "gauge",
+        "gridPos": {
+          "x": 20,
+          "y": 21,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": "$datasource",
+        "links": [
+          {
+            "title": "View Strength",
+            "url": "/d/health-strength/?var-user=$user&${__url_time_range}"
+          }
+        ],
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT COUNT(DISTINCT muscle_group) AS \"Groups\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks' AND muscle_group != ''",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 14,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 4,
+                  "color": "orange"
+                },
+                {
+                  "value": 7,
+                  "color": "yellow"
+                },
+                {
+                  "value": 10,
+                  "color": "green"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
       },
       {
         "id": 50,
         "title": "Recent Activities",
         "type": "table",
         "gridPos": {
-          "h": 10,
-          "w": 24,
           "x": 0,
-          "y": 24
+          "y": 25,
+          "w": 24,
+          "h": 10
         },
         "datasource": "$datasource",
         "targets": [

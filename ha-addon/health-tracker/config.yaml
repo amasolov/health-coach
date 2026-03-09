@@ -2,29 +2,42 @@ name: Health Tracker
 version: "0.2.0"
 slug: health-tracker
 description: >-
-  Data-driven health and fitness tracking with MCP server.
+  Data-driven health and fitness tracking with MCP server and AI coaching.
   Syncs Garmin Connect and Hevy data to TimescaleDB,
   calculates PMC (CTL/ATL/TSB), provisions Grafana dashboards,
-  and exposes an MCP endpoint for AI-powered coaching.
+  exposes an MCP endpoint, and provides a Chainlit chat UI
+  for AI-powered coaching via OpenRouter.
   Supports multiple users.
 url: "https://github.com/amasolov/alexeym-health"
 arch:
   - aarch64
   - amd64
 init: false
+hassio_api: true
 startup: services
 boot: auto
 resources:
-  memory: 256
+  memory: 512
 ports:
   8765/tcp: 8765
+  8080/tcp: 36850
 ports_description:
   8765/tcp: MCP server (Streamable HTTP)
+  8080/tcp: KTMB1 Health Coach (Chainlit, host port 36850)
 map:
   - config:rw
 options:
   sync_interval_minutes: 60
   mcp_port: 8765
+  chat_port: 8080
+  chat_model: "anthropic/claude-sonnet-4"
+  openrouter_api_key: ""
+  google_oauth_client_id: ""
+  google_oauth_client_secret: ""
+  apple_oauth_client_id: ""
+  apple_oauth_team_id: ""
+  apple_oauth_key_id: ""
+  apple_oauth_private_key_file: ""
   db_host: "timescaledb"
   db_port: 5432
   db_name: "health"
@@ -34,8 +47,10 @@ options:
   grafana_port: 3000
   grafana_api_key: ""
   users:
-    - name: "Alexey M"
+    - first_name: "Alexey"
+      last_name: "M"
       slug: "alexey"
+      email: ""
       mcp_api_key: ""
       garmin_email: ""
       garmin_password: ""
@@ -43,6 +58,15 @@ options:
 schema:
   sync_interval_minutes: "int(5,1440)"
   mcp_port: "int(1024,65535)"
+  chat_port: "int(1024,65535)"
+  chat_model: str
+  openrouter_api_key: password
+  google_oauth_client_id: "str?"
+  google_oauth_client_secret: "str?"
+  apple_oauth_client_id: "str?"
+  apple_oauth_team_id: "str?"
+  apple_oauth_key_id: "str?"
+  apple_oauth_private_key_file: "str?"
   db_host: str
   db_port: port
   db_name: str
@@ -52,8 +76,10 @@ schema:
   grafana_port: port
   grafana_api_key: "str?"
   users:
-    - name: str
+    - first_name: str
+      last_name: str
       slug: str
+      email: str
       mcp_api_key: "str?"
       garmin_email: str
       garmin_password: password

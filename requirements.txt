@@ -4,3 +4,7 @@ python-dotenv
 httpx
 fastmcp
 garminconnect
+chainlit
+openai
+plotly
+PyJWT[crypto]

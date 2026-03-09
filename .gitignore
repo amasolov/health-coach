@@ -16,12 +16,21 @@ build/
 .garminconnect/
 .garmin_tokens/
 
+# iFit cached token and MITM captures
+.ifit_token.json
+.ifit_capture/
+.ifit_login_debug.png
+
 # IDE / editor config (contains machine-specific paths and secrets)
 .vscode/
 .cursor/
 *.swp
 *.swo
 *~
+
+# Chainlit session data (keep .chainlit/config.toml)
+.chainlit/.langchain.db
+.chainlit/translations/
 
 # OS
 .DS_Store

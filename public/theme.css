@@ -1,0 +1,20 @@
+/* Hide "Built with Chainlit" watermark */
+a[href*="chainlit.io"],
+a[href*="chainlit.io" i] {
+  display: none !important;
+}
+
+/* Make login page logo much larger */
+.MuiBox-root img[src*="logo"] {
+  max-height: 80px !important;
+  height: 80px !important;
+  width: auto !important;
+}
+
+/* Also target the header logo after login */
+header img[src*="logo"] {
+  max-height: 48px !important;
+  height: 48px !important;
+}
+
+/* Override Chainlit og meta branding (cosmetic, not visible) */

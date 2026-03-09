@@ -14,13 +14,43 @@ import json, secrets, shlex
 opts = json.load(open('$OPTIONS_FILE'))
 
 for k in ('db_host','db_port','db_name','db_user','db_password',
-          'grafana_host','grafana_port','grafana_api_key'):
+          'grafana_host','grafana_port','grafana_api_key',
+          'openrouter_api_key','chat_model'):
     print(f'export {k.upper()}={shlex.quote(str(opts.get(k, \"\")))}')
 
 print(f'export MCP_PORT={int(opts.get(\"mcp_port\", 8765))}')
+print(f'export CHAT_PORT={int(opts.get(\"chat_port\", 8080))}')
 print(f'SYNC_INTERVAL={int(opts[\"sync_interval_minutes\"])}')
 
-# Auto-generate MCP API keys for users that don't have one
+# OAuth configuration (Google)
+gcid = opts.get('google_oauth_client_id', '')
+gcsec = opts.get('google_oauth_client_secret', '')
+if gcid:
+    print(f'export OAUTH_GOOGLE_CLIENT_ID={shlex.quote(gcid)}')
+    print(f'export OAUTH_GOOGLE_CLIENT_SECRET={shlex.quote(gcsec)}')
+
+# OAuth configuration (Apple)
+acid = opts.get('apple_oauth_client_id', '')
+atid = opts.get('apple_oauth_team_id', '')
+akid = opts.get('apple_oauth_key_id', '')
+akf = opts.get('apple_oauth_private_key_file', '')
+if acid:
+    print(f'export OAUTH_APPLE_CLIENT_ID={shlex.quote(acid)}')
+    print(f'export OAUTH_APPLE_TEAM_ID={shlex.quote(atid)}')
+    print(f'export OAUTH_APPLE_KEY_ID={shlex.quote(akid)}')
+    if akf:
+        key_path = f'/config/{akf}' if not akf.startswith('/') else akf
+        print(f'export OAUTH_APPLE_PRIVATE_KEY_FILE={shlex.quote(key_path)}')
+
+# Chainlit auth secret (generate once, persist)
+auth_secret = opts.get('_chainlit_auth_secret', '')
+if not auth_secret:
+    auth_secret = secrets.token_urlsafe(48)
+    opts['_chainlit_auth_secret'] = auth_secret
+    json.dump(opts, open('$OPTIONS_FILE', 'w'), indent=2)
+print(f'export CHAINLIT_AUTH_SECRET={shlex.quote(auth_secret)}')
+
+# Auto-generate MCP API keys for users that don't have them
 users = opts['users']
 changed = False
 for u in users:
@@ -33,19 +63,27 @@ print(f'export USERS_JSON={shlex.quote(json.dumps(users))}')
 # Persist auto-generated keys back to options.json
 if changed:
     json.dump(opts, open('$OPTIONS_FILE', 'w'), indent=2)
-    print('echo \"INFO: Auto-generated MCP API keys for users without one\"', flush=True)
+    print('echo \"INFO: Auto-generated MCP API keys for users without them\"', flush=True)
 
-# Print API keys so the user can find them in the addon log
+# Print user info in the addon log
 for u in users:
     slug = u.get('slug', '?')
+    email = u.get('email', '')
     key = u.get('mcp_api_key', '')
-    print(f'echo \"  MCP key for {slug}: {key}\"')
+    print(f'echo \"  User {slug} ({email}): MCP key {key}\"')
+
+# Print OAuth status
+if gcid:
+    print('echo \"  Google OAuth: enabled\"')
+if acid:
+    print('echo \"  Apple OAuth: enabled\"')
 ")"
 
 echo "=== Health Tracker Addon ==="
 echo "DB: ${DB_HOST}:${DB_PORT}/${DB_NAME}"
 echo "Grafana: ${GRAFANA_HOST}:${GRAFANA_PORT}"
 echo "MCP server: port ${MCP_PORT}"
+echo "Chat UI: port ${CHAT_PORT} (model: ${CHAT_MODEL})"
 echo "Sync interval: ${SYNC_INTERVAL} minutes"
 
 echo "Running database migrations..."
@@ -59,10 +97,26 @@ echo "Starting MCP server on port ${MCP_PORT}..."
 python3 /app/scripts/mcp_server.py &
 MCP_PID=$!
 
-# Trap signals to cleanly shut down the MCP server
+# Start Chainlit chat UI in the background (only if OpenRouter key is set)
+CHAT_PID=""
+if [[ -n "${OPENROUTER_API_KEY}" ]]; then
+    echo "Starting Chainlit chat on port ${CHAT_PORT}..."
+    chainlit run /app/scripts/chat_app.py \
+        --port "${CHAT_PORT}" --host 0.0.0.0 &
+    CHAT_PID=$!
+else
+    echo "WARN: OPENROUTER_API_KEY not set -- chat UI disabled"
+fi
+
+# Trap signals to cleanly shut down background processes
 cleanup() {
     echo "Shutting down MCP server (PID ${MCP_PID})..."
     kill "$MCP_PID" 2>/dev/null || true
+    if [[ -n "$CHAT_PID" ]]; then
+        echo "Shutting down Chainlit chat (PID ${CHAT_PID})..."
+        kill "$CHAT_PID" 2>/dev/null || true
+        wait "$CHAT_PID" 2>/dev/null || true
+    fi
     wait "$MCP_PID" 2>/dev/null || true
     exit 0
 }

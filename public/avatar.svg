@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- Circle background -->
+  <circle cx="24" cy="24" r="23" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"/>
+  <!-- Heartbeat line -->
+  <path d="M8 26 L14 26 L17 18 L21 34 L25 12 L29 28 L32 26 L40 26"
+        stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

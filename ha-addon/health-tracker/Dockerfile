@@ -16,6 +16,9 @@ COPY scripts/ /app/scripts/
 COPY config/ /app/config/
 COPY db/ /app/db/
 COPY grafana/ /app/grafana/
+COPY .chainlit/ /app/.chainlit/
+COPY public/ /app/public/
+COPY chainlit.md /app/chainlit.md
 COPY ha-addon/health-tracker/run.sh /app/run.sh
 
 WORKDIR /app

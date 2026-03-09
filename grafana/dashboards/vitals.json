@@ -384,111 +384,510 @@
         }
       },
       {
-        "id": 7,
-        "title": "Recovery Summary (Current)",
-        "type": "stat",
+        "id": 71,
+        "title": "Resting HR",
+        "type": "gauge",
         "gridPos": {
-          "h": 5,
-          "w": 24,
           "x": 0,
-          "y": 22
+          "y": 22,
+          "w": 5,
+          "h": 5
         },
         "datasource": "$datasource",
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT resting_hr AS \"Resting HR\" FROM vitals WHERE user_id = $user AND resting_hr IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "B",
-            "rawSql": "SELECT hrv_ms AS \"HRV (ms)\" FROM vitals WHERE user_id = $user AND hrv_ms IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "C",
-            "rawSql": "SELECT sleep_score AS \"Sleep Score\" FROM vitals WHERE user_id = $user AND sleep_score IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "D",
-            "rawSql": "SELECT body_battery_high AS \"Body Battery\" FROM vitals WHERE user_id = $user AND body_battery_high IS NOT NULL ORDER BY time DESC LIMIT 1",
-            "format": "table"
-          },
-          {
-            "refId": "E",
-            "rawSql": "SELECT stress_avg AS \"Avg Stress\" FROM vitals WHERE user_id = $user AND stress_avg IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "rawSql": "SELECT resting_hr AS \"BPM\" FROM vitals WHERE user_id = $user AND resting_hr IS NOT NULL ORDER BY time DESC LIMIT 1",
             "format": "table"
           }
         ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 35,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 60,
+                  "color": "#73BF69"
+                },
+                {
+                  "value": 70,
+                  "color": "yellow"
+                },
+                {
+                  "value": 80,
+                  "color": "orange"
+                },
+                {
+                  "value": 90,
+                  "color": "red"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
+        },
         "options": {
           "reduceOptions": {
             "calcs": [
               "lastNotNull"
-            ]
+            ],
+            "fields": "",
+            "values": false
           },
-          "orientation": "horizontal",
-          "colorMode": "background"
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 72,
+        "title": "HRV",
+        "type": "gauge",
+        "gridPos": {
+          "x": 5,
+          "y": 22,
+          "w": 5,
+          "h": 5
         },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT hrv_ms AS \"ms\" FROM vitals WHERE user_id = $user AND hrv_ms IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
         "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 120,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 20,
+                  "color": "orange"
+                },
+                {
+                  "value": 40,
+                  "color": "yellow"
+                },
+                {
+                  "value": 60,
+                  "color": "green"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 73,
+        "title": "Sleep",
+        "type": "gauge",
+        "gridPos": {
+          "x": 10,
+          "y": 22,
+          "w": 5,
+          "h": 5
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT sleep_score AS \"Score\" FROM vitals WHERE user_id = $user AND sleep_score IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 50,
+                  "color": "orange"
+                },
+                {
+                  "value": 70,
+                  "color": "yellow"
+                },
+                {
+                  "value": 85,
+                  "color": "green"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 74,
+        "title": "Body Battery",
+        "type": "gauge",
+        "gridPos": {
+          "x": 15,
+          "y": 22,
+          "w": 5,
+          "h": 5
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT body_battery_high AS \"Energy\" FROM vitals WHERE user_id = $user AND body_battery_high IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "red"
+                },
+                {
+                  "value": 25,
+                  "color": "orange"
+                },
+                {
+                  "value": 50,
+                  "color": "yellow"
+                },
+                {
+                  "value": 75,
+                  "color": "green"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 75,
+        "title": "Stress",
+        "type": "gauge",
+        "gridPos": {
+          "x": 20,
+          "y": 22,
+          "w": 4,
+          "h": 5
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SELECT stress_avg AS \"Avg\" FROM vitals WHERE user_id = $user AND stress_avg IS NOT NULL ORDER BY time DESC LIMIT 1",
+            "format": "table"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 25,
+                  "color": "yellow"
+                },
+                {
+                  "value": 40,
+                  "color": "orange"
+                },
+                {
+                  "value": 60,
+                  "color": "red"
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": {
+            "calcs": [
+              "lastNotNull"
+            ],
+            "fields": "",
+            "values": false
+          },
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true,
+          "orientation": "auto"
+        }
+      },
+      {
+        "id": 8,
+        "title": "Recovery Analysis",
+        "description": "Automated interpretation of your latest vitals. Updated with each refresh.",
+        "type": "table",
+        "gridPos": {
+          "x": 0,
+          "y": 27,
+          "w": 24,
+          "h": 7
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "format": "table",
+            "rawSql": "WITH latest AS (\n  SELECT\n    (SELECT resting_hr FROM vitals WHERE user_id = $user AND resting_hr IS NOT NULL ORDER BY time DESC LIMIT 1) AS rhr,\n    (SELECT hrv_ms FROM vitals WHERE user_id = $user AND hrv_ms IS NOT NULL ORDER BY time DESC LIMIT 1) AS hrv,\n    (SELECT sleep_score FROM vitals WHERE user_id = $user AND sleep_score IS NOT NULL ORDER BY time DESC LIMIT 1) AS sleep,\n    (SELECT body_battery_high FROM vitals WHERE user_id = $user AND body_battery_high IS NOT NULL ORDER BY time DESC LIMIT 1) AS battery,\n    (SELECT stress_avg FROM vitals WHERE user_id = $user AND stress_avg IS NOT NULL ORDER BY time DESC LIMIT 1) AS stress\n)\nSELECT\n  'Resting HR' AS \"Metric\",\n  rhr::text || ' bpm' AS \"Value\",\n  CASE\n    WHEN rhr < 60 THEN 'Excellent'\n    WHEN rhr < 70 THEN 'Good'\n    WHEN rhr < 80 THEN 'Elevated'\n    ELSE 'High \u2014 possible overtraining or illness'\n  END AS \"Status\",\n  CASE\n    WHEN rhr < 60 THEN 'Your cardiovascular system is well-rested.'\n    WHEN rhr < 70 THEN 'Normal range. Good to train.'\n    WHEN rhr < 80 THEN 'Slightly elevated \u2014 monitor for fatigue.'\n    ELSE 'Consider rest. Elevated RHR can signal sickness or overtraining.'\n  END AS \"What it means\"\nFROM latest\nUNION ALL\nSELECT\n  'HRV',\n  hrv::text || ' ms',\n  CASE\n    WHEN hrv >= 60 THEN 'Excellent'\n    WHEN hrv >= 40 THEN 'Good'\n    WHEN hrv >= 25 THEN 'Low'\n    ELSE 'Very low \u2014 body is stressed'\n  END,\n  CASE\n    WHEN hrv >= 60 THEN 'Great recovery. Your body can handle intensity.'\n    WHEN hrv >= 40 THEN 'Decent recovery. Normal training is fine.'\n    WHEN hrv >= 25 THEN 'Below average. Keep today''s effort moderate.'\n    ELSE 'Your nervous system is taxed. Light activity or rest recommended.'\n  END\nFROM latest\nUNION ALL\nSELECT\n  'Sleep',\n  sleep::text || ' / 100',\n  CASE\n    WHEN sleep >= 85 THEN 'Excellent'\n    WHEN sleep >= 70 THEN 'Good'\n    WHEN sleep >= 50 THEN 'Fair'\n    ELSE 'Poor'\n  END,\n  CASE\n    WHEN sleep >= 85 THEN 'Well rested. Great day for a hard session.'\n    WHEN sleep >= 70 THEN 'Adequate sleep. Normal training is fine.'\n    WHEN sleep >= 50 THEN 'Below average rest. Avoid max efforts.'\n    ELSE 'Poor sleep severely impacts recovery. Take it easy today.'\n  END\nFROM latest\nUNION ALL\nSELECT\n  'Body Battery',\n  battery::text || ' / 100',\n  CASE\n    WHEN battery >= 75 THEN 'Fully charged'\n    WHEN battery >= 50 THEN 'Moderate'\n    WHEN battery >= 25 THEN 'Low'\n    ELSE 'Depleted'\n  END,\n  CASE\n    WHEN battery >= 75 THEN 'Energy reserves are high. Go for it.'\n    WHEN battery >= 50 THEN 'Some energy available. Moderate session OK.'\n    WHEN battery >= 25 THEN 'Running low. Light workout or active recovery.'\n    ELSE 'Your body needs rest, not training.'\n  END\nFROM latest\nUNION ALL\nSELECT\n  'Stress',\n  stress::text,\n  CASE\n    WHEN stress < 25 THEN 'Low'\n    WHEN stress < 40 THEN 'Moderate'\n    WHEN stress < 60 THEN 'High'\n    ELSE 'Very high'\n  END,\n  CASE\n    WHEN stress < 25 THEN 'Calm and relaxed. Ideal for hard training.'\n    WHEN stress < 40 THEN 'Some stress but manageable. Train normally.'\n    WHEN stress < 60 THEN 'Elevated stress. Hard training could backfire.'\n    ELSE 'Very high stress. Focus on recovery, not intensity.'\n  END\nFROM latest"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {},
           "overrides": [
             {
               "matcher": {
                 "id": "byName",
-                "options": "HRV (ms)"
+                "options": "Status"
               },
               "properties": [
                 {
-                  "id": "thresholds",
-                  "value": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": null,
-                        "color": "red"
-                      },
-                      {
-                        "value": 30,
-                        "color": "yellow"
-                      },
-                      {
-                        "value": 50,
-                        "color": "green"
+                  "id": "custom.displayMode",
+                  "value": "color-background-solid"
+                },
+                {
+                  "id": "mappings",
+                  "value": [
+                    {
+                      "type": "value",
+                      "options": {
+                        "Excellent": {
+                          "color": "green",
+                          "index": 0
+                        }
                       }
-                    ]
-                  }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Fully charged": {
+                          "color": "green",
+                          "index": 1
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Low": {
+                          "color": "orange",
+                          "index": 2
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Good": {
+                          "color": "#73BF69",
+                          "index": 3
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Moderate": {
+                          "color": "yellow",
+                          "index": 4
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Fair": {
+                          "color": "yellow",
+                          "index": 5
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Elevated": {
+                          "color": "orange",
+                          "index": 6
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Poor": {
+                          "color": "red",
+                          "index": 7
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Depleted": {
+                          "color": "red",
+                          "index": 8
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Very low \u2014 body is stressed": {
+                          "color": "red",
+                          "index": 9
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "High \u2014 possible overtraining or illness": {
+                          "color": "red",
+                          "index": 10
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "High": {
+                          "color": "orange",
+                          "index": 11
+                        }
+                      }
+                    },
+                    {
+                      "type": "value",
+                      "options": {
+                        "Very high": {
+                          "color": "red",
+                          "index": 12
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "custom.width",
+                  "value": 140
                 }
               ]
             },
             {
               "matcher": {
                 "id": "byName",
-                "options": "Sleep Score"
+                "options": "Metric"
               },
               "properties": [
                 {
-                  "id": "thresholds",
-                  "value": {
-                    "mode": "absolute",
-                    "steps": [
-                      {
-                        "value": null,
-                        "color": "red"
-                      },
-                      {
-                        "value": 60,
-                        "color": "yellow"
-                      },
-                      {
-                        "value": 80,
-                        "color": "green"
-                      }
-                    ]
-                  }
+                  "id": "custom.width",
+                  "value": 110
+                }
+              ]
+            },
+            {
+              "matcher": {
+                "id": "byName",
+                "options": "Value"
+              },
+              "properties": [
+                {
+                  "id": "custom.width",
+                  "value": 100
                 }
               ]
             }
           ]
+        },
+        "options": {
+          "footer": {
+            "show": false
+          },
+          "showHeader": true
         }
       }
     ],
