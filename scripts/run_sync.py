@@ -552,6 +552,45 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
     }
 
 
+def _refresh_ifit_library_cache() -> None:
+    """Refresh the iFit workout library cache if it's stale (>7 days) or missing.
+
+    The cache is used by search_ifit_library and recommend_ifit_workout tools."""
+    import asyncio
+    from pathlib import Path
+
+    cache_path = Path(__file__).resolve().parent.parent / ".ifit_capture" / "library_workouts.json"
+
+    try:
+        from scripts.ifit_auth import get_auth_headers
+        headers = get_auth_headers()
+    except Exception:
+        if cache_path.exists():
+            print("  iFit token unavailable but cache exists — skipping refresh")
+        else:
+            print("  iFit token unavailable and no cache — search_ifit_library won't work")
+        return
+
+    from scripts.ifit_list_series import (
+        fetch_all_trainers,
+        fetch_all_workouts,
+        _cache_fresh,
+        WORKOUTS_CACHE,
+    )
+
+    if _cache_fresh(WORKOUTS_CACHE):
+        print("  Cache is fresh (< 7 days old) — skipping")
+        return
+
+    print("  Fetching trainers...")
+    trainers = fetch_all_trainers(headers)
+    print(f"  {len(trainers)} trainers loaded")
+
+    print("  Fetching library workouts (this may take a minute)...")
+    workouts = asyncio.run(fetch_all_workouts(headers))
+    print(f"  {len(workouts)} workouts cached")
+
+
 def main() -> int:
     users = get_users()
     errors = 0
@@ -643,6 +682,15 @@ def main() -> int:
             print(f"    ERROR: TSS backfill failed: {e}")
             traceback.print_exc()
             errors += 1
+
+    # --- iFit library cache (shared across all users, refreshes every 7 days) ---
+    print(f"\n{'='*60}")
+    print("Refreshing iFit library cache")
+    print(f"{'='*60}")
+    try:
+        _refresh_ifit_library_cache()
+    except Exception as e:
+        print(f"  WARN: iFit library refresh failed: {e}")
 
     if errors:
         print(f"\nSync completed with {errors} error(s)")

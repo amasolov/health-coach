@@ -1288,7 +1288,17 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
     trainers_path = _P(__file__).resolve().parent.parent / ".ifit_capture" / "trainers.json"
 
     if not cache_path.exists():
-        return {"error": "iFit library cache not found. Run ifit_list_series.py first to build the cache."}
+        try:
+            import asyncio
+            from scripts.ifit_auth import get_auth_headers
+            from scripts.ifit_list_series import fetch_all_trainers, fetch_all_workouts
+            headers = get_auth_headers()
+            fetch_all_trainers(headers)
+            asyncio.run(fetch_all_workouts(headers))
+        except Exception as exc:
+            return {"error": f"iFit library cache not available and auto-build failed: {exc}"}
+        if not cache_path.exists():
+            return {"error": "Failed to build iFit library cache."}
 
     with open(cache_path) as f:
         workouts = _json.load(f)

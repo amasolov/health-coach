@@ -101,6 +101,11 @@ for cfg in athlete.yaml equipment.yaml zones.yaml; do
 done
 echo "Config files linked from $HA_CFG"
 
+# Persist the iFit library cache across restarts
+IFIT_CACHE="$HA_CFG/.ifit_capture"
+mkdir -p "$IFIT_CACHE"
+ln -sfn "$IFIT_CACHE" /app/.ifit_capture
+
 if [[ -f "$IFIT_TOKEN_FILE" ]]; then
     echo "iFit: token found at $IFIT_TOKEN_FILE"
 else
