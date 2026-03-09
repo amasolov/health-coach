@@ -50,8 +50,20 @@ CHAT_MODEL = os.environ.get("CHAT_MODEL", "anthropic/claude-sonnet-4")
 ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "").lower() in ("true", "1", "yes")
 SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))
 MAX_TOOL_ROUNDS = 10
+CHAINLIT_DB_URL = os.environ.get("CHAINLIT_DB_URL", "")
 
 _client: AsyncOpenAI | None = None
+
+# ---------------------------------------------------------------------------
+# Persistent data layer (SQLAlchemy + PostgreSQL)
+# ---------------------------------------------------------------------------
+
+if CHAINLIT_DB_URL:
+    from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
+
+    @cl.data_layer
+    def get_data_layer():
+        return SQLAlchemyDataLayer(conninfo=CHAINLIT_DB_URL)
 
 
 def _get_client() -> AsyncOpenAI:
@@ -571,6 +583,37 @@ async def on_chat_start():
         "I have access to your training data, vitals, body composition, "
         "and more. How can I help you today?"
     ).send()
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread: dict) -> None:
+    """Restore session state when a user reopens a previous conversation."""
+    user = cl.user_session.get("user")
+    if not user or user.metadata.get("registration_pending"):
+        return
+
+    user_slug = user.metadata.get("slug")
+    first_name = user.metadata.get("first_name", user_slug)
+
+    user_id = health_tools.resolve_user_id(user_slug)
+    if user_id is None:
+        return
+
+    user_data = _USERS_BY_SLUG.get(user_slug, {})
+    await _init_session(user_slug, user_id, first_name, user_data)
+
+    # Reconstruct message history from stored thread steps
+    messages: list[dict] = cl.user_session.get("messages", [])
+    for step in thread.get("steps", []):
+        step_type = step.get("type", "")
+        content = step.get("output") or ""
+        if not content:
+            continue
+        if step_type == "user_message":
+            messages.append({"role": "user", "content": content})
+        elif step_type == "assistant_message":
+            messages.append({"role": "assistant", "content": content})
+    cl.user_session.set("messages", messages)
 
 
 @cl.on_message

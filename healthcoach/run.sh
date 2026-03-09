@@ -66,6 +66,7 @@ if acid:
 
 export IFIT_TOKEN_FILE="/config/healthcoach/.ifit_token.json"
 export PYTHONPATH="/app"
+export CHAINLIT_DB_URL="postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/healthcoach_chat"
 
 echo "=== Health Coach Addon ==="
 
@@ -146,6 +147,9 @@ echo "Sync interval: ${SYNC_INTERVAL} minutes"
 
 echo "Running database migrations..."
 python3 /app/scripts/run_migrate.py
+
+echo "Setting up Chainlit chat database..."
+python3 /app/scripts/setup_chainlit_db.py || echo "WARN: Chainlit DB setup failed (chat history will be in-memory)"
 
 echo "Provisioning Grafana dashboards..."
 python3 /app/scripts/push_dashboards.py || echo "WARN: Grafana provisioning failed (is API key set?)"

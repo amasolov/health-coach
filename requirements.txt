@@ -8,3 +8,5 @@ chainlit
 openai
 plotly
 PyJWT[crypto]
+asyncpg
+greenlet

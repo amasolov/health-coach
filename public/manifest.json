@@ -1,0 +1,25 @@
+{
+  "name": "KTMB1 Health Coach",
+  "short_name": "Health Coach",
+  "description": "AI-powered fitness coaching with your Garmin and Hevy training data",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#111111",
+  "theme_color": "#22d3ee",
+  "icons": [
+    {
+      "src": "/public/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/public/avatar.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["health", "fitness", "lifestyle"]
+}

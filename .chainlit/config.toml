@@ -48,7 +48,7 @@ edit_message = true
 allow_thread_sharing = false
 
 # Enable favorite messages
-favorites = false
+favorites = true
 
 [features.slack]
 # Add emoji reaction when message is received (requires reactions:write OAuth scope)
@@ -130,7 +130,7 @@ custom_css = "/public/theme.css"
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-# custom_js = "/public/test.js"
+custom_js = "/public/pwa.js"
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "classic"
