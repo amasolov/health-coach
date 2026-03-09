@@ -32,6 +32,15 @@ from scripts.strength_tss import (
 )
 from scripts.tz import load_user_tz
 
+# Key threshold fields that gate profile auto-population.
+# If ALL of these are set we skip the Garmin profile fetch to save API calls.
+_THRESHOLD_GATE_FIELDS = [
+    ("thresholds", "heart_rate", "max_hr"),
+    ("thresholds", "heart_rate", "resting_hr"),
+    ("thresholds", "cycling", "ftp"),
+    ("body", "weight_kg"),
+]
+
 
 def get_users() -> list[dict]:
     """Get user list from USERS_JSON (addon) or USER_SLUG (local dev)."""
@@ -139,6 +148,58 @@ def _load_user_thresholds(cur, user_id: int, slug: str = "") -> tuple[float | No
         lthr = round(athlete["max_hr"] * 0.88)
 
     return resting_hr, lthr
+
+
+def _thresholds_incomplete(slug: str) -> bool:
+    """Return True if any key threshold is still null in athlete.yaml."""
+    data = _load_athlete_thresholds(slug)
+    for keys in _THRESHOLD_GATE_FIELDS:
+        # keys is a flat tuple like ("thresholds", "heart_rate", "max_hr")
+        # _load_athlete_thresholds returns a flat dict so we check the leaf key
+        leaf = keys[-1]
+        if data.get(leaf) is None:
+            return True
+    return False
+
+
+def sync_garmin_profile(slug: str) -> dict:
+    """
+    Fetch athlete profile data from Garmin Connect and merge any null
+    fields into athlete.yaml.
+
+    Covers: date_of_birth, sex, height, weight, body_fat, resting_hr,
+    max_hr, VO2max, lactate threshold, cycling FTP, threshold pace.
+
+    Only fills fields that are currently null — never overwrites manually
+    set values.  Skips entirely if all key thresholds are already set.
+
+    Returns a dict with keys:
+      - "skipped": True when all thresholds were already populated
+      - "written": dict of field_path -> value for everything updated
+      - "still_missing": list of fields still null with hints
+      - "error": str (only present on failure)
+    """
+    from pathlib import Path
+    from scripts.garmin_auth import try_cached_login
+    from scripts.garmin_fetch import fetch_garmin_profile, merge_into_athlete_yaml
+
+    athlete_path = Path(__file__).resolve().parent.parent / "config" / "athlete.yaml"
+
+    if not _thresholds_incomplete(slug):
+        return {"skipped": True, "written": {}, "still_missing": []}
+
+    client = try_cached_login(slug)
+    if not client:
+        return {"error": "Garmin not authenticated", "written": {}, "still_missing": []}
+
+    result = fetch_garmin_profile(slug, client)
+    written = merge_into_athlete_yaml(str(athlete_path), slug, result["fetched"])
+
+    return {
+        "skipped": False,
+        "written": written,
+        "still_missing": result.get("missing", []),
+    }
 
 
 def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug: str = "") -> dict:
@@ -495,6 +556,26 @@ def main() -> int:
                 errors += 1
         else:
             print(f"    SKIP: No Hevy API key configured")
+
+        # --- Garmin profile auto-populate (runs whenever any threshold is null) ---
+        print(f"\n  [Garmin Profile]")
+        try:
+            result = sync_garmin_profile(slug)
+            if result.get("skipped"):
+                print(f"    SKIP: all key thresholds already set")
+            elif "error" in result:
+                print(f"    SKIP: {result['error']}")
+            else:
+                if result["written"]:
+                    print(f"    Populated: {', '.join(f'{k}={v}' for k, v in result['written'].items())}")
+                else:
+                    print(f"    No new values found in Garmin")
+                missing_count = len(result.get("still_missing", []))
+                if missing_count:
+                    print(f"    Still missing: {missing_count} field(s) (manual entry required)")
+        except Exception as e:
+            print(f"    ERROR: Garmin profile sync failed: {e}")
+            traceback.print_exc()
 
         # --- Strength TSS backfill ---
         print(f"\n  [Strength TSS]")

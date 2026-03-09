@@ -34,6 +34,7 @@ from scripts import garmin_auth
 from scripts import user_manager
 from scripts.sync_garmin import sync_user as sync_garmin_user
 from scripts.sync_hevy import sync_user as sync_hevy_user
+from scripts.run_sync import sync_garmin_profile
 from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
 
@@ -527,6 +528,29 @@ async def run_onboarding(user: cl.User) -> None:
 
         step.output = "Done" if not sync_errors else f"Completed with warnings: {'; '.join(sync_errors)}"
 
+    # Auto-populate thresholds from Garmin (FTP, max HR, resting HR, VO2max, etc.)
+    # Only runs when Garmin is connected and thresholds are still null.
+    if garmin_email:
+        async with cl.Step(name="Fetching athlete thresholds from Garmin", type="run") as step:
+            step.input = f"slug={slug}"
+            profile_result = await asyncio.to_thread(sync_garmin_profile, slug)
+            if profile_result.get("skipped"):
+                step.output = "All thresholds already set"
+            elif "error" in profile_result:
+                step.output = f"Skipped: {profile_result['error']}"
+            elif profile_result.get("written"):
+                populated = list(profile_result["written"].keys())
+                step.output = f"Populated {len(populated)} field(s): {', '.join(populated)}"
+            else:
+                step.output = "No additional values found in Garmin — some fields may need manual entry"
+
+    profile_fields_populated = (
+        garmin_email
+        and not profile_result.get("skipped")
+        and not profile_result.get("error")
+        and bool(profile_result.get("written"))
+    ) if garmin_email else False
+
     await cl.Message(
         content=(
             f"All done, {first_name}! Your account is ready and your data has been synced.\n\n"
@@ -534,8 +558,12 @@ async def run_onboarding(user: cl.User) -> None:
             f"|---|---|\n"
             f"| Username | `{slug}` |\n"
             f"| Garmin Connect | {garmin_status} |\n"
-            f"| Hevy | {hevy_status} |\n\n"
-            f"Ask me anything about your fitness!"
+            f"| Hevy | {hevy_status} |\n"
+            + (
+                f"| Thresholds | Auto-populated from Garmin ✓ |\n"
+                if profile_fields_populated else ""
+            )
+            + f"\nAsk me anything about your fitness!"
         )
     ).send()
 
