@@ -2,6 +2,7 @@ ARG BUILD_FROM
 FROM $BUILD_FROM
 
 RUN apk add --no-cache \
+    bash \
     python3 \
     py3-psycopg2 \
     py3-yaml
