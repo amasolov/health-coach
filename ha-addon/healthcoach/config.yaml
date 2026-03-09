@@ -24,7 +24,7 @@ ports:
   8080/tcp: 36850
 ports_description:
   8765/tcp: MCP server (Streamable HTTP)
-  8080/tcp: KTMB1 Health Coach (Chainlit, host port 36850)
+  8080/tcp: Health Coach (Chainlit, host port 36850)
 map:
   - config:rw
 options:

@@ -1,4 +1,4 @@
-# KTMB1 Health Coach
+# Health Coach
 
 Your AI-powered fitness coaching assistant. Ask me about:
 

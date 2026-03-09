@@ -95,7 +95,7 @@ reaction_on_message_received = false
 
 [UI]
 # Name of the assistant.
-name = "KTMB1 Health Coach"
+name = "Health Coach"
 
 default_theme = "dark"
 layout = "wide"
@@ -118,7 +118,7 @@ layout = "wide"
 confirm_new_chat = true
 
 # Description of the assistant. This is used for HTML tags.
-description = "KTMB1 Health Coach — AI-powered fitness coaching with your training data"
+description = "Health Coach — AI-powered fitness coaching with your training data"
 
 # Chain of Thought (CoT) display mode. Can be "hidden", "tool_call" or "full".
 cot = "full"
