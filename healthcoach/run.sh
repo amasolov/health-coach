@@ -49,12 +49,16 @@ if acid:
         key_path = f'/config/{akf}' if not akf.startswith('/') else akf
         print(f'export OAUTH_APPLE_PRIVATE_KEY_FILE={shlex.quote(key_path)}')
 
-# Chainlit auth secret (generate once, persist)
-auth_secret = opts.get('_chainlit_auth_secret', '')
-if not auth_secret:
+# Chainlit auth secret — stored in /config/healthcoach/ so it survives
+# HA Supervisor option resets (options.json only keeps schema keys).
+from pathlib import Path as _P
+_secret_file = _P('/config/healthcoach/.chainlit_auth_secret')
+if _secret_file.exists():
+    auth_secret = _secret_file.read_text().strip()
+else:
     auth_secret = secrets.token_urlsafe(48)
-    opts['_chainlit_auth_secret'] = auth_secret
-    json.dump(opts, open('$OPTIONS_FILE', 'w'), indent=2)
+    _secret_file.parent.mkdir(parents=True, exist_ok=True)
+    _secret_file.write_text(auth_secret)
 print(f'export CHAINLIT_AUTH_SECRET={shlex.quote(auth_secret)}')
 
 # Print OAuth status

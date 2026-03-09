@@ -31,6 +31,12 @@ DEFAULT_RESTING_HR = 50
 DEFAULT_LTHR = 160
 
 
+_CYCLING_TYPES = frozenset({
+    "cycling", "virtual_ride", "indoor_cycling", "road_biking",
+    "gravel_cycling", "mountain_biking",
+})
+
+
 def _estimate_tss(
     duration_s: float,
     avg_hr: float | None,
@@ -40,21 +46,26 @@ def _estimate_tss(
     lthr: float | None,
     resting_hr: float | None,
     ae_effect: float | None,
+    activity_type: str = "",
 ) -> float | None:
-    """Estimate TSS from available data, preferring power > HR > training effect."""
+    """Estimate TSS from available data, preferring power > HR > training effect.
+
+    Power-based estimation is restricted to cycling activity types because
+    FTP is a cycling-specific threshold.  Running power (e.g. from HRM Pro)
+    is measured on a different scale and must not be divided by cycling FTP.
+    """
     if not duration_s or duration_s <= 0:
         return None
 
     hours = duration_s / 3600
 
-    # Power-based TSS (most accurate)
-    if norm_power and ftp and ftp > 0:
-        intensity = norm_power / ftp
-        return round(hours * intensity * intensity * 100, 1)
-
-    if avg_power and ftp and ftp > 0:
-        intensity = avg_power / ftp
-        return round(hours * intensity * intensity * 100, 1)
+    # Power-based TSS — only valid for cycling where FTP is meaningful
+    is_cycling = activity_type in _CYCLING_TYPES
+    if is_cycling and ftp and ftp > 0:
+        power = norm_power or avg_power
+        if power and power > 0:
+            intensity = power / ftp
+            return round(hours * intensity * intensity * 100, 1)
 
     # HR-based TSS
     if avg_hr and avg_hr > 0:
@@ -129,8 +140,9 @@ def _extract_activity(act: dict, user_thresholds: dict) -> dict:
     intensity_factor = if_garmin
     if not tss:
         tss = _estimate_tss(duration, avg_hr, avg_power, norm_power,
-                            ftp, lthr, resting_hr, ae)
-    if not intensity_factor and norm_power and ftp and ftp > 0:
+                            ftp, lthr, resting_hr, ae,
+                            activity_type=sport)
+    if not intensity_factor and norm_power and ftp and ftp > 0 and sport in _CYCLING_TYPES:
         intensity_factor = round(norm_power / ftp, 3)
 
     cadence = (act.get("averageRunningCadenceInStepsPerMinute")

@@ -379,18 +379,64 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
 
     power_updated = 0
     hr_updated = 0
+    hr_corrected = 0
     duration_updated = 0
 
     # -------------------------------------------------------------------
-    # Pass 1: power-based TSS for activities with power but no TSS
+    # Pass 0: Recalculate TSS for activities that were sync-estimated with
+    # generic defaults (rest=50, lt=160) instead of the user's actual
+    # thresholds.  Only touches Garmin-sourced activities without a
+    # tss_method tag (i.e. set during initial sync, not by backfill).
+    # Skips activities where Garmin provided its own trainingStressScore.
     # -------------------------------------------------------------------
+    if lthr and resting_hr and (lthr != 160 or resting_hr != 50):
+        cur.execute("""
+            SELECT source_id, duration_s, avg_hr, tss, activity_type
+            FROM activities
+            WHERE user_id = %s AND source = 'garmin'
+              AND tss IS NOT NULL
+              AND avg_hr IS NOT NULL AND avg_hr > 0
+              AND (raw_data IS NULL OR raw_data->>'tss_method' IS NULL)
+        """, (user_id,))
+        recalc_rows = cur.fetchall()
+        for sid, dur_s, avg_hr_val, old_tss, atype in recalc_rows:
+            if not dur_s or dur_s <= 0:
+                continue
+            hours = dur_s / 3600
+
+            # Check if the stored TSS matches HR formula with generic defaults
+            hr_if_default = max(0, min((float(avg_hr_val) - 50) / (160 - 50), 2.0))
+            tss_default = round(hours * hr_if_default * hr_if_default * 100, 1)
+            if abs(float(old_tss) - tss_default) > 1.0:
+                continue  # Garmin-provided TSS — don't touch
+
+            # Recalculate with correct thresholds
+            hr_if_correct = max(0, min((float(avg_hr_val) - resting_hr) / (float(lthr) - resting_hr), 2.0))
+            new_tss = round(hours * hr_if_correct * hr_if_correct * 100, 1)
+            if new_tss != float(old_tss) and new_tss > 0:
+                cur.execute("""
+                    UPDATE activities SET tss = %s,
+                        raw_data = COALESCE(raw_data, '{}'::jsonb)
+                                  || '{"tss_method":"hr_corrected"}'::jsonb
+                    WHERE user_id = %s AND source_id = %s
+                """, (new_tss, user_id, sid))
+                hr_corrected += 1
+
+    # -------------------------------------------------------------------
+    # Pass 1: power-based TSS for CYCLING activities with power but no TSS.
+    # FTP is a cycling-specific threshold; running power (HRM Pro) operates
+    # on a different scale and must not be divided by cycling FTP.
+    # -------------------------------------------------------------------
+    from scripts.sync_garmin import _CYCLING_TYPES
+    cycling_list = list(_CYCLING_TYPES)
     if ftp and ftp > 0:
         cur.execute("""
             SELECT source_id, duration_s, avg_power, normalized_power
             FROM activities
             WHERE user_id = %s AND tss IS NULL AND source != 'hevy'
               AND (normalized_power IS NOT NULL OR avg_power IS NOT NULL)
-        """, (user_id,))
+              AND activity_type = ANY(%s)
+        """, (user_id, cycling_list))
         power_rows = cur.fetchall()
         for sid, dur_s, avg_p, norm_p in power_rows:
             if not dur_s or dur_s <= 0:
@@ -499,6 +545,7 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
     cur.close()
     conn.close()
     return {
+        "hr_corrected": hr_corrected,
         "power_updated": power_updated,
         "hr_updated": hr_updated,
         "duration_updated": duration_updated,
@@ -591,7 +638,7 @@ def main() -> int:
         print(f"\n  [TSS Backfill]")
         try:
             result = backfill_missing_tss(user_id, slug=slug)
-            print(f"    Power-based: {result['power_updated']}, HR-based: {result['hr_updated']}, Duration-estimated: {result['duration_updated']}")
+            print(f"    HR-corrected: {result['hr_corrected']}, Power-based: {result['power_updated']}, HR-based: {result['hr_updated']}, Duration-estimated: {result['duration_updated']}")
         except Exception as e:
             print(f"    ERROR: TSS backfill failed: {e}")
             traceback.print_exc()

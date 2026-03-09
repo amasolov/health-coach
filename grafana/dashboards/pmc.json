@@ -735,6 +735,53 @@
           "mode": "markdown",
           "content": "### Quick reference\n\n| Metric | Safe zone | Watch out | Danger |\n|---|---|---|---|\n| **Fitness (CTL)** | 25-60 (recreational athlete) | < 20 (detraining) | Sudden jumps > 10/week |\n| **Fatigue (ATL)** | Below your CTL | 1.0-1.5\u00d7 your CTL | > 1.5\u00d7 your CTL |\n| **Form (TSB)** | -10 to +15 | -10 to -30 (overreaching) | Below -30 (injury/illness risk) |\n| **Ramp Rate** | +3 to +5 / week | +5 to +7 / week | Above +7 / week |\n| **Daily TSS** | 30-80 (typical session) | 150+ (very hard day) | 250+ (extreme \u2014 race only) |\n\n**The golden rule:** Never increase your training load by more than 10% per week. If Form drops below -30 for more than a few days, take a rest day \u2014 your immune system is compromised and injury risk spikes."
         }
+      },
+      {
+        "id": 20,
+        "title": "Weekly TSS",
+        "description": "Total Training Stress Score per week, split by activity type. Consistent weeks between 150-300 TSS are a good target for recreational athletes. Spikes above your 4-week average by more than 30% increase injury risk.",
+        "type": "barchart",
+        "gridPos": {
+          "x": 0,
+          "y": 46,
+          "w": 24,
+          "h": 8
+        },
+        "datasource": "$datasource",
+        "targets": [
+          {
+            "refId": "A",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time_bucket('1 week', time) AS time, activity_type AS metric, ROUND(SUM(tss)::numeric, 0) AS value FROM activities WHERE user_id = $user AND tss IS NOT NULL AND $__timeFilter(time) GROUP BY 1, 2 ORDER BY 1",
+            "format": "time_series"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            },
+            "custom": {
+              "stacking": {
+                "mode": "normal"
+              }
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "calcs": [
+              "sum",
+              "mean"
+            ]
+          },
+          "tooltip": {
+            "mode": "multi"
+          },
+          "stacking": "normal"
+        }
       }
     ],
     "schemaVersion": 39,
