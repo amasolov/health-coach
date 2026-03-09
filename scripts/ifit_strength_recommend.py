@@ -566,6 +566,87 @@ def _score_exercises_vs_state(
     return round(adjustment, 1), "; ".join(reasons) if reasons else "balanced"
 
 
+def fetch_workout_exercises(
+    workout_id: str,
+    workout_title: str,
+    ifit_headers: dict | None = None,
+    hevy_ref: str | None = None,
+    verbose: bool = False,
+) -> dict:
+    """Fetch exercises for a workout using cache layers with on-demand fallback.
+
+    Pipeline: R2 exercise cache → local cache → R2 transcript → live VTT
+    → LLM extraction → write-through to all caches.
+
+    Returns dict with:
+      exercises  – list of exercise dicts (may be empty)
+      source     – 'r2_cache', 'local_cache', 'extracted', or 'none'
+      transcript_available – whether a transcript exists for this workout
+    """
+    exercises: list[dict] | None = None
+    source = "none"
+    transcript_available = False
+
+    # 1. R2 exercise cache
+    if r2_configured():
+        exercises = r2_download_json(f"exercises/{workout_id}.json")
+        if exercises:
+            source = "r2_cache"
+            transcript_available = True
+            if verbose:
+                print(f"    {len(exercises)} exercises (R2 cached)")
+
+    # 2. Local exercise cache
+    if exercises is None:
+        cache = _load_exercise_cache()
+        if workout_id in cache:
+            exercises = cache[workout_id]
+            source = "local_cache"
+            transcript_available = True
+            if verbose:
+                print(f"    {len(exercises)} exercises (local cached)")
+
+    # 3. Fetch transcript and run LLM extraction
+    if exercises is None:
+        transcript = None
+        if r2_configured():
+            transcript = r2_download_text(f"transcripts/{workout_id}.txt")
+            if transcript and verbose:
+                print(f"    Transcript from R2 ({len(transcript)} chars)")
+
+        if not transcript and ifit_headers:
+            transcript = _fetch_vtt(workout_id, ifit_headers)
+            if transcript and r2_configured():
+                r2_upload_text(f"transcripts/{workout_id}.txt", transcript)
+
+        transcript_available = bool(transcript)
+
+        if transcript:
+            if hevy_ref is None:
+                hevy_ref_path = CACHE_DIR / "hevy_exercise_ref.txt"
+                if hevy_ref_path.exists():
+                    with open(hevy_ref_path) as f:
+                        hevy_ref = f.read()
+
+            if hevy_ref:
+                exercises = _llm_extract(transcript, hevy_ref, workout_title)
+                if exercises:
+                    source = "extracted"
+                    cache = _load_exercise_cache()
+                    cache[workout_id] = exercises
+                    _save_exercise_cache(cache)
+                    if r2_configured():
+                        r2_upload_json(f"exercises/{workout_id}.json", exercises)
+                    if verbose:
+                        print(f"    {len(exercises)} exercises (new — saved to R2 + local)")
+
+    return {
+        "exercises": exercises or [],
+        "source": source,
+        "transcript_available": transcript_available,
+    }
+
+
 def stage2_analyse(
     candidates: list[dict],
     state: AthleteState,
@@ -573,7 +654,6 @@ def stage2_analyse(
     ifit_headers: dict,
 ) -> list[Recommendation]:
     """Deep-analyse candidates via VTT + LLM, return top 3 diverse picks."""
-    exercise_cache = _load_exercise_cache()
     cache_hits = 0
     cache_new = 0
     scored = []
@@ -583,50 +663,23 @@ def stage2_analyse(
         title = c["title"]
         print(f"  [{i+1}/{len(candidates)}] Analysing: {title}...", flush=True)
 
-        # 1. Check R2 exercises cache
-        exercises = None
-        if r2_configured():
-            exercises = r2_download_json(f"exercises/{wid}.json")
-            if exercises:
-                exercise_cache[wid] = exercises
-                cache_hits += 1
-                print(f"    {len(exercises)} exercises (R2 cached)")
+        result = fetch_workout_exercises(
+            wid, title, ifit_headers, hevy_ref=hevy_ref, verbose=True,
+        )
+        exercises = result["exercises"]
 
-        # 2. Fallback to local exercise cache
-        if exercises is None and wid in exercise_cache:
-            exercises = exercise_cache[wid]
-            cache_hits += 1
-            print(f"    {len(exercises)} exercises (local cached)")
-
-        # 3. Cache miss — fetch transcript and run LLM extraction
-        if exercises is None:
-            transcript = None
-            if r2_configured():
-                transcript = r2_download_text(f"transcripts/{wid}.txt")
-                if transcript:
-                    print(f"    Transcript from R2 ({len(transcript)} chars)")
-
-            if not transcript:
-                transcript = _fetch_vtt(wid, ifit_headers)
-                if transcript and r2_configured():
-                    r2_upload_text(f"transcripts/{wid}.txt", transcript)
-
-            if not transcript:
-                print(f"    Skipping (no captions)")
-                continue
-
-            exercises = _llm_extract(transcript, hevy_ref, title)
-            if not exercises:
+        if not exercises:
+            if result["transcript_available"]:
                 print(f"    Skipping (no exercises extracted)")
-                continue
+            else:
+                print(f"    Skipping (no captions)")
+            continue
 
-            # Write-through: store in both R2 and local cache
-            exercise_cache[wid] = exercises
+        if result["source"] == "extracted":
             cache_new += 1
-            if r2_configured():
-                r2_upload_json(f"exercises/{wid}.json", exercises)
-            print(f"    {len(exercises)} exercises (new — saved to R2 + local)")
             time.sleep(0.3)
+        else:
+            cache_hits += 1
 
         adj, reasoning = _score_exercises_vs_state(exercises, state)
         final_score = c["stage1_score"] + adj

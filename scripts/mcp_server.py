@@ -498,9 +498,14 @@ def search_ifit_library(ctx: Context, query: str, workout_type: str = "", limit:
 
 @mcp.tool
 def get_ifit_workout_details(ctx: Context, workout_id: str) -> dict:
-    """Get detailed info about a specific iFit workout by its ID.  Returns
-    description, trainer info, muscle groups, difficulty, duration, equipment,
-    and ratings."""
+    """Get detailed info about a specific iFit workout by its ID.
+
+    Returns description, trainer info, muscle groups, difficulty, duration,
+    equipment, ratings, program/series context, AND a full exercise breakdown.
+
+    If the workout hasn't been synced yet, the transcript is fetched from iFit
+    and exercises are extracted via LLM on the fly (then cached).  No need to
+    wait for the library sync — just pass any workout ID."""
     return _wrap(health_tools.get_ifit_workout_details, workout_id)
 
 

@@ -1517,8 +1517,9 @@ def get_ifit_program_details(series_id: str) -> dict:
 def get_ifit_workout_details(workout_id: str) -> dict:
     """Get detailed info about a specific iFit workout by ID.
 
-    Returns metadata, exercise breakdown (if VTT captions are available),
-    structure, and trainer info."""
+    Returns metadata, trainer info, and a full exercise breakdown.  If the
+    workout hasn't been processed yet the transcript is fetched from iFit and
+    exercises are extracted via LLM on the fly (then cached for next time)."""
     import httpx as _httpx
     from scripts.ifit_auth import get_auth_headers
 
@@ -1547,7 +1548,7 @@ def get_ifit_workout_details(workout_id: str) -> dict:
     ratings = meta.get("ratings", {})
     trainer_meta = meta.get("metadata", {})
 
-    result = {
+    result: dict = {
         "title": meta.get("title", ""),
         "description": meta.get("description", ""),
         "type": meta.get("type", ""),
@@ -1579,6 +1580,31 @@ def get_ifit_workout_details(workout_id: str) -> dict:
                 }
         except Exception:
             pass
+
+    # Fetch exercises on-demand (cache → R2 → live VTT → LLM extraction)
+    from scripts.ifit_strength_recommend import fetch_workout_exercises
+    exercise_info = fetch_workout_exercises(
+        workout_id, result["title"], ifit_headers=headers,
+    )
+    if exercise_info["exercises"]:
+        result["exercises"] = exercise_info["exercises"]
+        result["exercises_source"] = exercise_info["source"]
+    result["transcript_available"] = exercise_info["transcript_available"]
+
+    # Enrich with program/series info
+    try:
+        from scripts.ifit_r2_sync import load_program_index
+        program_index = load_program_index()
+        prog = program_index.get(workout_id)
+        if prog:
+            result["program"] = {
+                "title": prog["title"],
+                "series_id": prog["series_id"],
+                "position": prog["position"],
+                "total": prog["total"],
+            }
+    except Exception:
+        pass
 
     return result
 
