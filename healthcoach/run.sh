@@ -65,6 +65,7 @@ if acid:
 ")"
 
 export IFIT_TOKEN_FILE="/config/healthcoach/.ifit_token.json"
+export PYTHONPATH="/app"
 
 echo "=== Health Coach Addon ==="
 

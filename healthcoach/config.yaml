@@ -1,5 +1,5 @@
 name: Health Coach
-version: "0.4.0"
+version: "0.5.0"
 slug: healthcoach
 description: >-
   AI-powered personal health and fitness coach.
@@ -39,7 +39,7 @@ options:
   apple_oauth_team_id: ""
   apple_oauth_key_id: ""
   apple_oauth_private_key_file: ""
-  db_host: "timescaledb"
+  db_host: "77b2833f-timescaledb"
   db_port: 5432
   db_name: "health"
   db_user: ""
