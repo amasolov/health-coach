@@ -114,6 +114,7 @@ def _slim_workout(w: dict) -> dict:
     return {
         "id": w.get("id", ""),
         "title": w.get("title", ""),
+        "description": w.get("description", ""),
         "type": w.get("type", ""),
         "trainer_id": meta.get("trainer", ""),
         "difficulty": w.get("difficulty", {}).get("rating", ""),

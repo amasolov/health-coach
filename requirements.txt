@@ -11,3 +11,4 @@ PyJWT[crypto]
 asyncpg
 greenlet
 sqlalchemy
+boto3

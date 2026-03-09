@@ -201,6 +201,36 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    # ===== EXERCISE DATA CORRECTION =====
+    {
+        "type": "function",
+        "function": {
+            "name": "report_exercise_correction",
+            "description": (
+                "Report incorrect exercise data for an iFit workout. "
+                "Use when the user says the extracted exercises for a workout "
+                "are wrong, incomplete, or inaccurate. Opens a GitHub issue "
+                "with the current data and user feedback for review."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workout_id": {
+                        "type": "string",
+                        "description": "The iFit workout ID with incorrect exercises.",
+                    },
+                    "feedback": {
+                        "type": "string",
+                        "description": (
+                            "User's description of what's wrong and what the "
+                            "correct exercises should be."
+                        ),
+                    },
+                },
+                "required": ["workout_id", "feedback"],
+            },
+        },
+    },
     # ===== SYNC =====
     {
         "type": "function",
@@ -529,6 +559,54 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "search_ifit_programs",
+            "description": (
+                "Search the iFit program/series index by name, trainer, or "
+                "keyword. Returns matching programs with their workout lists. "
+                "Use when the user asks about iFit series, programs, or "
+                "training plans."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query: program name, trainer name, or keywords.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default 10).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_ifit_program_details",
+            "description": (
+                "Get detailed info about a specific iFit program/series by "
+                "its series ID. Returns the program overview, trainers, and "
+                "full workout list. Use after search_ifit_programs to get "
+                "more details."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "series_id": {
+                        "type": "string",
+                        "description": "The iFit series/program ID.",
+                    },
+                },
+                "required": ["series_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_hevy_routine_from_recommendation",
             "description": (
                 "Create a Hevy routine from a previously generated iFit "
@@ -591,11 +669,14 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "set_user_integrations":        (health_tools.set_user_integrations, "slug"),
     "get_user_integrations":        (health_tools.get_user_integrations, "slug"),
     "suggest_feature":              (health_tools.suggest_feature, "slug"),
+    "report_exercise_correction":   (health_tools.report_exercise_correction, "slug"),
     "sync_data":                    (health_tools.sync_data, "creds"),
     # iFit integration
     "recommend_ifit_workout":       (health_tools.recommend_ifit_workout, "slug"),
     "search_ifit_library":          (health_tools.search_ifit_library, "none"),
     "get_ifit_workout_details":     (health_tools.get_ifit_workout_details, "none"),
+    "search_ifit_programs":         (health_tools.search_ifit_programs, "none"),
+    "get_ifit_program_details":     (health_tools.get_ifit_program_details, "none"),
     "recommend_strength_workout":   (health_tools.recommend_strength_workout, "slug"),
     "create_hevy_routine_from_recommendation": (health_tools.create_hevy_routine_from_recommendation, "creds"),
 }

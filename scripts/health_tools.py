@@ -1277,10 +1277,11 @@ def recommend_ifit_workout(user_slug: str) -> dict:
 
 
 def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> dict:
-    """Search the iFit workout library by title, trainer, category, or keyword.
+    """Search the iFit workout library by title, trainer, category, description, or keyword.
 
     Uses the cached library (12K+ workouts).  Results are ranked by relevance
-    (title match > category match) and rating."""
+    (title match > trainer match > description match > category match) and rating.
+    Also enriches results with program/series info from R2 when available."""
     import json as _json
     from pathlib import Path as _P
 
@@ -1307,6 +1308,14 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
         with open(trainers_path) as f:
             trainers = _json.load(f)
 
+    # Load program index for enrichment
+    program_index: dict = {}
+    try:
+        from scripts.ifit_r2_sync import load_program_index
+        program_index = load_program_index()
+    except Exception:
+        pass
+
     q_lower = query.lower()
     terms = q_lower.split()
 
@@ -1325,6 +1334,10 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
         trainer_id = w.get("trainer_id", "")
         trainer_name = (trainers.get(trainer_id, {}).get("name") or "").lower()
         cats = " ".join(w.get("categories", []) + w.get("subcategories", [])).lower()
+        desc = (w.get("description") or "").lower()
+
+        prog = program_index.get(w.get("id", ""))
+        prog_title = (prog["title"].lower() if prog else "")
 
         score = 0
         for term in terms:
@@ -1332,6 +1345,10 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
                 score += 10
             if term in trainer_name:
                 score += 8
+            if term in desc:
+                score += 5
+            if term in prog_title:
+                score += 7
             if term in cats:
                 score += 3
 
@@ -1344,7 +1361,8 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
 
     results = []
     for _score, w, trainer_name in scored[:limit]:
-        results.append({
+        wid = w.get("id", "")
+        entry = {
             "title": w.get("title", ""),
             "trainer": trainer_name,
             "type": w.get("type", ""),
@@ -1354,8 +1372,18 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
             "categories": w.get("categories", []),
             "subcategories": w.get("subcategories", []),
             "equipment": w.get("required_equipment", []),
-            "workout_id": w.get("id", ""),
-        })
+            "workout_id": wid,
+        }
+        desc = w.get("description", "")
+        if desc:
+            entry["description"] = desc[:200] + ("..." if len(desc) > 200 else "")
+
+        prog = program_index.get(wid)
+        if prog:
+            entry["program"] = prog["title"]
+            entry["program_position"] = f"{prog['position']} of {prog['total']}"
+
+        results.append(entry)
 
     return {
         "query": query,
@@ -1364,6 +1392,126 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
         "count": len(results),
         "total_library_size": len(workouts),
     }
+
+
+def search_ifit_programs(query: str, limit: int = 10) -> dict:
+    """Search the iFit program/series index by name, trainer, or keyword."""
+    try:
+        from scripts.r2_store import is_configured as r2_configured, list_keys, download_json
+    except ImportError:
+        return {"error": "R2 module not available"}
+
+    if not r2_configured():
+        return {"error": "R2 not configured — program index unavailable"}
+
+    keys = list_keys("programs/")
+    if not keys:
+        return {"query": query, "results": [], "count": 0, "note": "No programs indexed yet"}
+
+    terms = query.lower().split()
+    scored = []
+
+    for key in keys:
+        program = download_json(key)
+        if not program:
+            continue
+
+        title = (program.get("title") or "").lower()
+        overview = (program.get("overview") or "").lower()
+        trainer_names = " ".join(t.get("name", "") for t in program.get("trainers", [])).lower()
+
+        score = 0
+        for term in terms:
+            if term in title:
+                score += 10
+            if term in trainer_names:
+                score += 8
+            if term in overview:
+                score += 5
+
+        if score > 0:
+            rating = program.get("rating", {})
+            avg = rating.get("average", 0) if isinstance(rating, dict) else 0
+            score += avg * 0.5
+            scored.append((score, program))
+
+    scored.sort(key=lambda x: -x[0])
+
+    results = []
+    for _score, p in scored[:limit]:
+        results.append({
+            "title": p.get("title", ""),
+            "series_id": p.get("series_id", ""),
+            "type": p.get("type", ""),
+            "overview": (p.get("overview") or "")[:200],
+            "trainers": [t.get("name", "") for t in p.get("trainers", [])],
+            "workout_count": p.get("workout_count", 0),
+            "workouts": p.get("workout_titles", [])[:10],
+            "rating": p.get("rating", {}).get("average") if isinstance(p.get("rating"), dict) else None,
+        })
+
+    return {
+        "query": query,
+        "results": results,
+        "count": len(results),
+        "total_programs_indexed": len(keys),
+    }
+
+
+def get_ifit_program_details(series_id: str) -> dict:
+    """Get details for an iFit program/series by ID.
+
+    First checks R2 cache, falls back to live iFit API."""
+    try:
+        from scripts.r2_store import (
+            is_configured as r2_configured, download_json, upload_json,
+        )
+    except ImportError:
+        r2_configured = lambda: False
+
+    if r2_configured():
+        cached = download_json(f"programs/{series_id}.json")
+        if cached:
+            return cached
+
+    import httpx as _httpx
+    try:
+        from scripts.ifit_auth import get_auth_headers
+        headers = get_auth_headers()
+    except RuntimeError as exc:
+        return {"error": str(exc)}
+
+    try:
+        r = _httpx.get(
+            f"https://gateway.ifit.com/wolf-workouts-service/v1/program/{series_id}"
+            f"?softwareNumber=424992",
+            headers=headers, timeout=15,
+        )
+        if r.status_code != 200:
+            return {"error": f"iFit API returned {r.status_code}"}
+        data = r.json()
+    except Exception as exc:
+        return {"error": f"Failed to fetch program: {exc}"}
+
+    result = {
+        "series_id": series_id,
+        "title": data.get("title", ""),
+        "overview": data.get("overview", ""),
+        "type": data.get("type", ""),
+        "rating": data.get("rating", {}),
+        "trainers": [
+            {"name": t.get("name", ""), "id": t.get("itemId", "")}
+            for t in data.get("trainers", [])
+        ],
+        "workout_ids": [w.get("itemId", "") for w in data.get("workouts", [])],
+        "workout_titles": [w.get("title", "") for w in data.get("workouts", [])],
+        "workout_count": len(data.get("workouts", [])),
+    }
+
+    if r2_configured():
+        upload_json(f"programs/{series_id}.json", result)
+
+    return result
 
 
 def get_ifit_workout_details(workout_id: str) -> dict:
@@ -1510,6 +1658,130 @@ def suggest_feature(
             "issue_number": issue["number"],
             "url": issue["html_url"],
             "title": issue["title"],
+        }
+    except httpx.HTTPStatusError as exc:
+        return {"error": f"GitHub API error {exc.response.status_code}: {exc.response.text}"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def report_exercise_correction(
+    user_slug: str,
+    workout_id: str,
+    feedback: str,
+) -> dict:
+    """Report incorrect exercise data for an iFit workout.
+
+    Gathers the current extracted exercises, transcript, and workout metadata,
+    then opens a GitHub issue so the data can be reviewed and corrected."""
+    import json as _json
+    import httpx
+    from pathlib import Path as _P
+
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo = os.environ.get("GITHUB_REPO", "amasolov/health-coach")
+
+    if not token:
+        return {
+            "error": "GitHub integration is not configured. "
+            "Ask the administrator to set GITHUB_TOKEN in the addon options."
+        }
+
+    # Gather workout metadata from library cache
+    cache_dir = _P(__file__).resolve().parent.parent / ".ifit_capture"
+    library_path = cache_dir / "library_workouts.json"
+    trainers_path = cache_dir / "trainers.json"
+
+    workout_title = workout_id
+    trainer_name = ""
+    if library_path.exists():
+        with open(library_path) as f:
+            for w in _json.load(f):
+                if w.get("id") == workout_id:
+                    workout_title = w.get("title", workout_id)
+                    tid = w.get("trainer_id", "")
+                    if tid and trainers_path.exists():
+                        with open(trainers_path) as tf:
+                            trainers = _json.load(tf)
+                        trainer_name = trainers.get(tid, {}).get("name", "")
+                    break
+
+    # Gather current exercises from R2 or local cache
+    exercises_json = ""
+    try:
+        from scripts.r2_store import is_configured as r2_ok, download_json, download_text
+        if r2_ok():
+            exercises = download_json(f"exercises/{workout_id}.json")
+            if exercises:
+                exercises_json = _json.dumps(exercises, indent=2)
+    except Exception:
+        pass
+
+    if not exercises_json:
+        exercise_cache_path = cache_dir / "exercise_cache.json"
+        if exercise_cache_path.exists():
+            with open(exercise_cache_path) as f:
+                cache = _json.load(f)
+            if workout_id in cache:
+                exercises_json = _json.dumps(cache[workout_id], indent=2)
+
+    # Gather transcript from R2
+    transcript_snippet = ""
+    try:
+        from scripts.r2_store import is_configured as r2_ok, download_text
+        if r2_ok():
+            transcript = download_text(f"transcripts/{workout_id}.txt")
+            if transcript:
+                transcript_snippet = transcript[:500]
+                if len(transcript) > 500:
+                    transcript_snippet += "..."
+    except Exception:
+        pass
+
+    # Build issue body
+    parts = [
+        f"**Reported by:** `{user_slug}`",
+        f"**Workout:** {workout_title} (`{workout_id}`)",
+    ]
+    if trainer_name:
+        parts.append(f"**Trainer:** {trainer_name}")
+
+    parts.append(f"\n### User Feedback\n\n{feedback}")
+
+    if exercises_json:
+        parts.append(f"\n### Current Extracted Exercises\n\n```json\n{exercises_json}\n```")
+    else:
+        parts.append("\n### Current Extracted Exercises\n\n_No exercises extracted yet._")
+
+    if transcript_snippet:
+        parts.append(f"\n### Transcript (first 500 chars)\n\n> {transcript_snippet}")
+
+    body = "\n".join(parts)
+    issue_title = f"Exercise data correction: {workout_title}"
+
+    try:
+        resp = httpx.post(
+            f"https://api.github.com/repos/{repo}/issues",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json={
+                "title": issue_title,
+                "body": body,
+                "labels": ["exercise-data"],
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        issue = resp.json()
+        return {
+            "status": "created",
+            "issue_number": issue["number"],
+            "url": issue["html_url"],
+            "title": issue["title"],
+            "workout": workout_title,
         }
     except httpx.HTTPStatusError as exc:
         return {"error": f"GitHub API error {exc.response.status_code}: {exc.response.text}"}

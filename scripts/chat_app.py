@@ -48,6 +48,46 @@ if os.environ.get("OAUTH_APPLE_CLIENT_ID"):
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 CHAT_MODEL = os.environ.get("CHAT_MODEL", "anthropic/claude-sonnet-4")
+
+TOOL_DISPLAY_NAMES = {
+    "get_fitness_summary":       "Checking fitness status",
+    "get_training_load":         "Loading training data",
+    "get_activities":            "Fetching activities",
+    "get_activity_detail":       "Loading activity details",
+    "get_body_composition":      "Loading body composition",
+    "get_vitals":                "Checking vitals",
+    "get_training_zones":        "Loading training zones",
+    "get_athlete_profile":       "Loading athlete profile",
+    "get_strength_sessions":     "Loading strength sessions",
+    "list_treadmill_templates":  "Listing treadmill templates",
+    "generate_treadmill_workout": "Generating treadmill workout",
+    "recommend_ifit_workout":    "Finding iFit workouts for you",
+    "search_ifit_library":       "Searching iFit library",
+    "get_ifit_workout_details":  "Loading workout details",
+    "recommend_strength_workout": "Analysing strength workouts",
+    "create_hevy_routine_from_recommendation": "Creating Hevy routine",
+    "search_ifit_programs":      "Searching iFit programs",
+    "get_ifit_program_details":  "Loading program details",
+    "sync_data":                 "Syncing your data",
+    "garmin_auth_status":        "Checking Garmin connection",
+    "garmin_authenticate":       "Connecting to Garmin",
+    "garmin_submit_mfa":         "Verifying Garmin MFA",
+    "garmin_fetch_profile":      "Fetching Garmin profile",
+    "generate_fitness_assessment": "Generating fitness assessment",
+    "update_athlete_profile":    "Updating profile",
+    "get_onboarding_questions":  "Loading onboarding questions",
+    "set_user_goals":            "Saving goals",
+    "get_user_goals":            "Loading goals",
+    "get_action_items":          "Checking action items",
+    "add_action_item":           "Adding action item",
+    "update_action_item":        "Updating action item",
+    "complete_action_item":      "Completing action item",
+    "get_supported_integrations": "Loading integrations",
+    "set_user_integrations":     "Saving integrations",
+    "get_user_integrations":     "Loading integrations",
+    "suggest_feature":           "Submitting suggestion",
+    "report_exercise_correction": "Reporting exercise correction",
+}
 ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "").lower() in ("true", "1", "yes")
 SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))
 MAX_TOOL_ROUNDS = 10
@@ -272,14 +312,17 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         "- recommend_ifit_workout: get personalised workout picks for today "
         "(running, strength, cycling, yoga, recovery — all types)\n"
         "- search_ifit_library: search 12K+ iFit workouts by name, trainer, "
-        "series, or keyword\n"
+        "description, or keyword\n"
         "- get_ifit_workout_details: look up any workout by ID for full details\n"
+        "- search_ifit_programs: search iFit programs/series by name or trainer\n"
+        "- get_ifit_program_details: get full program info with all workouts\n"
         "- recommend_strength_workout: deep strength-specific analysis with "
         "exercise breakdowns from VTT captions\n"
         "- list_treadmill_templates / generate_treadmill_workout: zone-based "
         "treadmill workouts for the iFit Workout Creator\n"
         "When a user asks about any iFit workout, program, series, or trainer, "
-        "USE these tools to look it up.\n"
+        "USE these tools to look it up. For program/series questions, try "
+        "search_ifit_programs first, then search_ifit_library.\n"
     )
 
     parts.append(
@@ -713,7 +756,8 @@ async def on_message(message: cl.Message):
                 except json.JSONDecodeError:
                     fn_args = {}
 
-                async with cl.Step(name=fn_name, type="tool") as step:
+                display_name = TOOL_DISPLAY_NAMES.get(fn_name, fn_name.replace("_", " ").title())
+                async with cl.Step(name=display_name, type="tool") as step:
                     step.input = json.dumps(fn_args, indent=2) if fn_args else "{}"
                     result = await asyncio.to_thread(
                         _execute_tool,

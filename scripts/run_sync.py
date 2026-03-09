@@ -591,6 +591,56 @@ def _refresh_ifit_library_cache() -> None:
     print(f"  {len(workouts)} workouts cached")
 
 
+def _sync_ifit_r2() -> None:
+    """Upload library to R2, fetch a batch of transcripts, discover programs."""
+    from scripts.r2_store import is_configured as r2_configured
+    if not r2_configured():
+        return
+
+    print(f"\n{'='*60}")
+    print("iFit R2 sync")
+    print(f"{'='*60}")
+
+    from scripts.ifit_r2_sync import (
+        sync_library, sync_transcripts, sync_programs, migrate_exercise_cache,
+    )
+
+    try:
+        result = migrate_exercise_cache()
+        if result.get("uploaded"):
+            print(f"  Migrated {result['uploaded']} exercise cache entries to R2")
+    except Exception as e:
+        print(f"  WARN: Exercise cache migration failed: {e}")
+
+    try:
+        lib_result = sync_library()
+        for name, status in lib_result.items():
+            if name != "skipped":
+                print(f"  Library {name}: {status}")
+    except Exception as e:
+        print(f"  WARN: Library upload failed: {e}")
+
+    try:
+        result = sync_transcripts(batch_size=100)
+        if not result.get("skipped"):
+            synced = result.get("total_synced", 0)
+            total = result.get("total", 0)
+            uploaded = result.get("uploaded", 0)
+            remaining = result.get("remaining", 0)
+            print(f"  Transcripts: {synced}/{total} synced "
+                  f"({uploaded} new this cycle, {remaining} remaining)")
+    except Exception as e:
+        print(f"  WARN: Transcript sync failed: {e}")
+
+    try:
+        result = sync_programs()
+        if not result.get("skipped"):
+            print(f"  Programs: {result.get('discovered', 0)} discovered, "
+                  f"{result.get('newly_fetched', 0)} new")
+    except Exception as e:
+        print(f"  WARN: Program sync failed: {e}")
+
+
 def main() -> int:
     users = get_users()
     errors = 0
@@ -691,6 +741,9 @@ def main() -> int:
         _refresh_ifit_library_cache()
     except Exception as e:
         print(f"  WARN: iFit library refresh failed: {e}")
+
+    # --- iFit R2 sync (transcript batches + library upload + programs) ---
+    _sync_ifit_r2()
 
     if errors:
         print(f"\nSync completed with {errors} error(s)")

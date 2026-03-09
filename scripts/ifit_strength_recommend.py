@@ -36,6 +36,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ifit_auth import get_auth_headers
+from r2_store import (
+    is_configured as r2_configured,
+    download_json as r2_download_json,
+    download_text as r2_download_text,
+    upload_json as r2_upload_json,
+    upload_text as r2_upload_text,
+)
 
 # ---------------------------------------------------------------------------
 # Paths & constants
@@ -576,12 +583,34 @@ def stage2_analyse(
         title = c["title"]
         print(f"  [{i+1}/{len(candidates)}] Analysing: {title}...", flush=True)
 
-        if wid in exercise_cache:
+        # 1. Check R2 exercises cache
+        exercises = None
+        if r2_configured():
+            exercises = r2_download_json(f"exercises/{wid}.json")
+            if exercises:
+                exercise_cache[wid] = exercises
+                cache_hits += 1
+                print(f"    {len(exercises)} exercises (R2 cached)")
+
+        # 2. Fallback to local exercise cache
+        if exercises is None and wid in exercise_cache:
             exercises = exercise_cache[wid]
             cache_hits += 1
-            print(f"    {len(exercises)} exercises (cached)")
-        else:
-            transcript = _fetch_vtt(wid, ifit_headers)
+            print(f"    {len(exercises)} exercises (local cached)")
+
+        # 3. Cache miss — fetch transcript and run LLM extraction
+        if exercises is None:
+            transcript = None
+            if r2_configured():
+                transcript = r2_download_text(f"transcripts/{wid}.txt")
+                if transcript:
+                    print(f"    Transcript from R2 ({len(transcript)} chars)")
+
+            if not transcript:
+                transcript = _fetch_vtt(wid, ifit_headers)
+                if transcript and r2_configured():
+                    r2_upload_text(f"transcripts/{wid}.txt", transcript)
+
             if not transcript:
                 print(f"    Skipping (no captions)")
                 continue
@@ -591,9 +620,12 @@ def stage2_analyse(
                 print(f"    Skipping (no exercises extracted)")
                 continue
 
+            # Write-through: store in both R2 and local cache
             exercise_cache[wid] = exercises
             cache_new += 1
-            print(f"    {len(exercises)} exercises (new — saved to cache)")
+            if r2_configured():
+                r2_upload_json(f"exercises/{wid}.json", exercises)
+            print(f"    {len(exercises)} exercises (new — saved to R2 + local)")
             time.sleep(0.3)
 
         adj, reasoning = _score_exercises_vs_state(exercises, state)

@@ -505,6 +505,29 @@ def get_ifit_workout_details(ctx: Context, workout_id: str) -> dict:
 
 
 @mcp.tool
+def search_ifit_programs(ctx: Context, query: str, limit: int = 10) -> dict:
+    """Search the iFit program/series index by name, trainer, or keyword.
+    Returns matching programs with their workout lists.  Use when asking
+    about iFit series, programs, or training plans."""
+    return _wrap(health_tools.search_ifit_programs, query, limit)
+
+
+@mcp.tool
+def get_ifit_program_details(ctx: Context, series_id: str) -> dict:
+    """Get details for an iFit program/series by its series ID.  Returns
+    program overview, trainers, and the full list of workouts in order."""
+    return _wrap(health_tools.get_ifit_program_details, series_id)
+
+
+@mcp.tool
+def report_exercise_correction(ctx: Context, workout_id: str, feedback: str) -> dict:
+    """Report incorrect exercise data for an iFit workout.  Gathers the
+    current extracted exercises, transcript snippet, and workout metadata,
+    then opens a GitHub issue so the data can be reviewed and corrected."""
+    return _wrap(health_tools.report_exercise_correction, _uslug(ctx), workout_id, feedback)
+
+
+@mcp.tool
 def recommend_strength_workout(ctx: Context) -> dict:
     """Run the iFit strength workout recommendation engine (deep analysis).
 

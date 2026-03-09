@@ -1,5 +1,5 @@
 name: Health Coach
-version: "0.22.0"
+version: "0.23.0"
 slug: healthcoach
 description: >-
   AI-powered personal health and fitness coach.
@@ -48,6 +48,10 @@ options:
   grafana_port: 3000
   grafana_api_key: ""
   github_token: ""
+  r2_account_id: ""
+  r2_access_key_id: ""
+  r2_secret_access_key: ""
+  r2_bucket_name: "health-coach-ifit"
 schema:
   sync_interval_minutes: "int(5,1440)"
   mcp_port: "int(1024,65535)"
@@ -71,3 +75,7 @@ schema:
   grafana_port: port
   grafana_api_key: "str?"
   github_token: "str?"
+  r2_account_id: "str?"
+  r2_access_key_id: "str?"
+  r2_secret_access_key: "str?"
+  r2_bucket_name: "str?"
