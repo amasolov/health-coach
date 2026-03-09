@@ -98,20 +98,50 @@ def _load_workout_sets(cur, user_id: int, workout_id: str) -> list[SetData]:
     ]
 
 
-def _load_user_thresholds(cur, user_id: int) -> tuple[float | None, float | None]:
-    """Load resting_hr and LTHR from latest vitals / athlete config."""
+def _load_athlete_thresholds(slug: str) -> dict:
+    """Load threshold values from athlete.yaml for a given slug."""
+    from pathlib import Path
+    import yaml
+
+    path = Path(__file__).resolve().parent.parent / "config" / "athlete.yaml"
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    user = data.get("users", {}).get(slug, {})
+    thresholds = user.get("thresholds", {})
+    hr = thresholds.get("heart_rate", {})
+    return {
+        "ftp": thresholds.get("cycling", {}).get("ftp"),
+        "lthr_run": hr.get("lthr_run"),
+        "lthr_bike": hr.get("lthr_bike"),
+        "resting_hr": hr.get("resting_hr"),
+        "max_hr": hr.get("max_hr"),
+    }
+
+
+def _load_user_thresholds(cur, user_id: int, slug: str = "") -> tuple[float | None, float | None]:
+    """Load resting_hr and LTHR from vitals + athlete.yaml."""
     cur.execute("""
         SELECT resting_hr FROM vitals
         WHERE user_id = %s AND resting_hr IS NOT NULL
         ORDER BY time DESC LIMIT 1
     """, (user_id,))
     row = cur.fetchone()
-    resting_hr = float(row[0]) if row else None
-    lthr = None  # will come from athlete.yaml when available
+    resting_hr_vitals = float(row[0]) if row else None
+
+    athlete = _load_athlete_thresholds(slug) if slug else {}
+    resting_hr = resting_hr_vitals or athlete.get("resting_hr")
+
+    # Prefer explicit lthr; fall back to 88% of max_hr as a reasonable estimate
+    lthr = athlete.get("lthr_run") or athlete.get("lthr_bike")
+    if not lthr and athlete.get("max_hr"):
+        lthr = round(athlete["max_hr"] * 0.88)
+
     return resting_hr, lthr
 
 
-def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney") -> dict:
+def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug: str = "") -> dict:
     """
     Compute estimated TSS for each Hevy workout and ensure it appears
     in the activities table.
@@ -130,7 +160,7 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney") -> di
     cur = conn.cursor()
 
     exercise_maxes = _load_exercise_maxes(cur, user_id)
-    resting_hr, lthr = _load_user_thresholds(cur, user_id)
+    resting_hr, lthr = _load_user_thresholds(cur, user_id, slug)
 
     cur.execute("""
         SELECT DISTINCT workout_id, MIN(time) AS workout_time
@@ -246,6 +276,174 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney") -> di
     }
 
 
+def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
+    """
+    Retroactively estimate TSS for activities that are missing it.
+
+    Pass 1 – Power-based: activities with avg_power or normalized_power but no TSS.
+              Uses FTP from athlete.yaml. Covers Zwift/cycling rides synced before
+              FTP was configured.
+
+    Pass 2 – HR-based: activities with avg_hr but no TSS (non-strength).
+              Uses LTHR and resting_hr from athlete.yaml / vitals.
+
+    Pass 3 – Duration-based fallback: any remaining activity with no TSS and no
+              useful physiological data, using activity-type-specific MET estimates
+              to give at least a plausible stress value.
+              Applied only to activity types where this makes sense (yoga, strength,
+              recovery, hiking, skiing, etc.).
+
+    Only updates activities where the new estimate is meaningfully higher than what
+    was there before (NULL or zero).
+    """
+    athlete = _load_athlete_thresholds(slug) if slug else {}
+    ftp = athlete.get("ftp")
+    lthr = athlete.get("lthr_run") or athlete.get("lthr_bike")
+    if not lthr and athlete.get("max_hr"):
+        lthr = round(athlete["max_hr"] * 0.88)
+    max_hr = athlete.get("max_hr")
+
+    conn = _get_conn()
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    # Get resting HR from vitals as well
+    cur.execute("""
+        SELECT resting_hr FROM vitals
+        WHERE user_id = %s AND resting_hr IS NOT NULL
+        ORDER BY time DESC LIMIT 1
+    """, (user_id,))
+    row = cur.fetchone()
+    resting_hr = float(row[0]) if row else athlete.get("resting_hr")
+
+    power_updated = 0
+    hr_updated = 0
+    duration_updated = 0
+
+    # -------------------------------------------------------------------
+    # Pass 1: power-based TSS for activities with power but no TSS
+    # -------------------------------------------------------------------
+    if ftp and ftp > 0:
+        cur.execute("""
+            SELECT source_id, duration_s, avg_power, normalized_power
+            FROM activities
+            WHERE user_id = %s AND tss IS NULL AND source != 'hevy'
+              AND (normalized_power IS NOT NULL OR avg_power IS NOT NULL)
+        """, (user_id,))
+        power_rows = cur.fetchall()
+        for sid, dur_s, avg_p, norm_p in power_rows:
+            if not dur_s or dur_s <= 0:
+                continue
+            hours = dur_s / 3600
+            p = float(norm_p or avg_p)
+            intensity = p / ftp
+            tss = round(hours * intensity * intensity * 100, 1)
+            if tss > 0:
+                cur.execute("""
+                    UPDATE activities SET tss = %s,
+                        raw_data = COALESCE(raw_data, '{}'::jsonb)
+                                  || '{"tss_method":"power_backfill"}'::jsonb
+                    WHERE user_id = %s AND source_id = %s AND tss IS NULL
+                """, (tss, user_id, sid))
+                power_updated += 1
+
+    # -------------------------------------------------------------------
+    # Pass 2: HR-based TSS for non-strength activities with HR but no TSS
+    # -------------------------------------------------------------------
+    if lthr and resting_hr:
+        cur.execute("""
+            SELECT source_id, duration_s, avg_hr, activity_type
+            FROM activities
+            WHERE user_id = %s AND tss IS NULL AND source != 'hevy'
+              AND avg_hr IS NOT NULL AND avg_hr > 0
+              AND activity_type NOT IN ('strength_training', 'weight_training')
+        """, (user_id,))
+        hr_rows = cur.fetchall()
+        for sid, dur_s, avg_hr, atype in hr_rows:
+            if not dur_s or dur_s <= 0:
+                continue
+            hours = dur_s / 3600
+            rest = resting_hr or 50
+            lt = float(lthr)
+            if lt <= rest:
+                continue
+            hr_if = max(0.0, min((avg_hr - rest) / (lt - rest), 2.0))
+            tss = round(hours * hr_if * hr_if * 100, 1)
+            if tss > 0:
+                cur.execute("""
+                    UPDATE activities SET tss = %s,
+                        raw_data = COALESCE(raw_data, '{}'::jsonb)
+                                  || '{"tss_method":"hr_backfill"}'::jsonb
+                    WHERE user_id = %s AND source_id = %s AND tss IS NULL
+                """, (tss, user_id, sid))
+                hr_updated += 1
+
+    # -------------------------------------------------------------------
+    # Pass 3: duration-based fallback for activities with no useful data
+    # Applied to activity types where we can make a reasonable estimate.
+    # Stress per hour at moderate effort is approximated from literature:
+    #   yoga/recovery/stretching ~20 TSS/hr, strength ~30 TSS/hr (untested),
+    #   hiking ~40 TSS/hr, skiing ~35 TSS/hr, climbing ~40 TSS/hr.
+    # These are conservative lower bounds to avoid over-inflating CTL.
+    # -------------------------------------------------------------------
+    DURATION_TSS_PER_HOUR: dict[str, float] = {
+        "yoga": 20.0,
+        "pilates": 20.0,
+        "breathwork": 5.0,
+        "stretching": 15.0,
+        "strength_training": 30.0,
+        "weight_training": 30.0,
+        "indoor_climbing": 40.0,
+        "rock_climbing": 40.0,
+        "hiking": 40.0,
+        "trail_running": 60.0,
+        "running": 65.0,
+        "treadmill_running": 60.0,
+        "indoor_running": 55.0,
+        "virtual_run": 55.0,
+        "cycling": 50.0,
+        "virtual_ride": 50.0,
+        "mountain_biking": 50.0,
+        "road_biking": 50.0,
+        "gravel_cycling": 50.0,
+        "indoor_cycling": 55.0,
+        "backcountry_skiing_snowboarding_ws": 35.0,
+        "resort_skiing_snowboarding_ws": 30.0,
+        "cross_country_skiing_ws": 55.0,
+    }
+
+    cur.execute("""
+        SELECT source_id, duration_s, activity_type
+        FROM activities
+        WHERE user_id = %s AND tss IS NULL AND source != 'hevy'
+          AND duration_s IS NOT NULL AND duration_s >= 300
+    """, (user_id,))
+    dur_rows = cur.fetchall()
+    for sid, dur_s, atype in dur_rows:
+        rate = DURATION_TSS_PER_HOUR.get(atype or "")
+        if not rate:
+            continue
+        # Cap at 5 hours to avoid absurd TSS for a 314-min hiking multi-day
+        hours = min(dur_s / 3600, 5.0)
+        tss = round(hours * rate, 1)
+        if tss > 0:
+            cur.execute("""
+                UPDATE activities SET tss = %s,
+                    raw_data = COALESCE(raw_data, '{}'::jsonb)
+                              || '{"tss_method":"duration_estimate"}'::jsonb
+                WHERE user_id = %s AND source_id = %s AND tss IS NULL
+            """, (tss, user_id, sid))
+            duration_updated += 1
+
+    cur.close()
+    conn.close()
+    return {
+        "power_updated": power_updated,
+        "hr_updated": hr_updated,
+        "duration_updated": duration_updated,
+    }
+
+
 def main() -> int:
     users = get_users()
     errors = 0
@@ -301,10 +499,20 @@ def main() -> int:
         # --- Strength TSS backfill ---
         print(f"\n  [Strength TSS]")
         try:
-            result = backfill_strength_tss(user_id, tz_name=tz_name)
+            result = backfill_strength_tss(user_id, tz_name=tz_name, slug=slug)
             print(f"    Garmin updated: {result['updated']}, Hevy-only inserted: {result['inserted']}, hybrid(HR): {result['hybrid']}")
         except Exception as e:
             print(f"    ERROR: Strength TSS backfill failed: {e}")
+            traceback.print_exc()
+            errors += 1
+
+        # --- General TSS backfill (power / HR / duration estimates) ---
+        print(f"\n  [TSS Backfill]")
+        try:
+            result = backfill_missing_tss(user_id, slug=slug)
+            print(f"    Power-based: {result['power_updated']}, HR-based: {result['hr_updated']}, Duration-estimated: {result['duration_updated']}")
+        except Exception as e:
+            print(f"    ERROR: TSS backfill failed: {e}")
             traceback.print_exc()
             errors += 1
 
