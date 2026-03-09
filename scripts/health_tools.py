@@ -1198,8 +1198,231 @@ def get_user_integrations(user_slug: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# iFit strength workout recommendation
+# iFit integration — general recommendations, library search, strength recs
 # ---------------------------------------------------------------------------
+
+
+def recommend_ifit_workout(user_slug: str) -> dict:
+    """Run the general iFit workout recommendation engine.
+
+    Analyses recent 14-day activity history, muscle group fatigue, and variety
+    to score up-next, favorites, and iFit-recommended workouts.  Returns top 5
+    ranked candidates with muscle focus, scoring rationale, and recent activity
+    summary."""
+    from scripts.ifit_recommend import (
+        fetch_recent_history,
+        analyze_fatigue,
+        fetch_candidates,
+        score_candidates,
+        RECOVERY_DAYS,
+    )
+    from scripts.ifit_auth import get_auth_headers
+
+    try:
+        headers = get_auth_headers()
+    except RuntimeError as exc:
+        return {"error": str(exc)}
+
+    history = fetch_recent_history(headers, days=14)
+    fatigue = analyze_fatigue(history)
+    candidates = fetch_candidates(headers)
+    ranked = score_candidates(candidates, fatigue, history, headers)
+
+    recent_summary = []
+    for entry in history[:7]:
+        day_label = "today" if entry["days_ago"] == 0 else f"{entry['days_ago']}d ago"
+        recent_summary.append({
+            "when": day_label,
+            "title": entry.get("title", "?"),
+            "type": entry.get("log_type", "?"),
+            "muscle_groups": sorted(entry.get("muscle_groups", set())),
+            "styles": sorted(entry.get("styles", set())),
+        })
+
+    muscle_status = {}
+    for mg in ["upper", "lower", "core", "total"]:
+        days = fatigue["days_since"].get(mg)
+        needed = RECOVERY_DAYS.get(mg, 2)
+        if days is None:
+            muscle_status[mg] = "not trained recently — READY"
+        elif days >= needed:
+            muscle_status[mg] = f"rested ({days}d ago) — READY"
+        else:
+            muscle_status[mg] = f"recovering ({days}d ago, need {needed}d)"
+
+    top = []
+    for cand in ranked[:5]:
+        top.append({
+            "title": cand.get("title", "?"),
+            "source": cand.get("source", "?"),
+            "series_progress": cand.get("series_progress", ""),
+            "score": cand.get("score", 0),
+            "type": cand.get("type", "?"),
+            "muscle_groups": sorted(cand.get("muscle_groups", set())),
+            "styles": sorted(cand.get("styles", set())),
+            "difficulty": cand.get("difficulty", "?"),
+            "required_equipment": cand.get("required_equipment", []),
+            "reasons": cand.get("reasons", []),
+        })
+
+    return {
+        "recent_activity": recent_summary,
+        "muscle_status": muscle_status,
+        "workouts_last_3d": fatigue["total_3d"],
+        "workouts_last_7d": fatigue["total_7d"],
+        "last_run_days_ago": fatigue["last_run_day"],
+        "recommendations": top,
+        "count": len(top),
+    }
+
+
+def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> dict:
+    """Search the iFit workout library by title, trainer, category, or keyword.
+
+    Uses the cached library (12K+ workouts).  Results are ranked by relevance
+    (title match > category match) and rating."""
+    import json as _json
+    from pathlib import Path as _P
+
+    cache_path = _P(__file__).resolve().parent.parent / ".ifit_capture" / "library_workouts.json"
+    trainers_path = _P(__file__).resolve().parent.parent / ".ifit_capture" / "trainers.json"
+
+    if not cache_path.exists():
+        return {"error": "iFit library cache not found. Run ifit_list_series.py first to build the cache."}
+
+    with open(cache_path) as f:
+        workouts = _json.load(f)
+    trainers = {}
+    if trainers_path.exists():
+        with open(trainers_path) as f:
+            trainers = _json.load(f)
+
+    q_lower = query.lower()
+    terms = q_lower.split()
+
+    if workout_type:
+        wt = workout_type.lower()
+        workouts = [
+            w for w in workouts
+            if wt in w.get("type", "").lower()
+            or any(wt in c.lower() for c in w.get("categories", []))
+            or any(wt in c.lower() for c in w.get("subcategories", []))
+        ]
+
+    scored = []
+    for w in workouts:
+        title = (w.get("title") or "").lower()
+        trainer_id = w.get("trainer_id", "")
+        trainer_name = (trainers.get(trainer_id, {}).get("name") or "").lower()
+        cats = " ".join(w.get("categories", []) + w.get("subcategories", [])).lower()
+
+        score = 0
+        for term in terms:
+            if term in title:
+                score += 10
+            if term in trainer_name:
+                score += 8
+            if term in cats:
+                score += 3
+
+        if score > 0:
+            rating = w.get("rating_avg", 0) or 0
+            score += rating * 0.5
+            scored.append((score, w, trainers.get(trainer_id, {}).get("name", "")))
+
+    scored.sort(key=lambda x: -x[0])
+
+    results = []
+    for _score, w, trainer_name in scored[:limit]:
+        results.append({
+            "title": w.get("title", ""),
+            "trainer": trainer_name,
+            "type": w.get("type", ""),
+            "difficulty": w.get("difficulty", ""),
+            "duration_min": round(w.get("time_sec", 0) / 60) if w.get("time_sec") else None,
+            "rating": w.get("rating_avg", 0),
+            "categories": w.get("categories", []),
+            "subcategories": w.get("subcategories", []),
+            "equipment": w.get("required_equipment", []),
+            "workout_id": w.get("id", ""),
+        })
+
+    return {
+        "query": query,
+        "type_filter": workout_type or None,
+        "results": results,
+        "count": len(results),
+        "total_library_size": len(workouts),
+    }
+
+
+def get_ifit_workout_details(workout_id: str) -> dict:
+    """Get detailed info about a specific iFit workout by ID.
+
+    Returns metadata, exercise breakdown (if VTT captions are available),
+    structure, and trainer info."""
+    import httpx as _httpx
+    from scripts.ifit_auth import get_auth_headers
+
+    try:
+        headers = get_auth_headers()
+    except RuntimeError as exc:
+        return {"error": str(exc)}
+
+    try:
+        r = _httpx.get(
+            f"https://gateway.ifit.com/lycan/v1/workouts/{workout_id}",
+            headers=headers,
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return {"error": f"iFit API returned {r.status_code}"}
+        meta = r.json()
+    except Exception as exc:
+        return {"error": f"Failed to fetch workout: {exc}"}
+
+    from scripts.ifit_recommend import classify_workout
+    classification = classify_workout(meta)
+
+    difficulty = meta.get("difficulty", {})
+    estimates = meta.get("estimates", {})
+    ratings = meta.get("ratings", {})
+    trainer_meta = meta.get("metadata", {})
+
+    result = {
+        "title": meta.get("title", ""),
+        "description": meta.get("description", ""),
+        "type": meta.get("type", ""),
+        "difficulty": difficulty.get("rating", "") if isinstance(difficulty, dict) else str(difficulty),
+        "duration_min": round(estimates.get("time", 0) / 60) if estimates.get("time") else None,
+        "calories_est": estimates.get("calories"),
+        "rating_avg": ratings.get("average", 0),
+        "rating_count": ratings.get("count", 0),
+        "muscle_groups": sorted(classification.get("muscle_groups", set())),
+        "styles": sorted(classification.get("styles", set())),
+        "categories": sorted(classification.get("categories", set())),
+        "subcategories": sorted(classification.get("subcategories", set())),
+        "required_equipment": meta.get("required_equipment", []),
+        "workout_group_id": meta.get("workout_group_id"),
+    }
+
+    if trainer_meta.get("trainer"):
+        try:
+            tr = _httpx.get(
+                f"https://api.ifit.com/v1/trainers/{trainer_meta['trainer']}",
+                headers=headers,
+                timeout=10,
+            )
+            if tr.status_code == 200:
+                td = tr.json()
+                result["trainer"] = {
+                    "name": f"{td.get('first_name', '')} {td.get('last_name', '')}".strip(),
+                    "bio": td.get("short_bio", ""),
+                }
+        except Exception:
+            pass
+
+    return result
 
 
 def recommend_strength_workout(user_slug: str) -> dict:

@@ -442,17 +442,86 @@ TOOL_SCHEMAS: list[dict] = [
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
-    # ===== iFit STRENGTH RECOMMENDATIONS =====
+    # ===== iFit INTEGRATION =====
+    {
+        "type": "function",
+        "function": {
+            "name": "recommend_ifit_workout",
+            "description": (
+                "Recommend today's iFit workout based on recent 14-day activity "
+                "history, muscle group fatigue, and variety. Returns top 5 "
+                "ranked workouts from the user's up-next queue, favorites, and "
+                "iFit recommendations. Covers ALL workout types: running, "
+                "strength, cycling, yoga, recovery, etc."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_ifit_library",
+            "description": (
+                "Search the iFit workout library (12,000+ workouts) by title, "
+                "trainer name, category, or keyword. Use this when the user "
+                "asks about specific iFit programs, series, trainers, or "
+                "workout types. Returns workout details, ratings, and metadata."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query: workout name, trainer name, series title, or keywords.",
+                    },
+                    "workout_type": {
+                        "type": "string",
+                        "description": "Optional type filter: 'run', 'strength', 'cycling', 'yoga', etc.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default 10).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_ifit_workout_details",
+            "description": (
+                "Get detailed info about a specific iFit workout by its ID. "
+                "Returns description, trainer info, muscle groups, difficulty, "
+                "duration, equipment needed, and ratings. Use after "
+                "search_ifit_library or recommend_ifit_workout to get more "
+                "details about a specific workout."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workout_id": {
+                        "type": "string",
+                        "description": "The iFit workout ID.",
+                    },
+                },
+                "required": ["workout_id"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
             "name": "recommend_strength_workout",
             "description": (
-                "Run the iFit strength workout recommendation engine. "
-                "Analyses athlete's current TSB, vitals, muscle load, goals, "
-                "and iFit preferences to suggest 3 optimal strength workouts "
-                "from the iFit library with full exercise breakdowns. "
-                "Uses VTT caption analysis via LLM for deep scoring."
+                "Run the iFit strength workout recommendation engine (deep "
+                "analysis). Analyses athlete's current TSB, vitals, muscle "
+                "load, goals, and iFit preferences to suggest 3 optimal "
+                "strength workouts from the iFit library with full exercise "
+                "breakdowns. Uses VTT caption analysis via LLM for deep "
+                "scoring. Use this for strength-specific recommendations; "
+                "for general workout recommendations use recommend_ifit_workout."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
@@ -523,7 +592,10 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "get_user_integrations":        (health_tools.get_user_integrations, "slug"),
     "suggest_feature":              (health_tools.suggest_feature, "slug"),
     "sync_data":                    (health_tools.sync_data, "creds"),
-    # iFit strength recommendations
+    # iFit integration
+    "recommend_ifit_workout":       (health_tools.recommend_ifit_workout, "slug"),
+    "search_ifit_library":          (health_tools.search_ifit_library, "none"),
+    "get_ifit_workout_details":     (health_tools.get_ifit_workout_details, "none"),
     "recommend_strength_workout":   (health_tools.recommend_strength_workout, "slug"),
     "create_hevy_routine_from_recommendation": (health_tools.create_hevy_routine_from_recommendation, "creds"),
 }

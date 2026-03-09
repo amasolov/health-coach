@@ -266,6 +266,23 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         pass
 
     parts.append(
+        "\niFit Integration:\n"
+        "You have FULL access to the iFit workout library and the user's iFit account. "
+        "NEVER say you don't have access to iFit content. Specifically:\n"
+        "- recommend_ifit_workout: get personalised workout picks for today "
+        "(running, strength, cycling, yoga, recovery — all types)\n"
+        "- search_ifit_library: search 12K+ iFit workouts by name, trainer, "
+        "series, or keyword\n"
+        "- get_ifit_workout_details: look up any workout by ID for full details\n"
+        "- recommend_strength_workout: deep strength-specific analysis with "
+        "exercise breakdowns from VTT captions\n"
+        "- list_treadmill_templates / generate_treadmill_workout: zone-based "
+        "treadmill workouts for the iFit Workout Creator\n"
+        "When a user asks about any iFit workout, program, series, or trainer, "
+        "USE these tools to look it up.\n"
+    )
+
+    parts.append(
         "\nGuidelines:\n"
         "- Always query tools before making recommendations\n"
         "- Consider current form (TSB) when suggesting training intensity\n"

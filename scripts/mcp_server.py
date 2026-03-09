@@ -477,11 +477,36 @@ def get_user_integrations(ctx: Context) -> dict:
     return health_tools.get_user_integrations(_uslug(ctx))
 
 
-# ===== iFit STRENGTH RECOMMENDATIONS =====
+# ===== iFit INTEGRATION =====
+
+@mcp.tool
+def recommend_ifit_workout(ctx: Context) -> dict:
+    """Recommend today's iFit workout based on recent 14-day activity history,
+    muscle group fatigue, and variety.  Returns top 5 ranked workouts from
+    the user's up-next queue, favorites, and iFit recommendations.  Covers
+    ALL workout types: running, strength, cycling, yoga, recovery, etc."""
+    return _wrap(health_tools.recommend_ifit_workout, _uslug(ctx))
+
+
+@mcp.tool
+def search_ifit_library(ctx: Context, query: str, workout_type: str = "", limit: int = 10) -> dict:
+    """Search the iFit workout library (12,000+ workouts) by title, trainer
+    name, category, or keyword.  Use this when asking about specific iFit
+    programs, series, trainers, or workout types."""
+    return _wrap(health_tools.search_ifit_library, query, workout_type, limit)
+
+
+@mcp.tool
+def get_ifit_workout_details(ctx: Context, workout_id: str) -> dict:
+    """Get detailed info about a specific iFit workout by its ID.  Returns
+    description, trainer info, muscle groups, difficulty, duration, equipment,
+    and ratings."""
+    return _wrap(health_tools.get_ifit_workout_details, workout_id)
+
 
 @mcp.tool
 def recommend_strength_workout(ctx: Context) -> dict:
-    """Run the iFit strength workout recommendation engine.
+    """Run the iFit strength workout recommendation engine (deep analysis).
 
     Analyses the athlete's current TSB, vitals, muscle load, goals, and
     iFit preferences to suggest 3 optimal strength workouts from the iFit
