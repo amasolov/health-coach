@@ -607,6 +607,29 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "discover_ifit_series",
+            "description": (
+                "Discover all series/programs a workout belongs to and map "
+                "every workout in those series. Use this when a user asks "
+                "about an iFit series or program and you have a workout ID "
+                "from that series. Returns full workout lists for each "
+                "discovered series."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workout_id": {
+                        "type": "string",
+                        "description": "An iFit workout ID from the series to discover.",
+                    },
+                },
+                "required": ["workout_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "create_hevy_routine_from_recommendation",
             "description": (
                 "Create a Hevy routine from a previously generated iFit "
@@ -677,6 +700,7 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "get_ifit_workout_details":     (health_tools.get_ifit_workout_details, "none"),
     "search_ifit_programs":         (health_tools.search_ifit_programs, "none"),
     "get_ifit_program_details":     (health_tools.get_ifit_program_details, "none"),
+    "discover_ifit_series":         (health_tools.discover_ifit_series, "none"),
     "recommend_strength_workout":   (health_tools.recommend_strength_workout, "slug"),
     "create_hevy_routine_from_recommendation": (health_tools.create_hevy_routine_from_recommendation, "creds"),
 }

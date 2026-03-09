@@ -68,6 +68,7 @@ TOOL_DISPLAY_NAMES = {
     "create_hevy_routine_from_recommendation": "Hevy Routine Creator",
     "search_ifit_programs":      "iFit Program Search",
     "get_ifit_program_details":  "iFit Program Details",
+    "discover_ifit_series":      "iFit Series Discovery",
     "sync_data":                 "Data Sync",
     "garmin_auth_status":        "Garmin Connection Check",
     "garmin_authenticate":       "Garmin Login",

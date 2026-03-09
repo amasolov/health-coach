@@ -560,6 +560,80 @@ def fetch_workout_series(workout_id: str, headers: dict | None = None) -> list[d
         return []
 
 
+def discover_series_for_workout(workout_id: str) -> dict:
+    """Discover all series a workout belongs to and map every workout in those series.
+
+    This is the on-demand entry point: given one workout, it finds its series,
+    fetches full program details, and maps ALL sibling workouts so the entire
+    series is immediately searchable.
+
+    Returns a summary dict with discovered series and mapped workout counts.
+    """
+    from ifit_auth import get_auth_headers
+    headers = get_auth_headers()
+
+    series_entries = fetch_workout_series(workout_id, headers)
+    if not series_entries:
+        return {"workout_id": workout_id, "series": [], "mapped": 0}
+
+    ws_map = _load_workout_series_map()
+    newly_mapped = 0
+    series_summaries = []
+
+    for entry in series_entries:
+        series_id = entry.get("seriesId", "")
+        if not series_id:
+            continue
+
+        program = download_json(f"{PROGRAMS_PREFIX}{series_id}.json")
+        if not program:
+            continue
+
+        series_title = program.get("title", "")
+        program_wids = [wid for wid in program.get("workout_ids", []) if wid]
+        program_titles = program.get("workout_titles", [])
+
+        for i, wid in enumerate(program_wids):
+            if wid in ws_map:
+                existing_sids = {e.get("seriesId") for e in ws_map[wid]}
+                if series_id in existing_sids:
+                    continue
+                ws_map[wid].append({
+                    "seriesId": series_id,
+                    "title": series_title,
+                    "position": i + 1,
+                    "week": None,
+                    "isChallenge": entry.get("isChallenge", False),
+                })
+            else:
+                ws_map[wid] = [{
+                    "seriesId": series_id,
+                    "title": series_title,
+                    "position": i + 1,
+                    "week": None,
+                    "isChallenge": entry.get("isChallenge", False),
+                }]
+            newly_mapped += 1
+
+        series_summaries.append({
+            "series_id": series_id,
+            "title": series_title,
+            "workout_count": len(program_wids),
+            "workouts": [
+                {"id": wid, "title": program_titles[i] if i < len(program_titles) else ""}
+                for i, wid in enumerate(program_wids)
+            ],
+        })
+
+    _save_workout_series_map(ws_map)
+
+    return {
+        "workout_id": workout_id,
+        "series": series_summaries,
+        "newly_mapped": newly_mapped,
+    }
+
+
 def sync_series_discovery(batch_size: int = 50) -> dict:
     """Discover series memberships for library workouts via pre-workout API.
 

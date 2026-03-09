@@ -525,6 +525,15 @@ def get_ifit_program_details(ctx: Context, series_id: str) -> dict:
 
 
 @mcp.tool
+def discover_ifit_series(ctx: Context, workout_id: str) -> dict:
+    """Discover all series/programs a workout belongs to and map every
+    workout in those series.  Use when a user asks about a series and
+    you have one workout ID from it.  Returns full workout lists for
+    each discovered series."""
+    return _wrap(health_tools.discover_ifit_series, workout_id)
+
+
+@mcp.tool
 def report_exercise_correction(ctx: Context, workout_id: str, feedback: str) -> dict:
     """Report incorrect exercise data for an iFit workout.  Gathers the
     current extracted exercises, transcript snippet, and workout metadata,

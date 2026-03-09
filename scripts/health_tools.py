@@ -1552,6 +1552,20 @@ def get_ifit_program_details(series_id: str) -> dict:
     return result
 
 
+def discover_ifit_series(workout_id: str) -> dict:
+    """Discover all series/programs a workout belongs to and map every sibling workout.
+
+    Given a single workout ID, finds its series via the pre-workout API,
+    fetches full program details, and maps ALL workouts in those series
+    so the entire series is immediately searchable. Returns series info
+    with the complete workout list for each discovered series."""
+    try:
+        from scripts.ifit_r2_sync import discover_series_for_workout
+        return discover_series_for_workout(workout_id)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def get_ifit_workout_details(workout_id: str) -> dict:
     """Get detailed info about a specific iFit workout by ID.
 
