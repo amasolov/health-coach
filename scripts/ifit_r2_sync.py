@@ -85,6 +85,7 @@ def sync_library() -> dict:
     if not r2_configured():
         return {"skipped": True, "reason": "R2 not configured"}
 
+    t0 = time.time()
     results = {}
     for name, key in [
         ("library_workouts.json", "library/workouts.json"),
@@ -92,15 +93,21 @@ def sync_library() -> dict:
     ]:
         path = CACHE_DIR / name
         if not path.exists():
+            print(f"    [library] {name}: not found locally, skipping")
             results[name] = "not found"
             continue
         with open(path) as f:
             data = json.load(f)
+        print(f"    [library] Uploading {name} ({len(data)} items)...", flush=True)
         if upload_json(key, data):
             results[name] = f"uploaded ({len(data)} items)"
+            print(f"    [library] {name}: uploaded OK")
         else:
             results[name] = "upload failed"
+            print(f"    [library] {name}: UPLOAD FAILED")
 
+    elapsed = time.time() - t0
+    print(f"    [library] Done in {elapsed:.1f}s")
     return results
 
 
@@ -142,6 +149,7 @@ def sync_transcripts(
 
     library_path = CACHE_DIR / "library_workouts.json"
     if not library_path.exists():
+        print("    [transcripts] library_workouts.json not found, skipping")
         return {"error": "library_workouts.json not found"}
 
     with open(library_path) as f:
@@ -150,18 +158,25 @@ def sync_transcripts(
 
     state = _load_state()
     attempted = state.get("attempted", {})
+    total_synced = sum(1 for v in attempted.values() if v == "ok")
 
     pending = [wid for wid in all_ids if wid not in attempted]
     to_process = pending[:batch_size]
 
+    print(f"    [transcripts] Library: {len(all_ids)} workouts, "
+          f"{total_synced} synced, {len(attempted)} attempted, "
+          f"{len(pending)} pending", flush=True)
+
     if not to_process:
+        print("    [transcripts] Nothing to process, all caught up")
         return {
             "processed": 0, "uploaded": 0, "no_captions": 0,
             "remaining": 0, "total": len(all_ids),
-            "total_synced": sum(1 for v in attempted.values() if v == "ok"),
+            "total_synced": total_synced,
         }
 
     if dry_run:
+        print(f"    [transcripts] DRY RUN: would process {len(to_process)}")
         return {
             "dry_run": True, "would_process": len(to_process),
             "remaining": len(pending), "total": len(all_ids),
@@ -170,8 +185,13 @@ def sync_transcripts(
     from ifit_auth import get_auth_headers
     headers = get_auth_headers()
 
+    print(f"    [transcripts] Starting batch of {len(to_process)} "
+          f"(batch_size={batch_size})...", flush=True)
+
     uploaded = 0
     no_captions = 0
+    errors = 0
+    t0 = time.time()
 
     with httpx.Client(timeout=20) as client:
         for i, wid in enumerate(to_process):
@@ -183,21 +203,29 @@ def sync_transcripts(
                     uploaded += 1
                 else:
                     attempted[wid] = "upload_failed"
+                    errors += 1
             else:
                 attempted[wid] = "no_captions"
                 no_captions += 1
 
-            if (i + 1) % 25 == 0:
-                print(f"    Progress: {i+1}/{len(to_process)} "
-                      f"(uploaded={uploaded}, no_captions={no_captions})", flush=True)
+            if (i + 1) % 10 == 0:
+                elapsed = time.time() - t0
+                rate = (i + 1) / elapsed if elapsed > 0 else 0
+                eta = (len(to_process) - i - 1) / rate if rate > 0 else 0
+                print(f"    [transcripts] {i+1}/{len(to_process)} "
+                      f"({uploaded} ok, {no_captions} no-caption, {errors} err) "
+                      f"[{elapsed:.0f}s elapsed, ~{eta:.0f}s remaining]", flush=True)
 
             time.sleep(0.3)
 
+    elapsed = time.time() - t0
     state["attempted"] = attempted
     state["stats"]["last_batch"] = {
         "processed": len(to_process),
         "uploaded": uploaded,
         "no_captions": no_captions,
+        "errors": errors,
+        "elapsed_seconds": round(elapsed, 1),
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     _save_state(state)
@@ -205,13 +233,20 @@ def sync_transcripts(
     remaining = len(all_ids) - len(attempted)
     total_synced = sum(1 for v in attempted.values() if v == "ok")
 
+    print(f"    [transcripts] Batch complete in {elapsed:.1f}s: "
+          f"{uploaded} uploaded, {no_captions} no-captions, {errors} errors", flush=True)
+    print(f"    [transcripts] Overall: {total_synced}/{len(all_ids)} synced, "
+          f"{remaining} remaining", flush=True)
+
     return {
         "processed": len(to_process),
         "uploaded": uploaded,
         "no_captions": no_captions,
+        "errors": errors,
         "remaining": remaining,
         "total": len(all_ids),
         "total_synced": total_synced,
+        "elapsed_seconds": round(elapsed, 1),
     }
 
 
@@ -224,9 +259,11 @@ def sync_programs() -> dict:
 
     from ifit_auth import get_auth_headers
     headers = get_auth_headers()
+    t0 = time.time()
 
     series_ids: set[str] = set()
 
+    print("    [programs] Discovering series from recommended-series...", flush=True)
     try:
         r = httpx.get(
             f"https://gateway.ifit.com/wolf-dashboard-service/v1/recommended-series"
@@ -238,9 +275,14 @@ def sync_programs() -> dict:
                 sid = item.get("seriesId")
                 if sid:
                     series_ids.add(str(sid))
-    except Exception:
-        pass
+            print(f"    [programs] recommended-series: {len(series_ids)} found")
+        else:
+            print(f"    [programs] recommended-series: HTTP {r.status_code}")
+    except Exception as e:
+        print(f"    [programs] recommended-series: error ({e})")
 
+    print("    [programs] Discovering series from up-next...", flush=True)
+    before = len(series_ids)
     try:
         r = httpx.get(
             f"https://gateway.ifit.com/wolf-dashboard-service/v1/up-next"
@@ -253,14 +295,21 @@ def sync_programs() -> dict:
                 sid = item.get("seriesId")
                 if sid:
                     series_ids.add(str(sid))
-    except Exception:
-        pass
+            print(f"    [programs] up-next: {len(series_ids) - before} new "
+                  f"({len(series_ids)} total)")
+        else:
+            print(f"    [programs] up-next: HTTP {r.status_code}")
+    except Exception as e:
+        print(f"    [programs] up-next: error ({e})")
 
     existing_keys = set(list_keys(PROGRAMS_PREFIX))
     existing_ids = {k.replace(PROGRAMS_PREFIX, "").replace(".json", "") for k in existing_keys}
     new_ids = series_ids - existing_ids
+    print(f"    [programs] {len(existing_ids)} already in R2, "
+          f"{len(new_ids)} new to fetch", flush=True)
 
     fetched = 0
+    fetch_errors = 0
     for sid in new_ids:
         try:
             r = httpx.get(
@@ -286,14 +335,26 @@ def sync_programs() -> dict:
                 }
                 upload_json(f"{PROGRAMS_PREFIX}{sid}.json", program)
                 fetched += 1
+                print(f"    [programs] Fetched: {data.get('title', sid)} "
+                      f"({program['workout_count']} workouts)")
+            else:
+                fetch_errors += 1
+                print(f"    [programs] Failed to fetch {sid}: HTTP {r.status_code}")
             time.sleep(0.2)
-        except Exception:
+        except Exception as e:
+            fetch_errors += 1
+            print(f"    [programs] Error fetching {sid}: {e}")
             continue
+
+    elapsed = time.time() - t0
+    print(f"    [programs] Done in {elapsed:.1f}s: {len(series_ids)} discovered, "
+          f"{fetched} newly fetched, {fetch_errors} errors", flush=True)
 
     return {
         "discovered": len(series_ids),
         "already_stored": len(existing_ids),
         "newly_fetched": fetched,
+        "errors": fetch_errors,
     }
 
 
@@ -329,23 +390,32 @@ def migrate_exercise_cache() -> dict:
 
     state = _load_state()
     if state.get("migrated"):
+        print("    [migrate] Already migrated, skipping")
         return {"already_migrated": True}
 
     cache_path = CACHE_DIR / "exercise_cache.json"
     if not cache_path.exists():
+        print("    [migrate] No local exercise_cache.json found")
         return {"no_cache": True}
 
     with open(cache_path) as f:
         cache = json.load(f)
 
+    print(f"    [migrate] Uploading {len(cache)} exercise cache entries to R2...",
+          flush=True)
+    t0 = time.time()
     uploaded = 0
-    for wid, exercises in cache.items():
+    for i, (wid, exercises) in enumerate(cache.items()):
         if upload_json(f"exercises/{wid}.json", exercises):
             uploaded += 1
+        if (i + 1) % 25 == 0:
+            print(f"    [migrate] {i+1}/{len(cache)} uploaded", flush=True)
 
     state["migrated"] = True
     _save_state(state)
 
+    elapsed = time.time() - t0
+    print(f"    [migrate] Done in {elapsed:.1f}s: {uploaded}/{len(cache)} uploaded")
     return {"uploaded": uploaded, "total": len(cache)}
 
 

@@ -593,10 +593,13 @@ def _refresh_ifit_library_cache() -> None:
 
 def _sync_ifit_r2() -> None:
     """Upload library to R2, fetch a batch of transcripts, discover programs."""
+    import time as _time
     from scripts.r2_store import is_configured as r2_configured
     if not r2_configured():
+        print("\n  R2 not configured, skipping iFit R2 sync")
         return
 
+    t0 = _time.time()
     print(f"\n{'='*60}")
     print("iFit R2 sync")
     print(f"{'='*60}")
@@ -605,40 +608,50 @@ def _sync_ifit_r2() -> None:
         sync_library, sync_transcripts, sync_programs, migrate_exercise_cache,
     )
 
+    print("\n  [1/4] Exercise cache migration")
     try:
         result = migrate_exercise_cache()
-        if result.get("uploaded"):
-            print(f"  Migrated {result['uploaded']} exercise cache entries to R2")
+        if result.get("already_migrated"):
+            print("  Already migrated")
+        elif result.get("uploaded"):
+            print(f"  Migrated {result['uploaded']}/{result.get('total', '?')} entries to R2")
+        elif result.get("no_cache"):
+            print("  No local cache to migrate")
     except Exception as e:
-        print(f"  WARN: Exercise cache migration failed: {e}")
+        print(f"  ERROR: Exercise cache migration failed: {e}")
+        traceback.print_exc()
 
+    print("\n  [2/4] Library upload")
     try:
         lib_result = sync_library()
-        for name, status in lib_result.items():
-            if name != "skipped":
-                print(f"  Library {name}: {status}")
+        if lib_result.get("skipped"):
+            print("  Skipped")
     except Exception as e:
-        print(f"  WARN: Library upload failed: {e}")
+        print(f"  ERROR: Library upload failed: {e}")
+        traceback.print_exc()
 
+    print("\n  [3/4] Transcript sync")
     try:
         result = sync_transcripts(batch_size=100)
-        if not result.get("skipped"):
-            synced = result.get("total_synced", 0)
-            total = result.get("total", 0)
-            uploaded = result.get("uploaded", 0)
-            remaining = result.get("remaining", 0)
-            print(f"  Transcripts: {synced}/{total} synced "
-                  f"({uploaded} new this cycle, {remaining} remaining)")
+        if result.get("skipped"):
+            print("  Skipped (R2 not configured)")
+        elif result.get("error"):
+            print(f"  ERROR: {result['error']}")
     except Exception as e:
-        print(f"  WARN: Transcript sync failed: {e}")
+        print(f"  ERROR: Transcript sync failed: {e}")
+        traceback.print_exc()
 
+    print("\n  [4/4] Program discovery")
     try:
         result = sync_programs()
-        if not result.get("skipped"):
-            print(f"  Programs: {result.get('discovered', 0)} discovered, "
-                  f"{result.get('newly_fetched', 0)} new")
+        if result.get("skipped"):
+            print("  Skipped")
     except Exception as e:
-        print(f"  WARN: Program sync failed: {e}")
+        print(f"  ERROR: Program sync failed: {e}")
+        traceback.print_exc()
+
+    elapsed = _time.time() - t0
+    print(f"\n  iFit R2 sync completed in {elapsed:.1f}s")
 
 
 def main() -> int:
