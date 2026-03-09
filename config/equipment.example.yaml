@@ -1,0 +1,37 @@
+# Equipment inventory template.
+# Copy to /config/health-tracker/equipment.yaml on your Home Assistant host.
+# Used by the AI coach for context about your available gear.
+
+wearables: []
+  # - name: Garmin Fenix 8
+  #   type: gps_watch
+  #   sensors: [optical_hr, barometric_alt, gps, spo2]
+  #   data_targets: [garmin_connect]
+
+cycling: []
+  # - name: Wahoo Kickr
+  #   type: smart_trainer
+  #   sensors: [power, cadence, speed]
+  #   data_targets: [zwift, garmin_connect]
+
+treadmill: []
+  # - name: NordicTrack x22i
+  #   type: treadmill
+  #   sensors: [speed, incline]
+  #   data_targets: [ifit]
+
+health_monitoring: []
+  # - name: Garmin Smart Scale
+  #   type: scale
+  #   sensors: [weight, body_fat, muscle_mass]
+  #   data_targets: [garmin_connect]
+
+gym: []
+  # - name: Kettlebells
+  #   type: kettlebell
+  #   weights_kg: [16, 24]
+
+software: []
+  # - name: Garmin Connect
+  #   type: platform
+  #   role: "Central health data hub"

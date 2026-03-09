@@ -84,6 +84,33 @@ if acid:
 ")"
 
 echo "=== Health Tracker Addon ==="
+
+# ------------------------------------------------------------------
+# Personal config files (athlete.yaml, equipment.yaml, zones.yaml)
+# are NOT shipped in the image. They live in /config/health-tracker/
+# (HA persistent config dir) and are symlinked into /app/config/ so
+# all scripts can find them at their expected paths.
+# ------------------------------------------------------------------
+HA_CFG=/config/health-tracker
+mkdir -p "$HA_CFG"
+
+for cfg in athlete.yaml equipment.yaml zones.yaml; do
+    target="$HA_CFG/$cfg"
+    link="/app/config/$cfg"
+
+    # Seed from example template on first run
+    if [[ ! -f "$target" ]]; then
+        example="/app/config/${cfg%.yaml}.example.yaml"
+        if [[ -f "$example" ]]; then
+            cp "$example" "$target"
+            echo "INFO: Created $target from example template -- please customise it"
+        fi
+    fi
+
+    # Create or refresh the symlink
+    ln -sf "$target" "$link"
+done
+echo "Config files linked from $HA_CFG"
 echo "DB: ${DB_HOST}:${DB_PORT}/${DB_NAME}"
 echo "Grafana: ${GRAFANA_HOST}:${GRAFANA_PORT}"
 echo "MCP server: port ${MCP_PORT}"
