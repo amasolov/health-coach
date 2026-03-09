@@ -39,8 +39,15 @@ from r2_store import is_configured as r2_configured, upload_text, upload_json, d
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / ".ifit_capture"
 STATE_KEY = "sync/state.json"
+SERIES_DISCOVERY_STATE_KEY = "sync/series_discovery_state.json"
+WORKOUT_SERIES_MAP_KEY = "library/workout_series_map.json"
 PROGRAMS_PREFIX = "programs/"
 IFIT_SW_NUMBER = "424992"
+PRE_WORKOUT_URL = (
+    "https://gateway.ifit.com/wolf-workouts-service/v1/pre-workout/{wid}"
+    "?softwareNumber=" + IFIT_SW_NUMBER + "&locale=en&deviceType=mobile&platform=ios"
+)
+SERIES_REFRESH_DAYS = 30
 
 
 # ── VTT cleaning (shared with ifit_strength_recommend.py) ────────────
@@ -358,10 +365,27 @@ def sync_programs() -> dict:
     }
 
 
-def load_program_index() -> dict[str, dict]:
-    """Load all programs from R2 and build workout_id -> program lookup."""
+def load_program_index() -> dict[str, list[dict]]:
+    """Load all programs from R2 and build workout_id -> list of program entries.
+
+    Returns one-to-many mapping: a workout can belong to multiple series/challenges.
+    """
+    index: dict[str, list[dict]] = {}
+
+    ws_map = _load_workout_series_map()
+    for wid, entries in ws_map.items():
+        index[wid] = [
+            {
+                "series_id": e.get("seriesId", ""),
+                "title": e.get("title", ""),
+                "position": e.get("position"),
+                "week": e.get("week"),
+                "is_challenge": e.get("isChallenge", False),
+            }
+            for e in entries
+        ]
+
     keys = list_keys(PROGRAMS_PREFIX)
-    index: dict[str, dict] = {}
     for key in keys:
         program = download_json(key)
         if not program:
@@ -372,13 +396,291 @@ def load_program_index() -> dict[str, dict]:
             "type": program.get("type", ""),
         }
         for i, wid in enumerate(program.get("workout_ids", [])):
-            if wid:
-                index[wid] = {
-                    **entry,
-                    "position": i + 1,
-                    "total": program.get("workout_count", 0),
-                }
+            if not wid:
+                continue
+            prog_entry = {
+                **entry,
+                "position": i + 1,
+                "total": program.get("workout_count", 0),
+            }
+            if wid not in index:
+                index[wid] = [prog_entry]
+            elif not any(e.get("series_id") == entry["series_id"] for e in index[wid]):
+                index[wid].append(prog_entry)
+
     return index
+
+
+# ── Series discovery via pre-workout API ──────────────────────────────
+
+def _load_series_state() -> dict:
+    state = download_json(SERIES_DISCOVERY_STATE_KEY)
+    if state:
+        return state
+    return {"attempted": {}, "stats": {}}
+
+
+def _save_series_state(state: dict) -> None:
+    upload_json(SERIES_DISCOVERY_STATE_KEY, state)
+
+
+def _load_workout_series_map() -> dict[str, list]:
+    data = download_json(WORKOUT_SERIES_MAP_KEY)
+    return data if isinstance(data, dict) else {}
+
+
+def _save_workout_series_map(mapping: dict[str, list]) -> None:
+    upload_json(WORKOUT_SERIES_MAP_KEY, mapping)
+
+
+def _extract_series_from_pre_workout(data: dict, workout_id: str) -> list[dict]:
+    """Extract series entries from a pre-workout response for one workout."""
+    entries = []
+    program_details = data.get("programDetails") or []
+    for pd in program_details:
+        series_id = pd.get("id", "")
+        if not series_id:
+            continue
+        title = pd.get("title", "")
+        week = None
+        position = None
+        for section in pd.get("workoutSections", []):
+            wids = section.get("workoutIds", [])
+            if workout_id in wids:
+                week = section.get("title")
+                position = wids.index(workout_id) + 1
+                break
+        entries.append({
+            "seriesId": series_id,
+            "title": title,
+            "week": week,
+            "position": position,
+            "isChallenge": pd.get("isChallenge", False),
+        })
+
+    top_pid = data.get("programId")
+    if top_pid and not any(e["seriesId"] == top_pid for e in entries):
+        entries.insert(0, {
+            "seriesId": top_pid,
+            "title": data.get("title", ""),
+            "week": None,
+            "position": None,
+            "isChallenge": False,
+        })
+
+    return entries
+
+
+def _store_program_from_pre_workout(pd: dict, headers: dict) -> bool:
+    """Fetch full program details and store to R2 if not already present."""
+    series_id = pd.get("id", "")
+    if not series_id:
+        return False
+    from r2_store import exists
+    if exists(f"{PROGRAMS_PREFIX}{series_id}.json"):
+        return False
+    try:
+        r = httpx.get(
+            f"https://gateway.ifit.com/wolf-workouts-service/v1/program/{series_id}"
+            f"?softwareNumber={IFIT_SW_NUMBER}",
+            headers=headers, timeout=15,
+        )
+        if r.status_code != 200:
+            return False
+        data = r.json()
+        sections = data.get("workoutSections", data.get("workouts", []))
+        workout_ids = []
+        workout_titles = []
+        if sections and isinstance(sections[0], dict) and "workout_ids" in sections[0]:
+            for s in sections:
+                workout_ids.extend(s.get("workout_ids", []))
+        elif sections and isinstance(sections[0], dict) and "workouts" in sections[0]:
+            for s in sections:
+                for w in s["workouts"]:
+                    workout_ids.append(w.get("itemId", ""))
+                    workout_titles.append(w.get("title", ""))
+        else:
+            for w in sections:
+                workout_ids.append(w.get("itemId", ""))
+                workout_titles.append(w.get("title", ""))
+
+        program = {
+            "series_id": series_id,
+            "title": data.get("title", ""),
+            "overview": data.get("overview", ""),
+            "type": data.get("type", ""),
+            "rating": data.get("rating", {}),
+            "trainers": [
+                {"name": t.get("name", ""), "id": t.get("itemId", "")}
+                for t in data.get("trainers", [])
+            ],
+            "workout_ids": workout_ids,
+            "workout_titles": workout_titles,
+            "workout_count": len(workout_ids),
+        }
+        upload_json(f"{PROGRAMS_PREFIX}{series_id}.json", program)
+        return True
+    except Exception:
+        return False
+
+
+def fetch_workout_series(workout_id: str, headers: dict | None = None) -> list[dict]:
+    """On-demand series lookup for a single workout. Caches to R2."""
+    ws_map = _load_workout_series_map()
+    if workout_id in ws_map:
+        return ws_map[workout_id]
+
+    if headers is None:
+        from ifit_auth import get_auth_headers
+        headers = get_auth_headers()
+
+    try:
+        r = httpx.get(
+            PRE_WORKOUT_URL.format(wid=workout_id),
+            headers=headers, timeout=15,
+        )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        entries = _extract_series_from_pre_workout(data, workout_id)
+
+        if entries:
+            ws_map[workout_id] = entries
+            _save_workout_series_map(ws_map)
+            for pd in data.get("programDetails") or []:
+                _store_program_from_pre_workout(pd, headers)
+
+        return entries
+    except Exception:
+        return []
+
+
+def sync_series_discovery(batch_size: int = 50) -> dict:
+    """Discover series memberships for library workouts via pre-workout API.
+
+    Processes a batch each cycle, building the workout-to-series mapping
+    incrementally. Uses 1s delay between calls to avoid API rate issues.
+    """
+    if not r2_configured():
+        return {"skipped": True, "reason": "R2 not configured"}
+
+    library_path = CACHE_DIR / "library_workouts.json"
+    if not library_path.exists():
+        print("    [series] library_workouts.json not found, skipping")
+        return {"error": "library not found"}
+
+    with open(library_path) as f:
+        library = json.load(f)
+    all_ids = {w["id"] for w in library}
+
+    state = _load_series_state()
+    attempted = state.get("attempted", {})
+
+    cutoff = time.time() - SERIES_REFRESH_DAYS * 86400
+    stale = [
+        wid for wid, ts in attempted.items()
+        if isinstance(ts, (int, float)) and ts < cutoff
+    ]
+
+    pending = [wid for wid in all_ids if wid not in attempted]
+    to_process = (pending + stale)[:batch_size]
+
+    total_attempted = sum(1 for wid in all_ids if wid in attempted)
+    print(f"    [series] Library: {len(all_ids)} workouts, "
+          f"{total_attempted} attempted, {len(pending)} pending, "
+          f"{len(stale)} stale", flush=True)
+
+    if not to_process:
+        print("    [series] Nothing to process, all caught up")
+        return {
+            "processed": 0, "total": len(all_ids),
+            "total_attempted": total_attempted,
+        }
+
+    from ifit_auth import get_auth_headers
+    headers = get_auth_headers()
+
+    ws_map = _load_workout_series_map()
+
+    print(f"    [series] Starting batch of {len(to_process)} "
+          f"(batch_size={batch_size})...", flush=True)
+
+    discovered = 0
+    no_series = 0
+    new_programs = 0
+    errors = 0
+    t0 = time.time()
+
+    with httpx.Client(timeout=20) as client:
+        for i, wid in enumerate(to_process):
+            try:
+                r = client.get(PRE_WORKOUT_URL.format(wid=wid), headers=headers)
+                if r.status_code != 200:
+                    errors += 1
+                    attempted[wid] = time.time()
+                    continue
+
+                data = r.json()
+                entries = _extract_series_from_pre_workout(data, wid)
+
+                if entries:
+                    ws_map[wid] = entries
+                    discovered += 1
+                    for pd in data.get("programDetails") or []:
+                        if _store_program_from_pre_workout(pd, headers):
+                            new_programs += 1
+                else:
+                    no_series += 1
+
+                attempted[wid] = time.time()
+
+            except Exception:
+                errors += 1
+                attempted[wid] = time.time()
+
+            if (i + 1) % 10 == 0:
+                elapsed = time.time() - t0
+                rate = (i + 1) / elapsed if elapsed > 0 else 0
+                eta = (len(to_process) - i - 1) / rate if rate > 0 else 0
+                print(f"    [series] {i+1}/{len(to_process)} "
+                      f"({discovered} with series, {no_series} none, "
+                      f"{new_programs} new programs, {errors} err) "
+                      f"[{elapsed:.0f}s elapsed, ~{eta:.0f}s remaining]", flush=True)
+
+            time.sleep(1.0)
+
+    elapsed = time.time() - t0
+    _save_workout_series_map(ws_map)
+
+    state["attempted"] = attempted
+    state["stats"]["last_batch"] = {
+        "processed": len(to_process),
+        "discovered": discovered,
+        "no_series": no_series,
+        "new_programs": new_programs,
+        "errors": errors,
+        "elapsed_seconds": round(elapsed, 1),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    _save_series_state(state)
+
+    total_in_map = len(ws_map)
+    print(f"    [series] Batch complete in {elapsed:.1f}s: "
+          f"{discovered} with series, {no_series} none, "
+          f"{new_programs} new programs, {errors} errors", flush=True)
+    print(f"    [series] Overall: {total_in_map} workouts mapped, "
+          f"{len(pending) - len(to_process)} remaining", flush=True)
+
+    return {
+        "processed": len(to_process),
+        "discovered": discovered,
+        "no_series": no_series,
+        "new_programs": new_programs,
+        "errors": errors,
+        "total": len(all_ids),
+        "total_mapped": total_in_map,
+        "elapsed_seconds": round(elapsed, 1),
+    }
 
 
 # ── Exercise cache migration ─────────────────────────────────────────
@@ -431,6 +733,8 @@ def main() -> int:
     parser.add_argument("--reset-state", action="store_true")
     parser.add_argument("--migrate", action="store_true", help="Migrate exercise cache")
     parser.add_argument("--programs", action="store_true", help="Sync programs only")
+    parser.add_argument("--series", action="store_true", help="Discover series via pre-workout")
+    parser.add_argument("--series-batch", type=int, default=50, help="Series batch size")
     args = parser.parse_args()
 
     if not r2_configured():
@@ -452,6 +756,11 @@ def main() -> int:
         print(f"Programs: {json.dumps(result, indent=2)}")
         return 0
 
+    if args.series:
+        result = sync_series_discovery(batch_size=args.series_batch)
+        print(f"Series discovery: {json.dumps(result, indent=2)}")
+        return 0
+
     print("Uploading library to R2...")
     lib_result = sync_library()
     for name, status in lib_result.items():
@@ -465,9 +774,14 @@ def main() -> int:
         print(f"  {k}: {v}")
 
     if not args.dry_run:
-        print("\nDiscovering programs...")
+        print("\nDiscovering programs (recommended/up-next)...")
         prog_result = sync_programs()
         for k, v in prog_result.items():
+            print(f"  {k}: {v}")
+
+        print(f"\nDiscovering series via pre-workout (batch={args.series_batch})...")
+        series_result = sync_series_discovery(batch_size=args.series_batch)
+        for k, v in series_result.items():
             print(f"  {k}: {v}")
 
         print("\nMigrating exercise cache...")

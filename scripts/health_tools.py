@@ -1308,8 +1308,8 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
         with open(trainers_path) as f:
             trainers = _json.load(f)
 
-    # Load program index for enrichment
-    program_index: dict = {}
+    # Load program index for enrichment (one-to-many)
+    program_index: dict[str, list[dict]] = {}
     try:
         from scripts.ifit_r2_sync import load_program_index
         program_index = load_program_index()
@@ -1336,8 +1336,8 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
         cats = " ".join(w.get("categories", []) + w.get("subcategories", [])).lower()
         desc = (w.get("description") or "").lower()
 
-        prog = program_index.get(w.get("id", ""))
-        prog_title = (prog["title"].lower() if prog else "")
+        progs = program_index.get(w.get("id", ""), [])
+        prog_titles = " ".join(p.get("title", "").lower() for p in progs)
 
         score = 0
         for term in terms:
@@ -1347,10 +1347,21 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
                 score += 8
             if term in desc:
                 score += 5
-            if term in prog_title:
+            if term in prog_titles:
                 score += 7
             if term in cats:
                 score += 3
+
+        # Phrase matching boost: reward consecutive multi-word matches
+        if len(terms) > 1:
+            if q_lower in title:
+                score += 25
+            if q_lower in prog_titles:
+                score += 20
+            if q_lower in desc:
+                score += 15
+            if q_lower in trainer_name:
+                score += 15
 
         if score > 0:
             rating = w.get("rating_avg", 0) or 0
@@ -1378,10 +1389,12 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
         if desc:
             entry["description"] = desc[:200] + ("..." if len(desc) > 200 else "")
 
-        prog = program_index.get(wid)
-        if prog:
-            entry["program"] = prog["title"]
-            entry["program_position"] = f"{prog['position']} of {prog['total']}"
+        progs = program_index.get(wid, [])
+        if progs:
+            entry["programs"] = [
+                {"title": p.get("title", ""), "series_id": p.get("series_id", "")}
+                for p in progs
+            ]
 
         results.append(entry)
 
@@ -1408,7 +1421,8 @@ def search_ifit_programs(query: str, limit: int = 10) -> dict:
     if not keys:
         return {"query": query, "results": [], "count": 0, "note": "No programs indexed yet"}
 
-    terms = query.lower().split()
+    q_lower = query.lower()
+    terms = q_lower.split()
     scored = []
 
     for key in keys:
@@ -1428,6 +1442,14 @@ def search_ifit_programs(query: str, limit: int = 10) -> dict:
                 score += 8
             if term in overview:
                 score += 5
+
+        if len(terms) > 1:
+            if q_lower in title:
+                score += 25
+            if q_lower in overview:
+                score += 15
+            if q_lower in trainer_names:
+                score += 15
 
         if score > 0:
             rating = program.get("rating", {})
@@ -1591,20 +1613,32 @@ def get_ifit_workout_details(workout_id: str) -> dict:
         result["exercises_source"] = exercise_info["source"]
     result["transcript_available"] = exercise_info["transcript_available"]
 
-    # Enrich with program/series info
+    # Enrich with program/series info (one-to-many: workout can belong to multiple series)
+    programs_list = []
     try:
-        from scripts.ifit_r2_sync import load_program_index
+        from scripts.ifit_r2_sync import load_program_index, fetch_workout_series
         program_index = load_program_index()
-        prog = program_index.get(workout_id)
-        if prog:
-            result["program"] = {
-                "title": prog["title"],
-                "series_id": prog["series_id"],
-                "position": prog["position"],
-                "total": prog["total"],
-            }
+        progs = program_index.get(workout_id)
+        if progs:
+            programs_list = progs
+        else:
+            series_entries = fetch_workout_series(workout_id, headers)
+            if series_entries:
+                programs_list = [
+                    {
+                        "series_id": e.get("seriesId", ""),
+                        "title": e.get("title", ""),
+                        "position": e.get("position"),
+                        "week": e.get("week"),
+                        "is_challenge": e.get("isChallenge", False),
+                    }
+                    for e in series_entries
+                ]
     except Exception:
         pass
+
+    if programs_list:
+        result["programs"] = programs_list
 
     return result
 

@@ -39,7 +39,18 @@ CONCURRENCY = 6
 def _cache_fresh(path: str) -> bool:
     if not os.path.exists(path):
         return False
-    return (time.time() - os.path.getmtime(path)) < CACHE_MAX_AGE
+    if (time.time() - os.path.getmtime(path)) >= CACHE_MAX_AGE:
+        return False
+    if path == WORKOUTS_CACHE:
+        try:
+            with open(path) as f:
+                sample = json.load(f)
+            if sample and isinstance(sample, list) and "description" not in sample[0]:
+                print("  Cache missing 'description' field — needs refresh")
+                return False
+        except Exception:
+            return False
+    return True
 
 
 def fetch_all_trainers(headers: dict) -> dict[str, dict]:

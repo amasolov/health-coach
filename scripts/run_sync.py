@@ -592,7 +592,7 @@ def _refresh_ifit_library_cache() -> None:
 
 
 def _sync_ifit_r2() -> None:
-    """Upload library to R2, fetch a batch of transcripts, discover programs."""
+    """Upload library to R2, fetch a batch of transcripts, discover programs and series."""
     import time as _time
     from scripts.r2_store import is_configured as r2_configured
     if not r2_configured():
@@ -605,10 +605,11 @@ def _sync_ifit_r2() -> None:
     print(f"{'='*60}")
 
     from scripts.ifit_r2_sync import (
-        sync_library, sync_transcripts, sync_programs, migrate_exercise_cache,
+        sync_library, sync_transcripts, sync_programs,
+        sync_series_discovery, migrate_exercise_cache,
     )
 
-    print("\n  [1/4] Exercise cache migration")
+    print("\n  [1/5] Exercise cache migration")
     try:
         result = migrate_exercise_cache()
         if result.get("already_migrated"):
@@ -621,7 +622,7 @@ def _sync_ifit_r2() -> None:
         print(f"  ERROR: Exercise cache migration failed: {e}")
         traceback.print_exc()
 
-    print("\n  [2/4] Library upload")
+    print("\n  [2/5] Library upload")
     try:
         lib_result = sync_library()
         if lib_result.get("skipped"):
@@ -630,7 +631,7 @@ def _sync_ifit_r2() -> None:
         print(f"  ERROR: Library upload failed: {e}")
         traceback.print_exc()
 
-    print("\n  [3/4] Transcript sync")
+    print("\n  [3/5] Transcript sync")
     try:
         result = sync_transcripts(batch_size=100)
         if result.get("skipped"):
@@ -641,13 +642,24 @@ def _sync_ifit_r2() -> None:
         print(f"  ERROR: Transcript sync failed: {e}")
         traceback.print_exc()
 
-    print("\n  [4/4] Program discovery")
+    print("\n  [4/5] Program discovery (recommended/up-next)")
     try:
         result = sync_programs()
         if result.get("skipped"):
             print("  Skipped")
     except Exception as e:
         print(f"  ERROR: Program sync failed: {e}")
+        traceback.print_exc()
+
+    print("\n  [5/5] Series discovery (pre-workout)")
+    try:
+        result = sync_series_discovery(batch_size=50)
+        if result.get("skipped"):
+            print("  Skipped")
+        elif result.get("error"):
+            print(f"  ERROR: {result['error']}")
+    except Exception as e:
+        print(f"  ERROR: Series discovery failed: {e}")
         traceback.print_exc()
 
     elapsed = _time.time() - t0
