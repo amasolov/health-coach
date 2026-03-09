@@ -300,6 +300,15 @@ def _activity_exists(cur, user_id: int, source_id: str) -> bool:
     return cur.fetchone() is not None
 
 
+def _update_activity_tss(cur, user_id: int, source_id: str, tss: float | None, intensity_factor: float | None) -> None:
+    """Update TSS and IF for an existing activity (used when re-syncing with corrected formula)."""
+    cur.execute(
+        """UPDATE activities SET tss = %s, intensity_factor = %s
+           WHERE user_id = %s AND source = 'garmin' AND source_id = %s""",
+        (tss, intensity_factor, user_id, source_id),
+    )
+
+
 def _insert_activity(cur, user_id: int, data: dict) -> None:
     cur.execute("""
         INSERT INTO activities (
@@ -420,19 +429,30 @@ def sync_activities(
     print(f"    Found {found} activities from Garmin")
 
     inserted = 0
+    updated = 0
     for act in activities:
         source_id = str(act.get("activityId", ""))
-        if not source_id or _activity_exists(cur, user_id, source_id):
+        if not source_id:
             continue
 
         data = _extract_activity(act, thresholds)
         if not data["time"]:
             continue
 
-        _insert_activity(cur, user_id, data)
-        inserted += 1
+        if _activity_exists(cur, user_id, source_id):
+            # Re-sync TSS/IF for activities where Garmin didn't provide a native
+            # value — this corrects previously estimated values when thresholds
+            # or the formula change.
+            if act.get("trainingStressScore") is None:
+                _update_activity_tss(cur, user_id, source_id, data["tss"], data["intensity_factor"])
+                updated += 1
+        else:
+            _insert_activity(cur, user_id, data)
+            inserted += 1
 
-    return {"found": found, "inserted": inserted}
+    if updated:
+        print(f"    Updated TSS for {updated} existing activities")
+    return {"found": found, "inserted": inserted, "updated": updated}
 
 
 def sync_body_composition(
