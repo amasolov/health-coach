@@ -29,6 +29,9 @@ CACHE_DIR = Path(__file__).resolve().parent.parent / ".ifit_capture"
 EXERCISES_JSON = CACHE_DIR / "hevy_exercises.json"
 CUSTOM_MAP_PATH = CACHE_DIR / "hevy_custom_map.json"
 
+R2_CUSTOM_MAP_KEY = "hevy/custom_exercise_map.json"
+R2_RESOLVED_PREFIX = "hevy/resolved/"
+
 FUZZY_THRESHOLD = 0.70
 
 HEVY_MUSCLE_GROUPS = [
@@ -87,18 +90,67 @@ def _load_library_by_id() -> dict[str, dict]:
     return {t["id"]: t for t in templates}
 
 
+def _r2_available() -> bool:
+    try:
+        from r2_store import is_configured
+        return is_configured()
+    except ImportError:
+        return False
+
+
+def _r2_download_json(key: str):
+    try:
+        from r2_store import download_json
+        return download_json(key)
+    except Exception:
+        return None
+
+
+def _r2_upload_json(key: str, data) -> bool:
+    try:
+        from r2_store import upload_json
+        return upload_json(key, data)
+    except Exception:
+        return False
+
+
 def _load_custom_map() -> dict[str, str]:
-    """Load the name->template_id mapping for previously created custom exercises."""
-    if not CUSTOM_MAP_PATH.exists():
-        return {}
-    with open(CUSTOM_MAP_PATH) as f:
-        return json.load(f)
+    """Load the name->template_id mapping for previously created custom exercises.
+
+    Checks R2 first, falls back to local file.
+    """
+    if _r2_available():
+        data = _r2_download_json(R2_CUSTOM_MAP_KEY)
+        if isinstance(data, dict):
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            with open(CUSTOM_MAP_PATH, "w") as f:
+                json.dump(data, f, indent=2)
+            return data
+    if CUSTOM_MAP_PATH.exists():
+        with open(CUSTOM_MAP_PATH) as f:
+            return json.load(f)
+    return {}
 
 
 def _save_custom_map(mapping: dict[str, str]) -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with open(CUSTOM_MAP_PATH, "w") as f:
         json.dump(mapping, f, indent=2)
+    _r2_upload_json(R2_CUSTOM_MAP_KEY, mapping)
+
+
+def _load_resolved(workout_id: str) -> list[dict] | None:
+    """Load previously resolved exercises for a workout from R2."""
+    if _r2_available():
+        data = _r2_download_json(f"{R2_RESOLVED_PREFIX}{workout_id}.json")
+        if isinstance(data, list):
+            return data
+    return None
+
+
+def _save_resolved(workout_id: str, exercises: list[dict]) -> None:
+    """Persist resolved exercises to R2."""
+    _r2_upload_json(f"{R2_RESOLVED_PREFIX}{workout_id}.json", exercises)
 
 
 def _fuzzy_match(name: str, library: dict[str, dict]) -> dict | None:
@@ -268,15 +320,25 @@ def _create_custom_exercise(
 def resolve_hevy_exercises(
     exercises: list[dict],
     hevy_api_key: str,
+    workout_id: str = "",
 ) -> list[dict]:
     """Resolve a list of LLM-extracted exercises to Hevy template IDs.
 
     Each input exercise dict should have: hevy_name, hevy_id, muscle_group,
     sets, reps, weight, notes.
 
+    If workout_id is provided, checks R2 for previously resolved results
+    and caches new resolutions there.
+
     Returns a new list of exercise dicts with guaranteed 'hevy_id' and
     'resolution' field indicating how it was matched.
     """
+    if workout_id:
+        cached = _load_resolved(workout_id)
+        if cached:
+            print(f"    Using cached Hevy resolution ({len(cached)} exercises)")
+            return cached
+
     library = _load_library()
     library_by_id = _load_library_by_id()
     custom_map = _load_custom_map()
@@ -361,5 +423,8 @@ def resolve_hevy_exercises(
 
     if custom_map_changed:
         _save_custom_map(custom_map)
+
+    if workout_id and resolved:
+        _save_resolved(workout_id, resolved)
 
     return resolved

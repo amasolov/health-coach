@@ -778,7 +778,7 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
     from scripts.hevy_exercise_resolver import resolve_hevy_exercises
 
     print(f"  Resolving {len(rec.exercises)} exercises for Hevy...")
-    resolved = resolve_hevy_exercises(rec.exercises, hevy_api_key)
+    resolved = resolve_hevy_exercises(rec.exercises, hevy_api_key, workout_id=rec.workout_id)
 
     resolution_summary = {}
     for ex in resolved:
