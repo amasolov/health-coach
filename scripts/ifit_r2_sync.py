@@ -259,6 +259,11 @@ def sync_transcripts(
 
 # ── Program/series discovery ─────────────────────────────────────────
 
+def _is_objectid(s: str) -> bool:
+    """Check if a string looks like a MongoDB ObjectId (24-char hex)."""
+    return len(s) == 24 and all(c in "0123456789abcdef" for c in s.lower())
+
+
 def sync_programs() -> dict:
     """Discover and fetch program/series metadata from iFit, store in R2."""
     if not r2_configured():
@@ -269,6 +274,7 @@ def sync_programs() -> dict:
     t0 = time.time()
 
     series_ids: set[str] = set()
+    skipped_numeric = 0
 
     print("    [programs] Discovering series from recommended-series...", flush=True)
     try:
@@ -279,10 +285,13 @@ def sync_programs() -> dict:
         )
         if r.status_code == 200:
             for item in r.json():
-                sid = item.get("seriesId")
-                if sid:
-                    series_ids.add(str(sid))
-            print(f"    [programs] recommended-series: {len(series_ids)} found")
+                sid = str(item.get("seriesId", ""))
+                if sid and _is_objectid(sid):
+                    series_ids.add(sid)
+                elif sid:
+                    skipped_numeric += 1
+            print(f"    [programs] recommended-series: {len(series_ids)} found"
+                  f"{f' ({skipped_numeric} numeric IDs skipped)' if skipped_numeric else ''}")
         else:
             print(f"    [programs] recommended-series: HTTP {r.status_code}")
     except Exception as e:
@@ -299,11 +308,14 @@ def sync_programs() -> dict:
         )
         if r.status_code == 200:
             for item in r.json():
-                sid = item.get("seriesId")
-                if sid:
-                    series_ids.add(str(sid))
+                sid = str(item.get("seriesId", ""))
+                if sid and _is_objectid(sid):
+                    series_ids.add(sid)
+                elif sid:
+                    skipped_numeric += 1
             print(f"    [programs] up-next: {len(series_ids) - before} new "
-                  f"({len(series_ids)} total)")
+                  f"({len(series_ids)} total)"
+                  f"{f', {skipped_numeric} numeric IDs skipped total' if skipped_numeric else ''}")
         else:
             print(f"    [programs] up-next: HTTP {r.status_code}")
     except Exception as e:
