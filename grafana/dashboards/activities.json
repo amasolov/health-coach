@@ -409,7 +409,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time::date AS \"Date\", activity_type AS \"Sport\", title AS \"Title\", ROUND(duration_s / 60.0) AS \"Min\", ROUND((distance_m / 1000.0)::numeric, 1) AS \"km\", avg_hr AS \"Avg HR\", avg_power AS \"Power\", ROUND(tss::numeric, 0) AS \"TSS\", ROUND(elevation_gain_m::numeric, 0) AS \"Elev\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') ORDER BY time DESC LIMIT 30",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT to_char(time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI') AS \"Date\", activity_type AS \"Sport\", title AS \"Title\", ROUND(duration_s / 60.0) AS \"Min\", ROUND((distance_m / 1000.0)::numeric, 1) AS \"km\", avg_hr AS \"Avg HR\", avg_power AS \"Power\", ROUND(tss::numeric, 0) AS \"TSS\", ROUND(elevation_gain_m::numeric, 0) AS \"Elev\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') ORDER BY time DESC LIMIT 30",
             "format": "table"
           }
         ],

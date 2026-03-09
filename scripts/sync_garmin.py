@@ -27,8 +27,7 @@ from scripts.tz import load_user_tz, ts_to_utc, user_today
 # HR_IF = (avgHR - restHR) / (ltHR - restHR)
 # Fallback when no power/LTHR: use training effect as rough proxy
 
-DEFAULT_RESTING_HR = 50
-DEFAULT_LTHR = 160
+DEFAULT_LTHR = 155  # typical recreational runner LTHR; override via athlete.yaml lthr_run
 
 
 _CYCLING_TYPES = frozenset({
@@ -50,9 +49,15 @@ def _estimate_tss(
 ) -> float | None:
     """Estimate TSS from available data, preferring power > HR > training effect.
 
-    Power-based estimation is restricted to cycling activity types because
-    FTP is a cycling-specific threshold.  Running power (e.g. from HRM Pro)
-    is measured on a different scale and must not be divided by cycling FTP.
+    Power-based TSS is restricted to cycling (FTP is cycling-specific).
+    Running power from HRM Pro is on a different scale and must not be
+    divided by cycling FTP.
+
+    HR-based TSS uses the Training Peaks hrTSS formula:
+        IF = avgHR / LTHR
+        TSS = hours × IF² × 100
+    This matches Training Peaks exactly when the correct LTHR is configured
+    in athlete.yaml (lthr_run for running, lthr_bike for cycling).
     """
     if not duration_s or duration_s <= 0:
         return None
@@ -67,13 +72,12 @@ def _estimate_tss(
             intensity = power / ftp
             return round(hours * intensity * intensity * 100, 1)
 
-    # HR-based TSS
+    # HR-based TSS (Training Peaks hrTSS formula: IF = avgHR / LTHR)
     if avg_hr and avg_hr > 0:
-        rest = resting_hr or DEFAULT_RESTING_HR
         lt = lthr or DEFAULT_LTHR
-        if lt > rest:
-            hr_if = (avg_hr - rest) / (lt - rest)
-            hr_if = max(0, min(hr_if, 2.0))  # clamp
+        if lt > 0:
+            hr_if = avg_hr / lt
+            hr_if = max(0, min(hr_if, 1.5))  # clamp at 1.5x LTHR
             return round(hours * hr_if * hr_if * 100, 1)
 
     # Training Effect proxy (very rough)
@@ -133,14 +137,13 @@ def _extract_activity(act: dict, user_thresholds: dict) -> dict:
     if_garmin = act.get("intensityFactor")
 
     ftp = user_thresholds.get("ftp")
-    lthr = user_thresholds.get("lthr_run")
-    resting_hr = user_thresholds.get("resting_hr")
+    lthr = user_thresholds.get("lthr_run") if sport not in _CYCLING_TYPES else user_thresholds.get("lthr_bike")
 
     tss = tss_garmin
     intensity_factor = if_garmin
     if not tss:
         tss = _estimate_tss(duration, avg_hr, avg_power, norm_power,
-                            ftp, lthr, resting_hr, ae,
+                            ftp, lthr, None, ae,
                             activity_type=sport)
     if not intensity_factor and norm_power and ftp and ftp > 0 and sport in _CYCLING_TYPES:
         intensity_factor = round(norm_power / ftp, 3)
