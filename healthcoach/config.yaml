@@ -17,8 +17,6 @@ init: false
 hassio_api: true
 startup: services
 boot: auto
-resources:
-  memory: 1024
 ports:
   8765/tcp: 8765
   8080/tcp: 36850
