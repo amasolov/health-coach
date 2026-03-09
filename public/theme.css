@@ -4,17 +4,22 @@ a[href*="chainlit.io" i] {
   display: none !important;
 }
 
-/* Make login page logo much larger */
+/* ─── LOGIN PAGE ────────────────────────────────────────────────────────────── */
+
+/* Large centred logo on the login page */
 .MuiBox-root img[src*="logo"] {
-  max-height: 80px !important;
-  height: 80px !important;
+  max-height: 200px !important;
+  height: 200px !important;
+  width: auto !important;
+  margin: 0 auto 8px !important;
+  display: block !important;
+}
+
+/* ─── APP HEADER ─────────────────────────────────────────────────────────────  */
+
+/* Compact logo in the top nav bar */
+header img[src*="logo"] {
+  max-height: 44px !important;
+  height: 44px !important;
   width: auto !important;
 }
-
-/* Also target the header logo after login */
-header img[src*="logo"] {
-  max-height: 48px !important;
-  height: 48px !important;
-}
-
-/* Override Chainlit og meta branding (cosmetic, not visible) */
