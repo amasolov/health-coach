@@ -3,9 +3,18 @@ config/athlete.yaml
 config/equipment.yaml
 config/zones.yaml
 
-# Secrets
-config/secrets.yaml
-config/secrets.enc.yaml
+# Secrets (at repo root, not config/)
+secrets.yaml
+secrets.enc.yaml
+
+# Garmin OAuth token cache
+.garmin_tokens/
+.garminconnect/
+
+# iFit OAuth token and MITM capture data
+.ifit_token.json
+.ifit_login_debug.png
+.ifit_capture/
 
 # Local dev artifacts
 .venv/
