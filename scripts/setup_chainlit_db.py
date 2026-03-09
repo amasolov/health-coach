@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS steps (
     "language"      TEXT,
     "indent"        INT,
     "defaultOpen"   BOOLEAN,
+    "autoCollapse"  BOOLEAN,
     FOREIGN KEY ("threadId") REFERENCES threads("id") ON DELETE CASCADE
 );
 
@@ -136,6 +137,15 @@ DO $$ BEGIN
     WHERE table_name='elements' AND column_name='props' AND data_type='jsonb'
   ) THEN
     ALTER TABLE elements ALTER COLUMN "props" TYPE TEXT USING "props"::text;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='steps' AND column_name='autoCollapse'
+  ) THEN
+    ALTER TABLE steps ADD COLUMN "autoCollapse" BOOLEAN;
   END IF;
 END $$;
 """
