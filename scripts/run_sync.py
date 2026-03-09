@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time as _time
 import traceback
 from datetime import datetime
 
@@ -31,6 +32,7 @@ from scripts.strength_tss import (
     estimate_volume_tss,
 )
 from scripts.tz import load_user_tz
+from scripts import ops_emit
 
 # Key threshold fields that gate profile auto-population.
 # If ALL of these are set we skip the Garmin profile fetch to save API calls.
@@ -607,9 +609,10 @@ def _sync_ifit_r2() -> None:
     from scripts.ifit_r2_sync import (
         sync_library, sync_transcripts, sync_programs,
         sync_series_discovery, migrate_exercise_cache,
+        backfill_program_weeks,
     )
 
-    print("\n  [1/5] Exercise cache migration")
+    print("\n  [1/6] Exercise cache migration")
     try:
         result = migrate_exercise_cache()
         if result.get("already_migrated"):
@@ -622,18 +625,23 @@ def _sync_ifit_r2() -> None:
         print(f"  ERROR: Exercise cache migration failed: {e}")
         traceback.print_exc()
 
-    print("\n  [2/5] Library upload")
+    print("\n  [2/6] Library upload")
     try:
-        lib_result = sync_library()
+        with ops_emit.timed("r2", "library_upload") as ctx:
+            lib_result = sync_library()
+            ctx["skipped"] = bool(lib_result.get("skipped"))
         if lib_result.get("skipped"):
             print("  Skipped")
     except Exception as e:
         print(f"  ERROR: Library upload failed: {e}")
         traceback.print_exc()
 
-    print("\n  [3/5] Transcript sync")
+    print("\n  [3/6] Transcript sync")
     try:
-        result = sync_transcripts(batch_size=100)
+        with ops_emit.timed("r2", "transcript_sync") as ctx:
+            result = sync_transcripts(batch_size=100)
+            ctx["fetched"] = result.get("fetched", 0)
+            ctx["uploaded"] = result.get("uploaded", 0)
         if result.get("skipped"):
             print("  Skipped (R2 not configured)")
         elif result.get("error"):
@@ -642,7 +650,7 @@ def _sync_ifit_r2() -> None:
         print(f"  ERROR: Transcript sync failed: {e}")
         traceback.print_exc()
 
-    print("\n  [4/5] Program discovery (recommended/up-next)")
+    print("\n  [4/6] Program discovery (recommended/up-next)")
     try:
         result = sync_programs()
         if result.get("skipped"):
@@ -651,7 +659,7 @@ def _sync_ifit_r2() -> None:
         print(f"  ERROR: Program sync failed: {e}")
         traceback.print_exc()
 
-    print("\n  [5/5] Series discovery (pre-workout)")
+    print("\n  [5/6] Series discovery (pre-workout)")
     try:
         result = sync_series_discovery(batch_size=50)
         if result.get("skipped"):
@@ -662,11 +670,50 @@ def _sync_ifit_r2() -> None:
         print(f"  ERROR: Series discovery failed: {e}")
         traceback.print_exc()
 
+    print("\n  [6/6] Program weeks backfill")
+    try:
+        result = backfill_program_weeks()
+        if result.get("skipped"):
+            print("  Skipped")
+        elif result.get("missing", 0) == 0:
+            print("  All programs have week structure")
+    except Exception as e:
+        print(f"  ERROR: Program weeks backfill failed: {e}")
+        traceback.print_exc()
+
     elapsed = _time.time() - t0
     print(f"\n  iFit R2 sync completed in {elapsed:.1f}s")
 
 
+def _emit_system_stats() -> None:
+    """Emit current process memory and DB size as a system event."""
+    import resource as _resource
+    try:
+        rss_mb = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
+    except Exception:
+        rss_mb = None
+    try:
+        conn = _get_conn()
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute("SELECT pg_database_size(current_database())")
+        db_bytes = cur.fetchone()[0]
+        db_size_mb = round(db_bytes / (1024 * 1024), 1)
+        cur.close()
+        conn.close()
+    except Exception:
+        db_size_mb = None
+    detail: dict = {}
+    if rss_mb is not None:
+        detail["rss_mb"] = round(rss_mb, 1)
+    if db_size_mb is not None:
+        detail["db_size_mb"] = db_size_mb
+    if detail:
+        ops_emit.emit("system", "resource_snapshot", **detail)
+
+
 def main() -> int:
+    _t0 = _time.monotonic()
     users = get_users()
     errors = 0
 
@@ -689,7 +736,15 @@ def main() -> int:
         # --- Garmin Connect ---
         print(f"\n  [Garmin Connect]")
         try:
-            result = sync_garmin_user(slug, user_id)
+            with ops_emit.timed("sync", "garmin_sync", user_id=user_id, source="garmin") as ctx:
+                result = sync_garmin_user(slug, user_id)
+                if "error" in result:
+                    ctx["_status"] = "warning"
+                    ctx["skip_reason"] = result["error"]
+                else:
+                    ctx["new_activities"] = result["activities_inserted"]
+                    ctx["new_body_comp"] = result["body_comp_inserted"]
+                    ctx["new_vitals"] = result["vitals_inserted"]
             if "error" in result:
                 print(f"    SKIP: {result['error']}")
             else:
@@ -706,7 +761,14 @@ def main() -> int:
         print(f"\n  [Hevy]")
         if hevy_key:
             try:
-                result = sync_hevy_user(slug, user_id, hevy_key)
+                with ops_emit.timed("sync", "hevy_sync", user_id=user_id, source="hevy") as ctx:
+                    result = sync_hevy_user(slug, user_id, hevy_key)
+                    if "error" in result:
+                        ctx["_status"] = "warning"
+                        ctx["skip_reason"] = result["error"]
+                    else:
+                        ctx["new_workouts"] = result["workouts_inserted"]
+                        ctx["new_sets"] = result["sets_inserted"]
                 if "error" in result:
                     print(f"    SKIP: {result['error']}")
                 else:
@@ -752,7 +814,11 @@ def main() -> int:
         # --- Strength TSS backfill ---
         print(f"\n  [Strength TSS]")
         try:
-            result = backfill_strength_tss(user_id, tz_name=tz_name, slug=slug)
+            with ops_emit.timed("sync", "strength_tss", user_id=user_id) as ctx:
+                result = backfill_strength_tss(user_id, tz_name=tz_name, slug=slug)
+                ctx["updated"] = result["updated"]
+                ctx["inserted"] = result["inserted"]
+                ctx["hybrid"] = result["hybrid"]
             print(f"    Garmin updated: {result['updated']}, Hevy-only inserted: {result['inserted']}, hybrid(HR): {result['hybrid']}")
         except Exception as e:
             print(f"    ERROR: Strength TSS backfill failed: {e}")
@@ -762,7 +828,12 @@ def main() -> int:
         # --- General TSS backfill (power / HR / duration estimates) ---
         print(f"\n  [TSS Backfill]")
         try:
-            result = backfill_missing_tss(user_id, slug=slug)
+            with ops_emit.timed("sync", "tss_backfill", user_id=user_id) as ctx:
+                result = backfill_missing_tss(user_id, slug=slug)
+                ctx["hr_corrected"] = result["hr_corrected"]
+                ctx["power_updated"] = result["power_updated"]
+                ctx["hr_updated"] = result["hr_updated"]
+                ctx["duration_updated"] = result["duration_updated"]
             print(f"    HR-corrected: {result['hr_corrected']}, Power-based: {result['power_updated']}, HR-based: {result['hr_updated']}, Duration-estimated: {result['duration_updated']}")
         except Exception as e:
             print(f"    ERROR: TSS backfill failed: {e}")
@@ -774,12 +845,23 @@ def main() -> int:
     print("Refreshing iFit library cache")
     print(f"{'='*60}")
     try:
-        _refresh_ifit_library_cache()
+        with ops_emit.timed("sync", "ifit_library") as ctx:
+            _refresh_ifit_library_cache()
     except Exception as e:
         print(f"  WARN: iFit library refresh failed: {e}")
 
     # --- iFit R2 sync (transcript batches + library upload + programs) ---
-    _sync_ifit_r2()
+    with ops_emit.timed("sync", "ifit_r2") as ctx:
+        _sync_ifit_r2()
+
+    _emit_system_stats()
+    cycle_ms = int((_time.monotonic() - _t0) * 1000)
+    ops_emit.emit(
+        "sync", "sync_cycle",
+        status="error" if errors else "ok",
+        duration_ms=cycle_ms,
+        user_count=len(users), errors=errors,
+    )
 
     if errors:
         print(f"\nSync completed with {errors} error(s)")

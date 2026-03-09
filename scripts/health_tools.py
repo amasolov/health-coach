@@ -1499,7 +1499,8 @@ def search_ifit_programs(query: str, limit: int = 10) -> dict:
 def get_ifit_program_details(series_id: str) -> dict:
     """Get details for an iFit program/series by ID.
 
-    First checks R2 cache, falls back to live iFit API."""
+    First checks R2 cache, falls back to live iFit API.
+    Returns structured week-by-week view when available."""
     try:
         from scripts.r2_store import (
             is_configured as r2_configured, download_json, upload_json,
@@ -1507,47 +1508,68 @@ def get_ifit_program_details(series_id: str) -> dict:
     except ImportError:
         r2_configured = lambda: False
 
+    program = None
     if r2_configured():
-        cached = download_json(f"programs/{series_id}.json")
-        if cached:
-            return cached
+        program = download_json(f"programs/{series_id}.json")
 
-    import httpx as _httpx
-    try:
-        from scripts.ifit_auth import get_auth_headers
-        headers = get_auth_headers()
-    except RuntimeError as exc:
-        return {"error": str(exc)}
+    if not program:
+        import httpx as _httpx
+        try:
+            from scripts.ifit_auth import get_auth_headers
+            headers = get_auth_headers()
+        except RuntimeError as exc:
+            return {"error": str(exc)}
 
-    try:
-        r = _httpx.get(
-            f"https://gateway.ifit.com/wolf-workouts-service/v1/program/{series_id}"
-            f"?softwareNumber=424992",
-            headers=headers, timeout=15,
-        )
-        if r.status_code != 200:
-            return {"error": f"iFit API returned {r.status_code}"}
-        data = r.json()
-    except Exception as exc:
-        return {"error": f"Failed to fetch program: {exc}"}
+        try:
+            r = _httpx.get(
+                f"https://gateway.ifit.com/wolf-workouts-service/v1/program/{series_id}"
+                f"?softwareNumber=424992",
+                headers=headers, timeout=15,
+            )
+            if r.status_code != 200:
+                return {"error": f"iFit API returned {r.status_code}"}
+            data = r.json()
+        except Exception as exc:
+            return {"error": f"Failed to fetch program: {exc}"}
 
-    result = {
-        "series_id": series_id,
-        "title": data.get("title", ""),
-        "overview": data.get("overview", ""),
-        "type": data.get("type", ""),
-        "rating": data.get("rating", {}),
-        "trainers": [
-            {"name": t.get("name", ""), "id": t.get("itemId", "")}
-            for t in data.get("trainers", [])
-        ],
-        "workout_ids": [w.get("itemId", "") for w in data.get("workouts", [])],
-        "workout_titles": [w.get("title", "") for w in data.get("workouts", [])],
-        "workout_count": len(data.get("workouts", [])),
-    }
+        from scripts.ifit_r2_sync import _build_weeks_from_api
 
-    if r2_configured():
-        upload_json(f"programs/{series_id}.json", result)
+        program = {
+            "series_id": series_id,
+            "title": data.get("title", ""),
+            "overview": data.get("overview", ""),
+            "type": data.get("type", ""),
+            "rating": data.get("rating", {}),
+            "trainers": [
+                {"name": t.get("name", ""), "id": t.get("itemId", "")}
+                for t in data.get("trainers", [])
+            ],
+            "workout_ids": [w.get("itemId", "") for w in data.get("workouts", [])],
+            "workout_titles": [w.get("title", "") for w in data.get("workouts", [])],
+            "workout_count": len(data.get("workouts", [])),
+            "weeks": _build_weeks_from_api(data),
+        }
+
+        if r2_configured():
+            upload_json(f"programs/{series_id}.json", program)
+
+    result = {**program}
+
+    weeks = result.get("weeks", [])
+    if weeks:
+        schedule: list[dict] = []
+        for week in weeks:
+            week_name = week.get("name", "")
+            workouts = week.get("workouts", [])
+            schedule.append({
+                "week": week_name,
+                "workout_count": len(workouts),
+                "workouts": [
+                    {"position": i + 1, "id": w.get("id", ""), "title": w.get("title", "")}
+                    for i, w in enumerate(workouts)
+                ],
+            })
+        result["schedule"] = schedule
 
     return result
 

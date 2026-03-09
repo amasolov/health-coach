@@ -483,14 +483,42 @@ def _extract_series_from_pre_workout(data: dict, workout_id: str) -> list[dict]:
     return entries
 
 
-def _store_program_from_pre_workout(pd: dict, headers: dict) -> bool:
-    """Fetch full program details and store to R2 if not already present."""
+def _build_weeks_from_api(data: dict) -> list[dict]:
+    """Build structured weeks list from the program API response.
+
+    The API has two sources:
+      - workoutSections[].workoutIds for the ID ordering within each week
+      - workouts[] (top-level) for title lookup by itemId
+    """
+    title_lookup = {w.get("itemId", ""): w.get("title", "") for w in data.get("workouts", [])}
+    sections = data.get("workoutSections", [])
+    weeks: list[dict] = []
+    for sec in sections:
+        wids = sec.get("workoutIds", [])
+        weeks.append({
+            "name": sec.get("title", ""),
+            "workouts": [
+                {"id": wid, "title": title_lookup.get(wid, "")}
+                for wid in wids
+            ],
+        })
+    return weeks
+
+
+def _store_program_from_pre_workout(pd: dict, headers: dict, force: bool = False) -> bool:
+    """Fetch full program details and store to R2.
+
+    If force=False, skips programs already in R2 that have week structure.
+    If force=True, always re-fetches (used to backfill missing week data).
+    """
     series_id = pd.get("id", "")
     if not series_id:
         return False
-    from r2_store import exists
-    if exists(f"{PROGRAMS_PREFIX}{series_id}.json"):
-        return False
+    from r2_store import exists, download_json as r2_dl
+    if not force and exists(f"{PROGRAMS_PREFIX}{series_id}.json"):
+        existing = r2_dl(f"{PROGRAMS_PREFIX}{series_id}.json")
+        if existing and existing.get("weeks"):
+            return False
     try:
         r = httpx.get(
             f"https://gateway.ifit.com/wolf-workouts-service/v1/program/{series_id}"
@@ -507,7 +535,9 @@ def _store_program_from_pre_workout(pd: dict, headers: dict) -> bool:
 
         if not workout_ids:
             for s in data.get("workoutSections", []):
-                workout_ids.extend(s.get("workout_ids", []))
+                workout_ids.extend(s.get("workoutIds", []))
+
+        weeks = _build_weeks_from_api(data)
 
         program = {
             "series_id": series_id,
@@ -522,11 +552,21 @@ def _store_program_from_pre_workout(pd: dict, headers: dict) -> bool:
             "workout_ids": workout_ids,
             "workout_titles": workout_titles,
             "workout_count": len(workout_ids),
+            "weeks": weeks,
         }
         upload_json(f"{PROGRAMS_PREFIX}{series_id}.json", program)
         return True
     except Exception:
         return False
+
+
+def _week_position_from_program(program: dict, workout_id: str) -> tuple[str | None, int | None]:
+    """Find the week name and 1-based position of a workout within a program's weeks."""
+    for week in program.get("weeks", []):
+        for i, w in enumerate(week.get("workouts", [])):
+            if w.get("id") == workout_id:
+                return week.get("name"), i + 1
+    return None, None
 
 
 def fetch_workout_series(workout_id: str, headers: dict | None = None) -> list[dict]:
@@ -590,39 +630,66 @@ def discover_series_for_workout(workout_id: str) -> dict:
             continue
 
         series_title = program.get("title", "")
-        program_wids = [wid for wid in program.get("workout_ids", []) if wid]
-        program_titles = program.get("workout_titles", [])
+        is_challenge = entry.get("isChallenge", False)
+        weeks = program.get("weeks", [])
 
-        for i, wid in enumerate(program_wids):
+        all_wids_ordered: list[tuple[str, str | None, int]] = []
+        if weeks:
+            for week in weeks:
+                week_name = week.get("name")
+                for pos_idx, w in enumerate(week.get("workouts", [])):
+                    wid = w.get("id", "")
+                    if wid:
+                        all_wids_ordered.append((wid, week_name, pos_idx + 1))
+        else:
+            for i, wid in enumerate(program.get("workout_ids", [])):
+                if wid:
+                    all_wids_ordered.append((wid, None, i + 1))
+
+        for wid, week_name, pos in all_wids_ordered:
+            map_entry = {
+                "seriesId": series_id,
+                "title": series_title,
+                "position": pos,
+                "week": week_name,
+                "isChallenge": is_challenge,
+            }
             if wid in ws_map:
                 existing_sids = {e.get("seriesId") for e in ws_map[wid]}
                 if series_id in existing_sids:
+                    for existing in ws_map[wid]:
+                        if existing.get("seriesId") == series_id:
+                            existing["week"] = week_name
+                            existing["position"] = pos
+                            break
                     continue
-                ws_map[wid].append({
-                    "seriesId": series_id,
-                    "title": series_title,
-                    "position": i + 1,
-                    "week": None,
-                    "isChallenge": entry.get("isChallenge", False),
-                })
+                ws_map[wid].append(map_entry)
             else:
-                ws_map[wid] = [{
-                    "seriesId": series_id,
-                    "title": series_title,
-                    "position": i + 1,
-                    "week": None,
-                    "isChallenge": entry.get("isChallenge", False),
-                }]
+                ws_map[wid] = [map_entry]
             newly_mapped += 1
+
+        program_titles = program.get("workout_titles", [])
+        series_workouts = []
+        if weeks:
+            for week in weeks:
+                for w in week.get("workouts", []):
+                    series_workouts.append({
+                        "id": w.get("id", ""),
+                        "title": w.get("title", ""),
+                        "week": week.get("name", ""),
+                    })
+        else:
+            for i, wid in enumerate(program.get("workout_ids", [])):
+                series_workouts.append({
+                    "id": wid,
+                    "title": program_titles[i] if i < len(program_titles) else "",
+                })
 
         series_summaries.append({
             "series_id": series_id,
             "title": series_title,
-            "workout_count": len(program_wids),
-            "workouts": [
-                {"id": wid, "title": program_titles[i] if i < len(program_titles) else ""}
-                for i, wid in enumerate(program_wids)
-            ],
+            "workout_count": len(all_wids_ordered),
+            "workouts": series_workouts,
         })
 
     _save_workout_series_map(ws_map)
@@ -632,6 +699,76 @@ def discover_series_for_workout(workout_id: str) -> dict:
         "series": series_summaries,
         "newly_mapped": newly_mapped,
     }
+
+
+def backfill_program_weeks(headers: dict | None = None) -> dict:
+    """Re-fetch programs that are missing the 'weeks' field.
+
+    Returns stats on how many were backfilled.
+    """
+    if not r2_configured():
+        return {"skipped": True, "reason": "R2 not configured"}
+    if headers is None:
+        from ifit_auth import get_auth_headers
+        headers = get_auth_headers()
+
+    keys = list_keys(PROGRAMS_PREFIX)
+    missing = 0
+    updated = 0
+    errors = 0
+    ws_map = _load_workout_series_map()
+    ws_map_changed = False
+
+    for key in keys:
+        prog = download_json(key)
+        if not prog:
+            continue
+        if prog.get("weeks"):
+            continue
+        missing += 1
+        series_id = prog.get("series_id", "")
+        if not series_id:
+            continue
+
+        ok = _store_program_from_pre_workout({"id": series_id}, headers, force=True)
+        if ok:
+            updated += 1
+            refreshed = download_json(key)
+            if refreshed and refreshed.get("weeks"):
+                series_title = refreshed.get("title", "")
+                is_challenge = False
+                for week in refreshed["weeks"]:
+                    week_name = week.get("name")
+                    for pos_idx, w in enumerate(week.get("workouts", [])):
+                        wid = w.get("id", "")
+                        if not wid:
+                            continue
+                        if wid in ws_map:
+                            for entry in ws_map[wid]:
+                                if entry.get("seriesId") == series_id:
+                                    entry["week"] = week_name
+                                    entry["position"] = pos_idx + 1
+                                    ws_map_changed = True
+                                    break
+                        else:
+                            ws_map[wid] = [{
+                                "seriesId": series_id,
+                                "title": series_title,
+                                "position": pos_idx + 1,
+                                "week": week_name,
+                                "isChallenge": is_challenge,
+                            }]
+                            ws_map_changed = True
+            time.sleep(1)
+        else:
+            errors += 1
+
+    if ws_map_changed:
+        _save_workout_series_map(ws_map)
+
+    print(f"    [backfill] {missing} programs missing weeks, "
+          f"{updated} updated, {errors} errors")
+    return {"missing": missing, "updated": updated, "errors": errors}
 
 
 def sync_series_discovery(batch_size: int = 50) -> dict:
@@ -814,6 +951,7 @@ def main() -> int:
     parser.add_argument("--programs", action="store_true", help="Sync programs only")
     parser.add_argument("--series", action="store_true", help="Discover series via pre-workout")
     parser.add_argument("--series-batch", type=int, default=50, help="Series batch size")
+    parser.add_argument("--backfill-weeks", action="store_true", help="Re-fetch programs missing week structure")
     args = parser.parse_args()
 
     if not r2_configured():
@@ -833,6 +971,11 @@ def main() -> int:
     if args.programs:
         result = sync_programs()
         print(f"Programs: {json.dumps(result, indent=2)}")
+        return 0
+
+    if args.backfill_weeks:
+        result = backfill_program_weeks()
+        print(f"Backfill weeks: {json.dumps(result, indent=2)}")
         return 0
 
     if args.series:
