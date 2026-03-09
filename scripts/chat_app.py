@@ -32,6 +32,8 @@ from openai import AsyncOpenAI
 from scripts import health_tools
 from scripts import garmin_auth
 from scripts import user_manager
+from scripts.sync_garmin import sync_user as sync_garmin_user
+from scripts.sync_hevy import sync_user as sync_hevy_user
 from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
 
@@ -304,6 +306,9 @@ def _execute_tool(
             elif tool_name == "create_hevy_routine_from_recommendation":
                 hevy_key = user_data.get("hevy_api_key", "")
                 return fn(user_slug, hevy_api_key=hevy_key, **arguments)
+            elif tool_name == "sync_data":
+                hevy_key = user_data.get("hevy_api_key", "")
+                return fn(user_slug, user_id, hevy_key, **arguments)
             else:
                 return fn(user_slug, **arguments)
         else:
@@ -364,9 +369,9 @@ async def run_onboarding(user: cl.User) -> None:
     first_name_hint = display_name.split()[0] if display_name else ""
     prompt = "What's your first name?"
     if first_name_hint:
-        prompt += f" (or press Enter to use **{first_name_hint}**)"
+        prompt += f" (or type `skip` to use **{first_name_hint}**)"
     raw = await _ask(prompt)
-    first_name = (raw or first_name_hint or "User").title()
+    first_name = (first_name_hint if _is_skip(raw) else (raw or first_name_hint or "User")).title()
 
     raw = await _ask("And your last name? (or `skip`)")
     last_name = ("" if _is_skip(raw) else (raw or "").title())
@@ -375,7 +380,7 @@ async def run_onboarding(user: cl.User) -> None:
     suggested = user_manager.find_available_slug(user_manager.make_slug(first_name))
     raw = await _ask(
         f"Choose a username — lowercase letters and numbers only.\n"
-        f"Suggested: `{suggested}` — press Enter to accept, or type your own:"
+        f"Suggested: `{suggested}` — type `skip` to accept, or type your own:"
     )
     if _is_skip(raw):
         slug = suggested
@@ -494,16 +499,31 @@ async def run_onboarding(user: cl.User) -> None:
     garmin_status = "connected" if garmin_email else "not configured"
     hevy_status = "connected" if hevy_api_key else "not configured"
 
+    # Run initial sync immediately so data is available right away
+    async with cl.Step(name="Syncing your data", type="run") as step:
+        step.input = f"slug={slug}"
+        sync_errors: list[str] = []
+
+        garmin_result = await asyncio.to_thread(sync_garmin_user, slug, user_id)
+        if "error" in garmin_result:
+            sync_errors.append(f"Garmin: {garmin_result['error']}")
+
+        if hevy_api_key:
+            hevy_result = await asyncio.to_thread(sync_hevy_user, slug, user_id, hevy_api_key)
+            if "error" in hevy_result:
+                sync_errors.append(f"Hevy: {hevy_result['error']}")
+
+        step.output = "Done" if not sync_errors else f"Completed with warnings: {'; '.join(sync_errors)}"
+
     await cl.Message(
         content=(
-            f"All done, {first_name}! Your account is ready.\n\n"
+            f"All done, {first_name}! Your account is ready and your data has been synced.\n\n"
             f"| | Status |\n"
             f"|---|---|\n"
             f"| Username | `{slug}` |\n"
             f"| Garmin Connect | {garmin_status} |\n"
             f"| Hevy | {hevy_status} |\n\n"
-            f"Your first data sync will run within the next **{SYNC_INTERVAL} minutes**. "
-            f"Once your training history is loaded, ask me anything about your fitness!"
+            f"Ask me anything about your fitness!"
         )
     ).send()
 

@@ -1,5 +1,5 @@
 name: Health Coach
-version: "0.6.0"
+version: "0.7.0"
 slug: healthcoach
 description: >-
   AI-powered personal health and fitness coach.
@@ -47,6 +47,7 @@ options:
   grafana_host: "a0d7b954-grafana"
   grafana_port: 3000
   grafana_api_key: ""
+  github_token: ""
 schema:
   sync_interval_minutes: "int(5,1440)"
   mcp_port: "int(1024,65535)"
@@ -69,3 +70,4 @@ schema:
   grafana_host: str
   grafana_port: port
   grafana_api_key: "str?"
+  github_token: "str?"

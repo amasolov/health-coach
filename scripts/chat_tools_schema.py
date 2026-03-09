@@ -172,6 +172,44 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    # ===== FEATURE SUGGESTIONS =====
+    {
+        "type": "function",
+        "function": {
+            "name": "suggest_feature",
+            "description": (
+                "Open a GitHub issue to suggest a new feature, report a bug, or ask a question. "
+                "Use when the user says they want to suggest something, request a feature, report a problem, or give feedback."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short, clear issue title.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Full description of the suggestion or problem.",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Issue type: 'enhancement' (default), 'bug', or 'question'.",
+                    },
+                },
+                "required": ["title", "description"],
+            },
+        },
+    },
+    # ===== SYNC =====
+    {
+        "type": "function",
+        "function": {
+            "name": "sync_data",
+            "description": "Trigger an immediate data sync from Garmin Connect and Hevy. Use when the user asks to sync, refresh, or update their data.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
     # ===== GARMIN AUTH =====
     {
         "type": "function",
@@ -468,6 +506,8 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "get_supported_integrations":   (health_tools.get_supported_integrations, "none"),
     "set_user_integrations":        (health_tools.set_user_integrations, "slug"),
     "get_user_integrations":        (health_tools.get_user_integrations, "slug"),
+    "suggest_feature":              (health_tools.suggest_feature, "slug"),
+    "sync_data":                    (health_tools.sync_data, "creds"),
     # iFit strength recommendations
     "recommend_strength_workout":   (health_tools.recommend_strength_workout, "slug"),
     "create_hevy_routine_from_recommendation": (health_tools.create_hevy_routine_from_recommendation, "creds"),

@@ -1227,6 +1227,99 @@ def recommend_strength_workout(user_slug: str) -> dict:
     }
 
 
+def suggest_feature(
+    user_slug: str,
+    title: str,
+    description: str,
+    category: str = "enhancement",
+) -> dict:
+    """Open a GitHub issue for a user-suggested feature.
+
+    Requires GITHUB_TOKEN and GITHUB_REPO env vars."""
+    import httpx
+
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo = os.environ.get("GITHUB_REPO", "amasolov/health-coach")
+
+    if not token:
+        return {
+            "error": "GitHub integration is not configured. "
+            "Ask the administrator to set GITHUB_TOKEN in the addon options."
+        }
+
+    label_map = {
+        "enhancement": "enhancement",
+        "bug": "bug",
+        "question": "question",
+    }
+    label = label_map.get(category.lower(), "enhancement")
+
+    body = (
+        f"**Suggested by:** `{user_slug}`\n\n"
+        f"### Description\n\n{description}"
+    )
+
+    try:
+        resp = httpx.post(
+            f"https://api.github.com/repos/{repo}/issues",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            json={"title": title, "body": body, "labels": [label]},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        issue = resp.json()
+        return {
+            "status": "created",
+            "issue_number": issue["number"],
+            "url": issue["html_url"],
+            "title": issue["title"],
+        }
+    except httpx.HTTPStatusError as exc:
+        return {"error": f"GitHub API error {exc.response.status_code}: {exc.response.text}"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def sync_data(user_slug: str, user_id: int, hevy_api_key: str = "") -> dict:
+    """Trigger an immediate data sync for the user (Garmin + Hevy).
+
+    Returns a summary of what was synced."""
+    from scripts.sync_garmin import sync_user as _sync_garmin
+    from scripts.sync_hevy import sync_user as _sync_hevy
+
+    results: dict[str, Any] = {}
+
+    garmin_result = _sync_garmin(user_slug, user_id)
+    if "error" in garmin_result:
+        results["garmin"] = {"status": "skipped", "reason": garmin_result["error"]}
+    else:
+        results["garmin"] = {
+            "status": "ok",
+            "activities_new": garmin_result.get("activities_inserted", 0),
+            "body_comp_new": garmin_result.get("body_comp_inserted", 0),
+            "vitals_new": garmin_result.get("vitals_inserted", 0),
+        }
+
+    if hevy_api_key:
+        hevy_result = _sync_hevy(user_slug, user_id, hevy_api_key)
+        if "error" in hevy_result:
+            results["hevy"] = {"status": "skipped", "reason": hevy_result["error"]}
+        else:
+            results["hevy"] = {
+                "status": "ok",
+                "workouts_new": hevy_result.get("workouts_inserted", 0),
+                "sets_new": hevy_result.get("sets_inserted", 0),
+            }
+    else:
+        results["hevy"] = {"status": "skipped", "reason": "No Hevy API key configured"}
+
+    return {"synced": results}
+
+
 def create_hevy_routine_from_recommendation(
     user_slug: str,
     recommendation_index: int = 0,
