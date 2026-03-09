@@ -31,6 +31,25 @@
             "value": "TimescaleDB"
           },
           "label": "Data Source"
+        },
+        {
+          "name": "tz",
+          "label": "Timezone",
+          "type": "custom",
+          "query": "Australia/Sydney",
+          "current": {
+            "text": "Australia/Sydney",
+            "value": "Australia/Sydney",
+            "selected": true
+          },
+          "options": [
+            {
+              "text": "Australia/Sydney",
+              "value": "Australia/Sydney",
+              "selected": true
+            }
+          ],
+          "hide": 2
         }
       ]
     },
@@ -815,7 +834,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time_bucket('1 week', time) AS time, ROUND(SUM(duration_s) / 3600.0, 1) AS \"Hours\" FROM activities WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time_bucket('1 week', time) AS time, ROUND(SUM(duration_s) / 3600.0, 1) AS \"Hours\" FROM activities WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
             "format": "time_series"
           }
         ],
@@ -949,7 +968,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time, weight_kg AS \"kg\" FROM body_composition WHERE user_id = $user AND weight_kg IS NOT NULL AND time >= NOW() - INTERVAL '8 weeks' ORDER BY time",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time, weight_kg AS \"kg\" FROM body_composition WHERE user_id = $user AND weight_kg IS NOT NULL AND time >= NOW() - INTERVAL '8 weeks' ORDER BY time",
             "format": "time_series"
           }
         ],
@@ -1071,7 +1090,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time, muscle_mass_kg AS \"kg\" FROM body_composition WHERE user_id = $user AND muscle_mass_kg IS NOT NULL AND time >= NOW() - INTERVAL '8 weeks' ORDER BY time",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time, muscle_mass_kg AS \"kg\" FROM body_composition WHERE user_id = $user AND muscle_mass_kg IS NOT NULL AND time >= NOW() - INTERVAL '8 weeks' ORDER BY time",
             "format": "time_series"
           }
         ],
@@ -1119,7 +1138,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT COUNT(DISTINCT workout_id) AS \"Sessions\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT COUNT(DISTINCT workout_id) AS \"Sessions\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
             "format": "table"
           }
         ],
@@ -1189,7 +1208,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT COUNT(*) FILTER (WHERE set_type = 'normal') AS \"Sets\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT COUNT(*) FILTER (WHERE set_type = 'normal') AS \"Sets\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks'",
             "format": "table"
           }
         ],
@@ -1259,7 +1278,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT COUNT(DISTINCT muscle_group) AS \"Groups\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks' AND muscle_group != ''",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT COUNT(DISTINCT muscle_group) AS \"Groups\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '4 weeks' AND muscle_group != ''",
             "format": "table"
           }
         ],
@@ -1321,7 +1340,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time::date AS \"Date\", activity_type AS \"Sport\", title AS \"Title\", ROUND(duration_s / 60.0) AS \"Min\", ROUND((distance_m / 1000.0)::numeric, 1) AS \"km\", avg_hr AS \"HR\", avg_power AS \"Power\", ROUND(tss::numeric, 0) AS \"TSS\" FROM activities WHERE user_id = $user AND $__timeFilter(time) ORDER BY time DESC LIMIT 15",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time::date AS \"Date\", activity_type AS \"Sport\", title AS \"Title\", ROUND(duration_s / 60.0) AS \"Min\", ROUND((distance_m / 1000.0)::numeric, 1) AS \"km\", avg_hr AS \"HR\", avg_power AS \"Power\", ROUND(tss::numeric, 0) AS \"TSS\" FROM activities WHERE user_id = $user AND $__timeFilter(time) ORDER BY time DESC LIMIT 15",
             "format": "table"
           }
         ],

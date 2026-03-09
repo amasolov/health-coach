@@ -32,6 +32,25 @@
             "value": "TimescaleDB"
           },
           "label": "Data Source"
+        },
+        {
+          "name": "tz",
+          "label": "Timezone",
+          "type": "custom",
+          "query": "Australia/Sydney",
+          "current": {
+            "text": "Australia/Sydney",
+            "value": "Australia/Sydney",
+            "selected": true
+          },
+          "options": [
+            {
+              "text": "Australia/Sydney",
+              "value": "Australia/Sydney",
+              "selected": true
+            }
+          ],
+          "hide": 2
         }
       ]
     },

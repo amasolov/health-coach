@@ -84,6 +84,25 @@
             "value": "TimescaleDB"
           },
           "label": "Data Source"
+        },
+        {
+          "name": "tz",
+          "label": "Timezone",
+          "type": "custom",
+          "query": "Australia/Sydney",
+          "current": {
+            "text": "Australia/Sydney",
+            "value": "Australia/Sydney",
+            "selected": true
+          },
+          "options": [
+            {
+              "text": "Australia/Sydney",
+              "value": "Australia/Sydney",
+              "selected": true
+            }
+          ],
+          "hide": 2
         }
       ]
     },
@@ -102,7 +121,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time_bucket('1 week', time) AS time, ROUND(SUM(duration_s) / 3600.0, 1) AS \"Hours\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') GROUP BY 1 ORDER BY 1",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time_bucket('1 week', time) AS time, ROUND(SUM(duration_s) / 3600.0, 1) AS \"Hours\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') GROUP BY 1 ORDER BY 1",
             "format": "time_series"
           }
         ],
@@ -132,7 +151,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time_bucket('1 week', time) AS time, activity_type AS metric, COUNT(*) AS value FROM activities WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1, 2 ORDER BY 1",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time_bucket('1 week', time) AS time, activity_type AS metric, COUNT(*) AS value FROM activities WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1, 2 ORDER BY 1",
             "format": "time_series"
           }
         ],
@@ -390,7 +409,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time::date AS \"Date\", activity_type AS \"Sport\", title AS \"Title\", ROUND(duration_s / 60.0) AS \"Min\", ROUND((distance_m / 1000.0)::numeric, 1) AS \"km\", avg_hr AS \"Avg HR\", avg_power AS \"Power\", ROUND(tss::numeric, 0) AS \"TSS\", ROUND(elevation_gain_m::numeric, 0) AS \"Elev\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') ORDER BY time DESC LIMIT 30",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time::date AS \"Date\", activity_type AS \"Sport\", title AS \"Title\", ROUND(duration_s / 60.0) AS \"Min\", ROUND((distance_m / 1000.0)::numeric, 1) AS \"km\", avg_hr AS \"Avg HR\", avg_power AS \"Power\", ROUND(tss::numeric, 0) AS \"TSS\", ROUND(elevation_gain_m::numeric, 0) AS \"Elev\" FROM activities WHERE user_id = $user AND $__timeFilter(time) AND ($sport = '' OR activity_type = '$sport') ORDER BY time DESC LIMIT 30",
             "format": "table"
           }
         ],

@@ -5,6 +5,7 @@ users:
       date_of_birth: '1983-10-04'
       sex: male
       height_cm: 177.0
+      timezone: Australia/Sydney
     thresholds:
       last_tested: null
       heart_rate:

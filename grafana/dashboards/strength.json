@@ -68,6 +68,25 @@
               "selected": false
             }
           ]
+        },
+        {
+          "name": "tz",
+          "label": "Timezone",
+          "type": "custom",
+          "query": "Australia/Sydney",
+          "current": {
+            "text": "Australia/Sydney",
+            "value": "Australia/Sydney",
+            "selected": true
+          },
+          "options": [
+            {
+              "text": "Australia/Sydney",
+              "value": "Australia/Sydney",
+              "selected": true
+            }
+          ],
+          "hide": 2
         }
       ]
     },
@@ -86,7 +105,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT COUNT(DISTINCT time::date) AS \"Sessions\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '7 days'",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT COUNT(DISTINCT time::date) AS \"Sessions\" FROM strength_sets WHERE user_id = $user AND time >= NOW() - INTERVAL '7 days'",
             "format": "table"
           }
         ],
@@ -143,7 +162,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time_bucket('1 week', time) AS time, ROUND(SUM(COALESCE(weight_kg,0) * COALESCE(reps,0))::numeric, 0) AS \"Volume\" FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND time >= NOW() - INTERVAL '4 weeks' GROUP BY 1 ORDER BY 1",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time_bucket('1 week', time) AS time, ROUND(SUM(COALESCE(weight_kg,0) * COALESCE(reps,0))::numeric, 0) AS \"Volume\" FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND time >= NOW() - INTERVAL '4 weeks' GROUP BY 1 ORDER BY 1",
             "format": "time_series"
           }
         ],
@@ -184,7 +203,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT COUNT(*) AS \"Sets\" FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND time >= NOW() - INTERVAL '7 days'",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT COUNT(*) AS \"Sets\" FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND time >= NOW() - INTERVAL '7 days'",
             "format": "table"
           }
         ],
@@ -241,7 +260,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT COALESCE(NULLIF(muscle_group,''),'other') AS muscle, COUNT(*) AS sets FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND time >= NOW() - INTERVAL '7 days' GROUP BY 1",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT COALESCE(NULLIF(muscle_group,''),'other') AS muscle, COUNT(*) AS sets FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND time >= NOW() - INTERVAL '7 days' GROUP BY 1",
             "format": "table"
           },
           {
@@ -441,7 +460,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT\n  CASE COALESCE(NULLIF(muscle_group,''),'other')\n    WHEN 'shoulders' THEN 'Shoulders'\n    WHEN 'chest' THEN 'Chest'\n    WHEN 'upper_back' THEN 'Upper Back'\n    WHEN 'lats' THEN 'Lats'\n    WHEN 'biceps' THEN 'Biceps'\n    WHEN 'triceps' THEN 'Triceps'\n    WHEN 'abdominals' THEN 'Core'\n    WHEN 'quadriceps' THEN 'Quads'\n    WHEN 'glutes' THEN 'Glutes'\n    WHEN 'hamstrings' THEN 'Hamstrings'\n    WHEN 'calves' THEN 'Calves'\n    WHEN 'full_body' THEN 'Full Body'\n    WHEN 'cardio' THEN 'Cardio'\n    ELSE INITCAP(REPLACE(COALESCE(NULLIF(muscle_group,''),'other'), '_', ' '))\n  END AS \"Muscle\",\n  TO_CHAR(MAX(time::date), 'Mon DD') AS \"Last Trained\",\n  (CURRENT_DATE - MAX(time::date)) AS \"Days Ago\"\nFROM strength_sets\nWHERE user_id = $user AND set_type = 'normal'\nGROUP BY muscle_group\nORDER BY 3 DESC",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT\n  CASE COALESCE(NULLIF(muscle_group,''),'other')\n    WHEN 'shoulders' THEN 'Shoulders'\n    WHEN 'chest' THEN 'Chest'\n    WHEN 'upper_back' THEN 'Upper Back'\n    WHEN 'lats' THEN 'Lats'\n    WHEN 'biceps' THEN 'Biceps'\n    WHEN 'triceps' THEN 'Triceps'\n    WHEN 'abdominals' THEN 'Core'\n    WHEN 'quadriceps' THEN 'Quads'\n    WHEN 'glutes' THEN 'Glutes'\n    WHEN 'hamstrings' THEN 'Hamstrings'\n    WHEN 'calves' THEN 'Calves'\n    WHEN 'full_body' THEN 'Full Body'\n    WHEN 'cardio' THEN 'Cardio'\n    ELSE INITCAP(REPLACE(COALESCE(NULLIF(muscle_group,''),'other'), '_', ' '))\n  END AS \"Muscle\",\n  TO_CHAR(MAX(time::date), 'Mon DD') AS \"Last Trained\",\n  (CURRENT_DATE - MAX(time::date)) AS \"Days Ago\"\nFROM strength_sets\nWHERE user_id = $user AND set_type = 'normal'\nGROUP BY muscle_group\nORDER BY 3 DESC",
             "format": "table"
           }
         ],
@@ -529,7 +548,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time_bucket('1 week', time) AS time, COUNT(DISTINCT time::date) AS \"Sessions\" FROM strength_sets WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time_bucket('1 week', time) AS time, COUNT(DISTINCT time::date) AS \"Sessions\" FROM strength_sets WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
             "format": "time_series"
           }
         ],
@@ -582,7 +601,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time_bucket('1 week', time) AS time, ROUND(SUM(COALESCE(weight_kg,0) * COALESCE(reps,0))::numeric, 0) AS \"Volume (kg)\" FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND weight_kg > 0 AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time_bucket('1 week', time) AS time, ROUND(SUM(COALESCE(weight_kg,0) * COALESCE(reps,0))::numeric, 0) AS \"Volume (kg)\" FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND weight_kg > 0 AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
             "format": "time_series"
           }
         ],
@@ -617,7 +636,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "WITH ranked AS ( SELECT time::date AS day, exercise_name, weight_kg * (1 + reps / 30.0) AS est_1rm, ROW_NUMBER() OVER (PARTITION BY exercise_name, time::date ORDER BY weight_kg * (1 + reps / 30.0) DESC) AS rn FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND weight_kg > 0 AND reps > 0 AND reps <= 12 AND $__timeFilter(time) AND exercise_name IN ( SELECT exercise_name FROM strength_sets WHERE user_id = $user AND weight_kg > 0 AND time >= NOW() - INTERVAL '4 weeks' GROUP BY exercise_name ORDER BY MAX(weight_kg) DESC LIMIT 8 ) ) SELECT day AS time, exercise_name AS metric, ROUND(est_1rm::numeric, 1) AS value FROM ranked WHERE rn = 1 ORDER BY day",
+            "rawSql": "SET LOCAL timezone = '$tz'; WITH ranked AS ( SELECT time::date AS day, exercise_name, weight_kg * (1 + reps / 30.0) AS est_1rm, ROW_NUMBER() OVER (PARTITION BY exercise_name, time::date ORDER BY weight_kg * (1 + reps / 30.0) DESC) AS rn FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND weight_kg > 0 AND reps > 0 AND reps <= 12 AND $__timeFilter(time) AND exercise_name IN ( SELECT exercise_name FROM strength_sets WHERE user_id = $user AND weight_kg > 0 AND time >= NOW() - INTERVAL '4 weeks' GROUP BY exercise_name ORDER BY MAX(weight_kg) DESC LIMIT 8 ) ) SELECT day AS time, exercise_name AS metric, ROUND(est_1rm::numeric, 1) AS value FROM ranked WHERE rn = 1 ORDER BY day",
             "format": "time_series"
           }
         ],
@@ -735,7 +754,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "WITH daily_best AS ( SELECT time::date AS day, exercise_name, weight_kg, reps, ROUND((weight_kg * (1 + reps / 30.0))::numeric, 1) AS est_1rm, ROW_NUMBER() OVER (PARTITION BY exercise_name, time::date ORDER BY weight_kg * (1 + reps / 30.0) DESC) AS rn FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND weight_kg > 0 AND reps > 0 AND reps <= 12 ), bests AS ( SELECT day, exercise_name, weight_kg, reps, est_1rm, MAX(est_1rm) OVER (PARTITION BY exercise_name ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_best FROM daily_best WHERE rn = 1 ) SELECT day AS \"Date\", exercise_name AS \"Exercise\", weight_kg AS \"Weight (kg)\", reps AS \"Reps\", est_1rm AS \"Est 1RM (kg)\", ROUND((est_1rm - prev_best)::numeric, 1) AS \"Improvement (kg)\" FROM bests WHERE est_1rm > COALESCE(prev_best, 0) ORDER BY day DESC LIMIT 20",
+            "rawSql": "SET LOCAL timezone = '$tz'; WITH daily_best AS ( SELECT time::date AS day, exercise_name, weight_kg, reps, ROUND((weight_kg * (1 + reps / 30.0))::numeric, 1) AS est_1rm, ROW_NUMBER() OVER (PARTITION BY exercise_name, time::date ORDER BY weight_kg * (1 + reps / 30.0) DESC) AS rn FROM strength_sets WHERE user_id = $user AND set_type = 'normal' AND weight_kg > 0 AND reps > 0 AND reps <= 12 ), bests AS ( SELECT day, exercise_name, weight_kg, reps, est_1rm, MAX(est_1rm) OVER (PARTITION BY exercise_name ORDER BY day ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_best FROM daily_best WHERE rn = 1 ) SELECT day AS \"Date\", exercise_name AS \"Exercise\", weight_kg AS \"Weight (kg)\", reps AS \"Reps\", est_1rm AS \"Est 1RM (kg)\", ROUND((est_1rm - prev_best)::numeric, 1) AS \"Improvement (kg)\" FROM bests WHERE est_1rm > COALESCE(prev_best, 0) ORDER BY day DESC LIMIT 20",
             "format": "table"
           }
         ],
@@ -779,7 +798,7 @@
         "targets": [
           {
             "refId": "A",
-            "rawSql": "SELECT time::date AS \"Date\", COUNT(DISTINCT exercise_name) AS \"Exercises\", COUNT(*) FILTER (WHERE set_type = 'normal') AS \"Working Sets\", ROUND(SUM(COALESCE(weight_kg, 0) * COALESCE(reps, 0))::numeric, 0) AS \"Total Volume (kg)\", string_agg(DISTINCT COALESCE(NULLIF(muscle_group,''),'other'), ', ' ORDER BY COALESCE(NULLIF(muscle_group,''),'other')) AS \"Muscles\" FROM strength_sets WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1 ORDER BY 1 DESC LIMIT 20",
+            "rawSql": "SET LOCAL timezone = '$tz'; SELECT time::date AS \"Date\", COUNT(DISTINCT exercise_name) AS \"Exercises\", COUNT(*) FILTER (WHERE set_type = 'normal') AS \"Working Sets\", ROUND(SUM(COALESCE(weight_kg, 0) * COALESCE(reps, 0))::numeric, 0) AS \"Total Volume (kg)\", string_agg(DISTINCT COALESCE(NULLIF(muscle_group,''),'other'), ', ' ORDER BY COALESCE(NULLIF(muscle_group,''),'other')) AS \"Muscles\" FROM strength_sets WHERE user_id = $user AND $__timeFilter(time) GROUP BY 1 ORDER BY 1 DESC LIMIT 20",
             "format": "table"
           }
         ],
