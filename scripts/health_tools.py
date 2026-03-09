@@ -1318,6 +1318,10 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
 
     q_lower = query.lower()
     terms = q_lower.split()
+    n_terms = len(terms)
+    # Phrase boost scales with query length -- a 5-word exact phrase match should
+    # dominate over scattered single-term hits across different fields.
+    phrase_boost = max(50, n_terms * 20) if n_terms > 1 else 0
 
     if workout_type:
         wt = workout_type.lower()
@@ -1352,16 +1356,15 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
             if term in cats:
                 score += 3
 
-        # Phrase matching boost: reward consecutive multi-word matches
-        if len(terms) > 1:
+        if phrase_boost:
             if q_lower in title:
-                score += 25
+                score += phrase_boost
             if q_lower in prog_titles:
-                score += 20
+                score += phrase_boost
             if q_lower in desc:
-                score += 15
+                score += phrase_boost
             if q_lower in trainer_name:
-                score += 15
+                score += phrase_boost
 
         if score > 0:
             rating = w.get("rating_avg", 0) or 0
@@ -1390,9 +1393,20 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
             entry["description"] = desc[:200] + ("..." if len(desc) > 200 else "")
 
         progs = program_index.get(wid, [])
+        if not progs:
+            try:
+                from scripts.ifit_r2_sync import fetch_workout_series
+                series = fetch_workout_series(wid)
+                if series:
+                    progs = [
+                        {"title": e.get("title", ""), "series_id": e.get("seriesId", "")}
+                        for e in series
+                    ]
+            except Exception:
+                pass
         if progs:
             entry["programs"] = [
-                {"title": p.get("title", ""), "series_id": p.get("series_id", "")}
+                {"title": p.get("title", ""), "series_id": p.get("series_id", p.get("seriesId", ""))}
                 for p in progs
             ]
 
@@ -1423,6 +1437,8 @@ def search_ifit_programs(query: str, limit: int = 10) -> dict:
 
     q_lower = query.lower()
     terms = q_lower.split()
+    n_terms = len(terms)
+    phrase_boost = max(50, n_terms * 20) if n_terms > 1 else 0
     scored = []
 
     for key in keys:
@@ -1443,13 +1459,13 @@ def search_ifit_programs(query: str, limit: int = 10) -> dict:
             if term in overview:
                 score += 5
 
-        if len(terms) > 1:
+        if phrase_boost:
             if q_lower in title:
-                score += 25
+                score += phrase_boost
             if q_lower in overview:
-                score += 15
+                score += phrase_boost
             if q_lower in trainer_names:
-                score += 15
+                score += phrase_boost
 
         if score > 0:
             rating = program.get("rating", {})

@@ -488,21 +488,14 @@ def _store_program_from_pre_workout(pd: dict, headers: dict) -> bool:
         if r.status_code != 200:
             return False
         data = r.json()
-        sections = data.get("workoutSections", data.get("workouts", []))
-        workout_ids = []
-        workout_titles = []
-        if sections and isinstance(sections[0], dict) and "workout_ids" in sections[0]:
-            for s in sections:
+
+        top_workouts = data.get("workouts", [])
+        workout_titles = [w.get("title", "") for w in top_workouts]
+        workout_ids = [w.get("itemId", "") for w in top_workouts]
+
+        if not workout_ids:
+            for s in data.get("workoutSections", []):
                 workout_ids.extend(s.get("workout_ids", []))
-        elif sections and isinstance(sections[0], dict) and "workouts" in sections[0]:
-            for s in sections:
-                for w in s["workouts"]:
-                    workout_ids.append(w.get("itemId", ""))
-                    workout_titles.append(w.get("title", ""))
-        else:
-            for w in sections:
-                workout_ids.append(w.get("itemId", ""))
-                workout_titles.append(w.get("title", ""))
 
         program = {
             "series_id": series_id,
