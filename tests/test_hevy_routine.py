@@ -511,6 +511,47 @@ class TestCreateHevyRoutine:
             assert result["exercises_created"] == 1
             assert result["exercises_total"] == 2
 
+    def test_retry_on_invalid_template_id(self, tmp_path):
+        """Hevy 400 'invalid exercise template id' triggers cache clear and retry."""
+        from scripts.ifit_strength_recommend import create_hevy_routine, Recommendation
+
+        all_resolved = [
+            {"hevy_name": "Squat (Barbell)", "hevy_id": "ABC123", "muscle_group": "quadriceps",
+             "sets": 3, "reps": 10, "weight": "barbell", "notes": "", "equipment": "barbell"},
+        ]
+        rec = Recommendation(**make_recommendation(
+            workout_id="ifit_stale", title="Stale Workout", exercises=all_resolved,
+        ))
+
+        hevy_exercises_path = tmp_path / "hevy_exercises.json"
+        hevy_exercises_path.write_text(json.dumps(SAMPLE_HEVY_EXERCISES_JSON))
+
+        stale_response = MockResponse(
+            400, {"error": "Found invalid exercise template id"},
+            text='{"error":"Found invalid exercise template id"}',
+        )
+        success_response = make_hevy_routine_response("retried-001", "iFit: Stale Workout")
+
+        call_count = 0
+        def mock_post(url, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return stale_response
+            return success_response
+
+        with patch("scripts.ifit_strength_recommend._find_existing_routine", return_value=None), \
+             patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
+             patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
+             patch("scripts.ifit_strength_recommend.httpx.post", side_effect=mock_post), \
+             patch("scripts.ifit_strength_recommend._clear_resolution_cache") as mock_clear, \
+             patch("scripts.ifit_strength_recommend._save_routine_mapping"):
+
+            result = create_hevy_routine(rec, "test-key")
+            assert result["status"] == "created"
+            assert result["routine_id"] == "retried-001"
+            mock_clear.assert_called_once_with("ifit_stale")
+
     def test_create_routine_from_recommendation_index(self, tmp_path):
         rec = make_recommendation()
         cache_dir = tmp_path / ".ifit_capture"

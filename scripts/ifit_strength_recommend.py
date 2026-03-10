@@ -967,28 +967,27 @@ def _find_existing_routine(
     return None
 
 
-def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
-    """Create a Hevy routine from a recommendation.
+def _clear_resolution_cache(workout_id: str) -> None:
+    """Delete the R2 resolution cache for a workout so it re-resolves fresh."""
+    if not workout_id:
+        return
+    try:
+        from scripts.r2_store import is_configured, delete as r2_delete
+        if is_configured():
+            r2_delete(f"hevy/resolved/{workout_id}.json")
+            print(f"  Cleared stale resolution cache for {workout_id}")
+    except Exception:
+        pass
 
-    Checks for duplicates first (by iFit workout ID mapping and Hevy title),
-    then resolves exercises to Hevy template IDs and creates the routine.
+
+def _resolve_and_build_payload(
+    rec: Recommendation, hevy_api_key: str,
+) -> tuple[list[dict], list[str], list[dict], dict]:
+    """Resolve exercises and build the Hevy routine payload.
+
+    Returns (exercises_payload, skipped_names, resolved_exercises, resolution_summary).
     """
     from scripts.hevy_exercise_resolver import resolve_hevy_exercises
-
-    existing = _find_existing_routine(rec.workout_id, rec.title, hevy_api_key)
-    if existing:
-        return {
-            "status": "already_exists",
-            "routine_id": existing["routine_id"],
-            "title": existing["title"],
-            "exercise_count": existing["exercise_count"],
-            "message": (
-                f"A Hevy routine for this workout already exists: "
-                f"\"{existing['title']}\" ({existing['exercise_count']} exercises). "
-                f"No duplicate was created. Tell the user it's already in their "
-                f"Hevy app and ready to use."
-            ),
-        }
 
     print(f"  Resolving {len(rec.exercises)} exercises for Hevy...")
     resolved = resolve_hevy_exercises(rec.exercises, hevy_api_key, workout_id=rec.workout_id)
@@ -1028,6 +1027,33 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
             "sets": sets_payload,
         })
 
+    return exercises_payload, skipped, resolved, resolution_summary
+
+
+def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
+    """Create a Hevy routine from a recommendation.
+
+    Checks for duplicates first (by iFit workout ID mapping and Hevy title),
+    then resolves exercises to Hevy template IDs and creates the routine.
+    On "invalid exercise template id" errors, clears the stale cache and retries once.
+    """
+    existing = _find_existing_routine(rec.workout_id, rec.title, hevy_api_key)
+    if existing:
+        return {
+            "status": "already_exists",
+            "routine_id": existing["routine_id"],
+            "title": existing["title"],
+            "exercise_count": existing["exercise_count"],
+            "message": (
+                f"A Hevy routine for this workout already exists: "
+                f"\"{existing['title']}\" ({existing['exercise_count']} exercises). "
+                f"No duplicate was created. Tell the user it's already in their "
+                f"Hevy app and ready to use."
+            ),
+        }
+
+    exercises_payload, skipped, resolved, resolution_summary = _resolve_and_build_payload(rec, hevy_api_key)
+
     if not exercises_payload:
         return {
             "error": "No exercises could be resolved to Hevy IDs",
@@ -1054,6 +1080,29 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
         json=body,
         timeout=30,
     )
+
+    # Retry once on stale exercise template IDs
+    if r.status_code == 400 and "invalid exercise template id" in r.text.lower():
+        print(f"  Hevy rejected routine — stale exercise IDs. Clearing cache and retrying...")
+        _clear_resolution_cache(rec.workout_id)
+        exercises_payload, skipped, resolved, resolution_summary = _resolve_and_build_payload(rec, hevy_api_key)
+        if not exercises_payload:
+            return {
+                "error": "No exercises could be resolved after cache refresh",
+                "skipped": skipped,
+                "resolution": resolution_summary,
+            }
+        body["routine"]["exercises"] = exercises_payload
+        r = httpx.post(
+            f"{HEVY_BASE}/v1/routines",
+            headers={
+                "api-key": hevy_api_key,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json=body,
+            timeout=30,
+        )
 
     if r.status_code in (200, 201):
         try:
