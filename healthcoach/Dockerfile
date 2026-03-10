@@ -7,15 +7,13 @@ RUN apk add --no-cache \
     py3-psycopg2 \
     py3-yaml \
     gcompat \
-    freetype harfbuzz openjpeg jpeg \
     libstdc++ libgcc
 
 COPY requirements.txt /tmp/
 RUN apk add --no-cache --virtual .build-deps \
         py3-pip \
-        gcc g++ musl-dev make cmake \
+        gcc g++ musl-dev \
         python3-dev \
-        freetype-dev harfbuzz-dev openjpeg-dev jpeg-dev \
         linux-headers \
     && pip3 install --no-cache-dir --prefer-binary --break-system-packages -r /tmp/requirements.txt \
     && apk del .build-deps \

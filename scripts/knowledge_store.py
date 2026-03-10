@@ -103,16 +103,14 @@ def _embed_query(query: str) -> list[float]:
 
 def _extract_text_from_pdf(pdf_path: str | Path) -> list[dict]:
     """Extract text from a PDF, returning a list of {page_number, text} dicts."""
-    import pymupdf
+    from pypdf import PdfReader
 
-    doc = pymupdf.open(str(pdf_path))
+    reader = PdfReader(str(pdf_path))
     pages = []
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        text = page.get_text("text")
+    for page_num, page in enumerate(reader.pages):
+        text = page.extract_text() or ""
         if text.strip():
             pages.append({"page_number": page_num + 1, "text": text})
-    doc.close()
     return pages
 
 

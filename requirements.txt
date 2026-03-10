@@ -12,6 +12,6 @@ asyncpg
 greenlet
 sqlalchemy
 boto3
-pymupdf
+pypdf
 pgvector
 python-telegram-bot
