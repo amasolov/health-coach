@@ -595,6 +595,9 @@ def refresh_thresholds(
 
     athlete_store.save(slug, user)
 
+    if updated:
+        athlete_store.record_threshold_snapshot(slug, source="garmin")
+
     return {
         "updated": updated,
         "advisories": advisories,

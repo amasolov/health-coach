@@ -431,7 +431,7 @@ def _upsert_vitals(cur, user_id: int, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _load_user_thresholds(slug: str) -> dict:
-    """Load threshold values used for TSS estimation.
+    """Load *current* threshold values (fallback when no history exists).
 
     For running power TSS, prefer rftp_garmin (Garmin HRM Pro scale) over
     critical_power (Stryd scale). Both activity power and rftp must be on the
@@ -440,6 +440,23 @@ def _load_user_thresholds(slug: str) -> dict:
     """
     from scripts.athlete_store import load_thresholds_flat
     return load_thresholds_flat(slug)
+
+
+def _thresholds_for_activity(
+    user_id: int,
+    act_time: datetime | None,
+    fallback: dict,
+) -> dict:
+    """Return the threshold set effective at *act_time*.
+
+    Uses threshold_history when available; otherwise returns *fallback*
+    (the current athlete_config snapshot).
+    """
+    if not act_time:
+        return fallback
+    from scripts.athlete_store import get_thresholds_for_date
+    historical = get_thresholds_for_date(user_id, act_time.date())
+    return historical or fallback
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +484,7 @@ def sync_activities(
         start = (today - timedelta(days=lookback_days)).isoformat()
 
     end = (today + timedelta(days=1)).isoformat()
-    thresholds = _load_user_thresholds(slug)
+    current_thresholds = _load_user_thresholds(slug)
 
     print(f"    Fetching activities from {start} to {end}{'  [FULL SYNC]' if full_sync else ''}...")
     activities = client.get_activities_by_date(start, end)
@@ -481,6 +498,10 @@ def sync_activities(
         if not source_id:
             continue
 
+        act_dt = _parse_garmin_datetime(act.get("startTimeGMT", ""))
+        if not act_dt:
+            act_dt = _ts_to_datetime(act.get("beginTimestamp"))
+        thresholds = _thresholds_for_activity(user_id, act_dt, current_thresholds)
         data = _extract_activity(act, thresholds)
         if not data["time"]:
             continue

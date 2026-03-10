@@ -11,12 +11,22 @@ The ``config`` column stores a nested dict::
       "goals": {...},
       ...
     }
+
+Threshold history
+~~~~~~~~~~~~~~~~~
+The ``threshold_history`` table keeps dated snapshots of the flat
+threshold values (FTP, LTHR, resting HR, …).  When TSS is calculated
+for an activity, ``get_thresholds_for_date()`` returns the snapshot
+whose ``effective_date`` is closest to (but not after) the activity
+date.  This ensures that a change in LTHR today does not retroactively
+distort TSS for older workouts.
 """
 
 from __future__ import annotations
 
 import json as _json
 import logging
+from datetime import date as _date
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -122,6 +132,175 @@ def load_thresholds_flat(slug: str) -> dict:
         "max_hr": hr.get("max_hr"),
         "weight_kg": body.get("weight_kg"),
     }
+
+
+# ------------------------------------------------------------------
+# Threshold history
+# ------------------------------------------------------------------
+
+def record_threshold_snapshot(
+    slug: str,
+    source: str = "garmin",
+    effective: _date | None = None,
+) -> bool:
+    """Upsert a snapshot of the current flat thresholds into ``threshold_history``.
+
+    Called after ``refresh_thresholds()`` updates athlete config so that
+    future TSS calculations can look up the thresholds that were active
+    on any given date.
+
+    Returns *True* if a row was written.
+    """
+    flat = load_thresholds_flat(slug)
+    if not flat or all(v is None for v in flat.values()):
+        return False
+
+    conn = _try_conn()
+    if not conn:
+        return False
+    try:
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE slug = %s", (slug,))
+        row = cur.fetchone()
+        if not row:
+            return False
+        user_id = row[0]
+        eff = effective or _date.today()
+
+        cur.execute(
+            """INSERT INTO threshold_history
+                   (user_id, effective_date, ftp, rftp,
+                    lthr_run, lthr_bike, resting_hr, max_hr,
+                    weight_kg, source)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (user_id, effective_date) DO UPDATE SET
+                   ftp        = EXCLUDED.ftp,
+                   rftp       = EXCLUDED.rftp,
+                   lthr_run   = EXCLUDED.lthr_run,
+                   lthr_bike  = EXCLUDED.lthr_bike,
+                   resting_hr = EXCLUDED.resting_hr,
+                   max_hr     = EXCLUDED.max_hr,
+                   weight_kg  = EXCLUDED.weight_kg,
+                   source     = EXCLUDED.source,
+                   created_at = NOW()""",
+            (
+                user_id, eff,
+                flat.get("ftp"), flat.get("rftp"),
+                flat.get("lthr_run"), flat.get("lthr_bike"),
+                flat.get("resting_hr"), flat.get("max_hr"),
+                flat.get("weight_kg"), source,
+            ),
+        )
+        cur.close()
+        return True
+    except Exception:
+        log.warning("record_threshold_snapshot failed for '%s'", slug, exc_info=True)
+        return False
+    finally:
+        conn.close()
+
+
+def get_thresholds_for_date(user_id: int, activity_date: _date | str) -> dict:
+    """Return the threshold snapshot effective on *activity_date*.
+
+    Looks for the most recent ``threshold_history`` row where
+    ``effective_date <= activity_date``.  Returns an empty dict when
+    no history exists (callers should fall back to current config).
+    """
+    conn = _try_conn()
+    if not conn:
+        return {}
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT ftp, rftp, lthr_run, lthr_bike,
+                      resting_hr, max_hr, weight_kg
+               FROM threshold_history
+               WHERE user_id = %s AND effective_date <= %s
+               ORDER BY effective_date DESC
+               LIMIT 1""",
+            (user_id, activity_date),
+        )
+        row = cur.fetchone()
+        if not row:
+            return {}
+        return {
+            "ftp": row[0],
+            "rftp": row[1],
+            "lthr_run": row[2],
+            "lthr_bike": row[3],
+            "resting_hr": row[4],
+            "max_hr": row[5],
+            "weight_kg": row[6],
+        }
+    except Exception:
+        log.debug("get_thresholds_for_date failed", exc_info=True)
+        return {}
+    finally:
+        conn.close()
+
+
+def load_threshold_timeline(user_id: int) -> list[tuple[_date, dict]]:
+    """Load all threshold history rows for a user, sorted ascending.
+
+    Returns a list of ``(effective_date, flat_dict)`` tuples suitable
+    for :func:`pick_thresholds`.  Loads everything in a single query so
+    the caller can do fast in-memory lookups per activity.
+    """
+    conn = _try_conn()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT effective_date, ftp, rftp, lthr_run, lthr_bike,
+                      resting_hr, max_hr, weight_kg
+               FROM threshold_history
+               WHERE user_id = %s
+               ORDER BY effective_date ASC""",
+            (user_id,),
+        )
+        return [
+            (
+                row[0],
+                {
+                    "ftp": row[1], "rftp": row[2],
+                    "lthr_run": row[3], "lthr_bike": row[4],
+                    "resting_hr": row[5], "max_hr": row[6],
+                    "weight_kg": row[7],
+                },
+            )
+            for row in cur.fetchall()
+        ]
+    except Exception:
+        log.debug("load_threshold_timeline failed", exc_info=True)
+        return []
+    finally:
+        conn.close()
+
+
+def pick_thresholds(
+    timeline: list[tuple[_date, dict]],
+    activity_date: _date | str,
+) -> dict:
+    """Pick the threshold snapshot effective at *activity_date* from *timeline*.
+
+    *timeline* must be sorted ascending by effective_date (as returned by
+    :func:`load_threshold_timeline`).  Returns an empty dict when no
+    entry precedes *activity_date*.
+    """
+    if not timeline:
+        return {}
+    if isinstance(activity_date, str):
+        activity_date = _date.fromisoformat(activity_date)
+    result: dict = {}
+    for eff, thresholds in timeline:
+        if eff <= activity_date:
+            result = thresholds
+        else:
+            break
+    return result
 
 
 # ------------------------------------------------------------------

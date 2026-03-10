@@ -1222,19 +1222,21 @@ def update_athlete_profile(
     athlete_store.update_field(user_slug, field_path, value)
 
     user = athlete_store.load(user_slug) or {}
+    result: dict = {"updated": field_path, "value": value}
     if "ftp" in field_path or "weight" in field_path:
         ftp = (user.get("thresholds", {}).get("cycling", {}).get("ftp"))
         weight = user.get("body", {}).get("weight_kg")
         if ftp and weight and weight > 0:
             wkg = round(ftp / weight, 2)
             athlete_store.update_field(user_slug, "thresholds.cycling.ftp_wkg", wkg)
-            return {
-                "updated": field_path,
-                "value": value,
-                "also_computed": {"thresholds.cycling.ftp_wkg": wkg},
-            }
+            result["also_computed"] = {"thresholds.cycling.ftp_wkg": wkg}
 
-    return {"updated": field_path, "value": value}
+    _THRESHOLD_PREFIXES = ("thresholds.", "body.weight_kg", "body.resting_hr")
+    if any(field_path.startswith(p) for p in _THRESHOLD_PREFIXES):
+        source = "manual" if "lab" not in field_path else "lab"
+        athlete_store.record_threshold_snapshot(user_slug, source=source)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

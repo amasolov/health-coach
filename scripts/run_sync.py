@@ -213,12 +213,15 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug:
 
     Returns counts of updated/inserted/skipped/hybrid rows plus match details.
     """
+    from scripts.athlete_store import load_threshold_timeline, pick_thresholds
+
     conn = _get_conn()
     conn.autocommit = True
     cur = conn.cursor()
 
     exercise_maxes = _load_exercise_maxes(cur, user_id)
-    resting_hr, lthr = _load_user_thresholds(cur, user_id, slug)
+    default_rhr, default_lthr = _load_user_thresholds(cur, user_id, slug)
+    timeline = load_threshold_timeline(user_id)
 
     cur.execute("""
         SELECT DISTINCT workout_id, MIN(time) AS workout_time
@@ -239,6 +242,10 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug:
     for wid, wtime in hevy_workouts:
         day = wtime.date() if isinstance(wtime, datetime) else wtime
         sets = _load_workout_sets(cur, user_id, wid)
+
+        hist = pick_thresholds(timeline, day)
+        resting_hr = hist.get("resting_hr") or default_rhr
+        lthr = hist.get("lthr_run") or hist.get("lthr_bike") or default_lthr
 
         # --- Already tracked as a hevy-source activity? ---
         cur.execute("""
@@ -371,17 +378,23 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
 
     Only updates activities where the new estimate is meaningfully higher than what
     was there before (NULL or zero).
+
+    Thresholds are resolved per-activity date from threshold_history when
+    available, falling back to the current athlete_config values.
     """
+    from scripts.athlete_store import load_threshold_timeline, pick_thresholds
+
     athlete = _load_athlete_thresholds(slug) if slug else {}
-    ftp = athlete.get("ftp")
-    lthr = athlete.get("lthr_run") or athlete.get("lthr_bike")
-    if not lthr and athlete.get("max_hr"):
-        lthr = round(athlete["max_hr"] * 0.88)
-    max_hr = athlete.get("max_hr")
+    default_ftp = athlete.get("ftp")
+    default_lthr = athlete.get("lthr_run") or athlete.get("lthr_bike")
+    if not default_lthr and athlete.get("max_hr"):
+        default_lthr = round(athlete["max_hr"] * 0.88)
 
     conn = _get_conn()
     conn.autocommit = True
     cur = conn.cursor()
+
+    timeline = load_threshold_timeline(user_id)
 
     # Get resting HR from vitals as well
     cur.execute("""
@@ -390,12 +403,21 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
         ORDER BY time DESC LIMIT 1
     """, (user_id,))
     row = cur.fetchone()
-    resting_hr = float(row[0]) if row else athlete.get("resting_hr")
+    default_resting_hr = float(row[0]) if row else athlete.get("resting_hr")
 
     power_updated = 0
     hr_updated = 0
     hr_corrected = 0
     duration_updated = 0
+
+    def _resolve(activity_time, field, default):
+        """Pick a threshold value from history or use the default."""
+        if activity_time:
+            d = activity_time.date() if hasattr(activity_time, "date") else activity_time
+            hist = pick_thresholds(timeline, d)
+            if hist and hist.get(field) is not None:
+                return hist[field]
+        return default
 
     # -------------------------------------------------------------------
     # Pass 0: Recalculate TSS for activities that were sync-estimated with
@@ -404,9 +426,9 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
     # tss_method tag (i.e. set during initial sync, not by backfill).
     # Skips activities where Garmin provided its own trainingStressScore.
     # -------------------------------------------------------------------
-    if lthr and resting_hr and (lthr != 160 or resting_hr != 50):
+    if default_lthr and default_resting_hr and (default_lthr != 160 or default_resting_hr != 50):
         cur.execute("""
-            SELECT source_id, duration_s, avg_hr, tss, activity_type
+            SELECT source_id, duration_s, avg_hr, tss, activity_type, time
             FROM activities
             WHERE user_id = %s AND source = 'garmin'
               AND tss IS NOT NULL
@@ -414,7 +436,7 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
               AND (raw_data IS NULL OR raw_data->>'tss_method' IS NULL)
         """, (user_id,))
         recalc_rows = cur.fetchall()
-        for sid, dur_s, avg_hr_val, old_tss, atype in recalc_rows:
+        for sid, dur_s, avg_hr_val, old_tss, atype, atime in recalc_rows:
             if not dur_s or dur_s <= 0:
                 continue
             hours = dur_s / 3600
@@ -424,6 +446,9 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
             tss_default = round(hours * hr_if_default * hr_if_default * 100, 1)
             if abs(float(old_tss) - tss_default) > 1.0:
                 continue  # Garmin-provided TSS — don't touch
+
+            resting_hr = _resolve(atime, "resting_hr", default_resting_hr)
+            lthr = _resolve(atime, "lthr_run", default_lthr)
 
             # Recalculate with correct thresholds
             hr_if_correct = max(0, min((float(avg_hr_val) - resting_hr) / (float(lthr) - resting_hr), 2.0))
@@ -444,61 +469,66 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
     # -------------------------------------------------------------------
     from scripts.sync_garmin import _CYCLING_TYPES
     cycling_list = list(_CYCLING_TYPES)
-    if ftp and ftp > 0:
-        cur.execute("""
-            SELECT source_id, duration_s, avg_power, normalized_power
-            FROM activities
-            WHERE user_id = %s AND tss IS NULL AND source != 'hevy'
-              AND (normalized_power IS NOT NULL OR avg_power IS NOT NULL)
-              AND activity_type = ANY(%s)
-        """, (user_id, cycling_list))
-        power_rows = cur.fetchall()
-        for sid, dur_s, avg_p, norm_p in power_rows:
-            if not dur_s or dur_s <= 0:
-                continue
-            hours = dur_s / 3600
-            p = float(norm_p or avg_p)
-            intensity = p / ftp
-            tss = round(hours * intensity * intensity * 100, 1)
-            if tss > 0:
-                cur.execute("""
-                    UPDATE activities SET tss = %s,
-                        raw_data = COALESCE(raw_data, '{}'::jsonb)
-                                  || '{"tss_method":"power_backfill"}'::jsonb
-                    WHERE user_id = %s AND source_id = %s AND tss IS NULL
-                """, (tss, user_id, sid))
-                power_updated += 1
+    cur.execute("""
+        SELECT source_id, duration_s, avg_power, normalized_power, time
+        FROM activities
+        WHERE user_id = %s AND tss IS NULL AND source != 'hevy'
+          AND (normalized_power IS NOT NULL OR avg_power IS NOT NULL)
+          AND activity_type = ANY(%s)
+    """, (user_id, cycling_list))
+    power_rows = cur.fetchall()
+    for sid, dur_s, avg_p, norm_p, atime in power_rows:
+        if not dur_s or dur_s <= 0:
+            continue
+        ftp = _resolve(atime, "ftp", default_ftp)
+        if not ftp or ftp <= 0:
+            continue
+        hours = dur_s / 3600
+        p = float(norm_p or avg_p)
+        intensity = p / ftp
+        tss = round(hours * intensity * intensity * 100, 1)
+        if tss > 0:
+            cur.execute("""
+                UPDATE activities SET tss = %s,
+                    raw_data = COALESCE(raw_data, '{}'::jsonb)
+                              || '{"tss_method":"power_backfill"}'::jsonb
+                WHERE user_id = %s AND source_id = %s AND tss IS NULL
+            """, (tss, user_id, sid))
+            power_updated += 1
 
     # -------------------------------------------------------------------
     # Pass 2: HR-based TSS for non-strength activities with HR but no TSS
     # -------------------------------------------------------------------
-    if lthr and resting_hr:
-        cur.execute("""
-            SELECT source_id, duration_s, avg_hr, activity_type
-            FROM activities
-            WHERE user_id = %s AND tss IS NULL AND source != 'hevy'
-              AND avg_hr IS NOT NULL AND avg_hr > 0
-              AND activity_type NOT IN ('strength_training', 'weight_training')
-        """, (user_id,))
-        hr_rows = cur.fetchall()
-        for sid, dur_s, avg_hr, atype in hr_rows:
-            if not dur_s or dur_s <= 0:
-                continue
-            hours = dur_s / 3600
-            rest = resting_hr or 50
-            lt = float(lthr)
-            if lt <= rest:
-                continue
-            hr_if = max(0.0, min((avg_hr - rest) / (lt - rest), 2.0))
-            tss = round(hours * hr_if * hr_if * 100, 1)
-            if tss > 0:
-                cur.execute("""
-                    UPDATE activities SET tss = %s,
-                        raw_data = COALESCE(raw_data, '{}'::jsonb)
-                                  || '{"tss_method":"hr_backfill"}'::jsonb
-                    WHERE user_id = %s AND source_id = %s AND tss IS NULL
-                """, (tss, user_id, sid))
-                hr_updated += 1
+    cur.execute("""
+        SELECT source_id, duration_s, avg_hr, activity_type, time
+        FROM activities
+        WHERE user_id = %s AND tss IS NULL AND source != 'hevy'
+          AND avg_hr IS NOT NULL AND avg_hr > 0
+          AND activity_type NOT IN ('strength_training', 'weight_training')
+    """, (user_id,))
+    hr_rows = cur.fetchall()
+    for sid, dur_s, avg_hr, atype, atime in hr_rows:
+        if not dur_s or dur_s <= 0:
+            continue
+        resting_hr = _resolve(atime, "resting_hr", default_resting_hr)
+        lthr = _resolve(atime, "lthr_run", default_lthr)
+        if not lthr or not resting_hr:
+            continue
+        hours = dur_s / 3600
+        rest = float(resting_hr)
+        lt = float(lthr)
+        if lt <= rest:
+            continue
+        hr_if = max(0.0, min((avg_hr - rest) / (lt - rest), 2.0))
+        tss = round(hours * hr_if * hr_if * 100, 1)
+        if tss > 0:
+            cur.execute("""
+                UPDATE activities SET tss = %s,
+                    raw_data = COALESCE(raw_data, '{}'::jsonb)
+                              || '{"tss_method":"hr_backfill"}'::jsonb
+                WHERE user_id = %s AND source_id = %s AND tss IS NULL
+            """, (tss, user_id, sid))
+            hr_updated += 1
 
     # -------------------------------------------------------------------
     # Pass 3: duration-based fallback for activities with no useful data

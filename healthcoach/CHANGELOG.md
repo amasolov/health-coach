@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.48.0
+**Threshold history for date-aware TSS calculation**
+
+- **New `threshold_history` table** — stores dated snapshots of key thresholds (FTP, LTHR, resting HR, max HR, weight) via Alembic migration `0002`; indexed for fast `effective_date <= activity_date` lookups
+- **Automatic snapshot recording** — every Garmin threshold refresh and manual `update_athlete_profile` call now upserts the current flat thresholds into the history table with today's date
+- **Date-aware TSS estimation** — `sync_garmin`, `backfill_strength_tss`, and `backfill_missing_tss` now look up the thresholds that were effective at each activity's date instead of always using the latest values; prevents LTHR/FTP changes from distorting historical TSS
+- **Timeline batch lookup** — `load_threshold_timeline()` + `pick_thresholds()` in `athlete_store` load all history rows in a single query for efficient per-activity resolution during backfill passes
+- **Backward compatible** — activities processed before this version keep their existing TSS values; the history lookup falls back to current `athlete_config` thresholds when no history row exists yet
+
 ## v0.47.0
 **Alembic migration framework (issue #16)**
 
