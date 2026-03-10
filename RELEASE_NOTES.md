@@ -1,11 +1,25 @@
 # Release Notes
 
+## v0.30.0
+**Telegram bot + configurable RAG embedding backend**
+
+- **Telegram bot**: registered users can chat with the coach via Telegram after linking their account with a one-time code from the web UI
+- Multi-layer credential sanitization prevents API tokens from leaking through Telegram
+- Sensitive tools (Garmin auth, onboarding) excluded from the Telegram channel
+- New tools: `generate_telegram_link_code`; commands: `/start`, `/unlink`, `/reset`
+- New config options: `telegram_bot_token`, `telegram_bot_username`
+- **RAG embedding backend is now configurable** — supports both OpenAI API (`text-embedding-3-small`) and local Ollama (`nomic-embed-text`); fastembed/onnxruntime removed (no musl wheels for Alpine)
+- New config: `openai_api_key`, `embedding_api_base`, `embedding_model`
+- Local dev workflow: `make ollama-setup` pulls the model, `make ingest-books` processes PDFs via local Ollama
+- New CLI script `scripts/ingest_books.py` for batch PDF ingestion with progress reporting
+- Standardised on 768-dim vectors (matches Ollama nomic-embed-text natively; OpenAI truncates via Matryoshka)
+- Batched embedding calls (512 texts per request) for efficient large-PDF ingestion
+
 ## v0.29.0
 **RAG knowledge base for fitness books and documents**
 
 - Upload fitness PDFs (books, guides, research) and the coach will reference them when making recommendations
 - Two upload paths: drop PDFs in `/config/healthcoach/knowledge/` (global, indexed on startup) or upload via chat (per-user)
-- Local ONNX-based embeddings (all-MiniLM-L6-v2 via fastembed) — no external API calls for embedding
 - Vector storage and retrieval via pgvector on the existing TimescaleDB instance
 - Three new tools: `search_knowledge_base`, `list_knowledge_documents`, `delete_knowledge_document`
 - System prompt dynamically includes knowledge base availability when documents are present

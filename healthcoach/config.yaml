@@ -1,5 +1,5 @@
 name: Health Coach
-version: "0.29.1"
+version: "0.30.0"
 slug: healthcoach
 description: >-
   AI-powered personal health and fitness coach.
@@ -33,6 +33,9 @@ options:
   chainlit_url: "https://healthcoach.ktmb1.net"
   allow_registration: false
   openrouter_api_key: ""
+  openai_api_key: ""
+  embedding_api_base: ""
+  embedding_model: "text-embedding-3-small"
   google_oauth_client_id: ""
   google_oauth_client_secret: ""
   apple_oauth_client_id: ""
@@ -62,6 +65,9 @@ schema:
   chainlit_url: "str?"
   allow_registration: bool
   openrouter_api_key: password
+  openai_api_key: password
+  embedding_api_base: "str?"
+  embedding_model: "str?"
   google_oauth_client_id: "str?"
   google_oauth_client_secret: "str?"
   apple_oauth_client_id: "str?"

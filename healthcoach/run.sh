@@ -15,9 +15,10 @@ opts = json.load(open('$OPTIONS_FILE'))
 
 for k in ('db_host','db_port','db_name','db_user','db_password',
           'grafana_host','grafana_port','grafana_api_key',
-          'openrouter_api_key','chat_model','github_token',
+          'openrouter_api_key','openai_api_key','chat_model','github_token',
           'r2_account_id','r2_access_key_id','r2_secret_access_key','r2_bucket_name',
-          'telegram_bot_token','telegram_bot_username'):
+          'telegram_bot_token','telegram_bot_username',
+          'embedding_api_base','embedding_model'):
     print(f'export {k.upper()}={shlex.quote(str(opts.get(k, \"\")))}')
 
 print(f'export MCP_PORT={int(opts.get(\"mcp_port\", 8765))}')

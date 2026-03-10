@@ -1,13 +1,15 @@
 """
 RAG knowledge base: PDF ingestion, chunking, embedding, and retrieval.
 
-Uses PyMuPDF for text extraction, fastembed for local ONNX-based embeddings
-(all-MiniLM-L6-v2), and pgvector on TimescaleDB for vector storage/search.
+Uses PyMuPDF for text extraction, an OpenAI-compatible embedding API
+(OpenAI or Ollama), and pgvector on TimescaleDB for vector storage/search.
 
-fastembed is optional: if unavailable (e.g. on Alpine where onnxruntime has
-no musl wheels), ingestion still extracts and chunks text but embedding and
-semantic search will raise RuntimeError until an alternative backend is
-configured.
+Configuration via environment variables:
+    EMBEDDING_API_BASE  — API base URL (default: OpenAI; set to
+                          http://localhost:11434/v1 for local Ollama)
+    EMBEDDING_MODEL     — Model name (default: text-embedding-3-small)
+    EMBEDDING_DIM       — Vector dimensions (default: 768)
+    OPENAI_API_KEY      — API key (required for OpenAI; any value for Ollama)
 """
 
 from __future__ import annotations
@@ -21,23 +23,20 @@ from typing import Any
 
 import psycopg2
 import psycopg2.extras
+from openai import OpenAI
 
 log = logging.getLogger(__name__)
 
-try:
-    from fastembed import TextEmbedding
-    _FASTEMBED_AVAILABLE = True
-except ImportError:
-    _FASTEMBED_AVAILABLE = False
-    log.warning("fastembed not installed — RAG embedding/search disabled")
-
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-EMBEDDING_DIM = 384
+EMBEDDING_API_BASE = os.environ.get("EMBEDDING_API_BASE", "")
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "768"))
 CHUNK_TARGET_TOKENS = 500
 CHUNK_OVERLAP_TOKENS = 50
 APPROX_CHARS_PER_TOKEN = 4
 
-_embedding_model = None
+_openai_client: OpenAI | None = None
+
+_EMBED_BATCH_SIZE = 512
 
 
 # ---------------------------------------------------------------------------
@@ -55,33 +54,47 @@ def _get_conn():
 
 
 # ---------------------------------------------------------------------------
-# Embedding model (lazy singleton)
+# Embedding client (OpenAI-compatible: works with OpenAI API and Ollama)
 # ---------------------------------------------------------------------------
 
-def _get_embedding_model():
-    global _embedding_model
-    if not _FASTEMBED_AVAILABLE:
-        raise RuntimeError(
-            "fastembed is not installed. Install it (`pip install fastembed`) "
-            "or switch to a glibc-based base image for onnxruntime support."
-        )
-    if _embedding_model is None:
-        log.info("Loading embedding model %s ...", EMBEDDING_MODEL)
-        _embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
-        log.info("Embedding model ready.")
-    return _embedding_model
+def _get_openai_client() -> OpenAI:
+    global _openai_client
+    if _openai_client is None:
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key and not EMBEDDING_API_BASE:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set and no EMBEDDING_API_BASE configured. "
+                "Set OPENAI_API_KEY for OpenAI embeddings, or point "
+                "EMBEDDING_API_BASE at a local Ollama instance."
+            )
+        kwargs: dict[str, Any] = {"api_key": api_key or "ollama"}
+        if EMBEDDING_API_BASE:
+            kwargs["base_url"] = EMBEDDING_API_BASE
+        _openai_client = OpenAI(**kwargs)
+    return _openai_client
 
 
 def _embed_texts(texts: list[str]) -> list[list[float]]:
-    model = _get_embedding_model()
-    embeddings = list(model.embed(texts))
-    return [e.tolist() for e in embeddings]
+    """Embed a list of texts, batching to stay within API limits."""
+    client = _get_openai_client()
+    all_embeddings: list[list[float]] = []
+    for i in range(0, len(texts), _EMBED_BATCH_SIZE):
+        batch = texts[i : i + _EMBED_BATCH_SIZE]
+        kwargs: dict[str, Any] = {"model": EMBEDDING_MODEL, "input": batch}
+        if not EMBEDDING_API_BASE:
+            kwargs["dimensions"] = EMBEDDING_DIM
+        resp = client.embeddings.create(**kwargs)
+        all_embeddings.extend(item.embedding for item in resp.data)
+    return all_embeddings
 
 
 def _embed_query(query: str) -> list[float]:
-    model = _get_embedding_model()
-    embeddings = list(model.query_embed(query))
-    return embeddings[0].tolist()
+    client = _get_openai_client()
+    kwargs: dict[str, Any] = {"model": EMBEDDING_MODEL, "input": query}
+    if not EMBEDDING_API_BASE:
+        kwargs["dimensions"] = EMBEDDING_DIM
+    resp = client.embeddings.create(**kwargs)
+    return resp.data[0].embedding
 
 
 # ---------------------------------------------------------------------------
