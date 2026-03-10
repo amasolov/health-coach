@@ -304,8 +304,21 @@ TOOL_SCHEMAS: list[dict] = [
         "type": "function",
         "function": {
             "name": "garmin_authenticate",
-            "description": "Start Garmin Connect authentication. If MFA is required, returns a prompt to call garmin_submit_mfa.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
+            "description": "Connect or reconnect the user's Garmin account. If credentials are already stored, uses those. Otherwise, ask the user for their Garmin email and password and pass them here. If MFA is required, returns a prompt to call garmin_submit_mfa.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "garmin_email": {
+                        "type": "string",
+                        "description": "User's Garmin Connect email address (ask the user if not already configured)"
+                    },
+                    "garmin_password": {
+                        "type": "string",
+                        "description": "User's Garmin Connect password (ask the user if not already configured)"
+                    }
+                },
+                "required": []
+            },
         },
     },
     {

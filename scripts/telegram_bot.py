@@ -82,9 +82,6 @@ TELEGRAM_MSG_LIMIT = 4096
 # ---------------------------------------------------------------------------
 
 EXCLUDED_TOOLS = frozenset({
-    "garmin_authenticate",
-    "garmin_submit_mfa",
-    "garmin_auth_status",
     "garmin_fetch_profile",
     "get_onboarding_questions",
     "generate_telegram_link_code",
@@ -349,6 +346,14 @@ def _execute_tool(
             elif tool_name == "sync_data":
                 hevy_key = user_data.get("hevy_api_key", "")
                 return fn(user_slug, user_id, hevy_key, **arguments)
+            elif tool_name == "garmin_authenticate":
+                email = arguments.pop("garmin_email", "") or user_data.get("garmin_email", "")
+                password = arguments.pop("garmin_password", "") or user_data.get("garmin_password", "")
+                result = fn(user_slug, email, password)
+                if result.get("status") in ("ok", "needs_mfa") and email:
+                    user_data["garmin_email"] = email
+                    user_data["garmin_password"] = password
+                return result
             else:
                 return fn(user_slug, **arguments)
         else:

@@ -1013,8 +1013,9 @@ def garmin_auth_status(user_slug: str, garmin_email: str = "") -> dict:
 def garmin_authenticate(
     user_slug: str, garmin_email: str, garmin_password: str
 ) -> dict:
-    """Start Garmin Connect authentication.  If MFA is required, returns a
-    prompt -- the user should then call garmin_submit_mfa with the code."""
+    """Start Garmin Connect authentication.  Accepts garmin_email and
+    garmin_password either from stored config or directly from the user.
+    If MFA is required, returns a prompt to call garmin_submit_mfa."""
     from scripts.garmin_auth import try_cached_login, start_login
 
     client = try_cached_login(user_slug)
@@ -1022,16 +1023,23 @@ def garmin_authenticate(
         return {"status": "ok", "message": "Already authenticated with cached tokens."}
 
     if not garmin_email or not garmin_password:
-        raise ValueError(
-            "Garmin credentials not configured. Set garmin_email and "
-            "garmin_password in the addon config (or secrets for local dev)."
-        )
+        return {
+            "status": "need_credentials",
+            "message": (
+                "Garmin credentials are not configured yet. "
+                "Ask the user for their Garmin Connect email and password, "
+                "then call garmin_authenticate again with garmin_email and "
+                "garmin_password parameters."
+            ),
+        }
 
     result, _client = start_login(user_slug, garmin_email, garmin_password)
 
     if result == "ok":
+        _persist_garmin_creds(user_slug, garmin_email, garmin_password)
         return {"status": "ok", "message": "Authenticated successfully. Tokens cached."}
     elif result == "needs_mfa":
+        _persist_garmin_creds(user_slug, garmin_email, garmin_password)
         return {
             "status": "needs_mfa",
             "message": (
@@ -1041,6 +1049,23 @@ def garmin_authenticate(
         }
     else:
         raise ValueError(result)
+
+
+def _persist_garmin_creds(user_slug: str, email: str, password: str) -> None:
+    """Save Garmin credentials to users.json and update in-memory registry."""
+    try:
+        from scripts.user_manager import USERS_FILE
+        if USERS_FILE.exists():
+            import json as _json
+            users = _json.loads(USERS_FILE.read_text())
+            for u in users:
+                if u.get("slug") == user_slug:
+                    u["garmin_email"] = email
+                    u["garmin_password"] = password
+                    break
+            USERS_FILE.write_text(_json.dumps(users, indent=2))
+    except Exception as exc:
+        print(f"WARN: Failed to persist Garmin creds to users.json: {exc}")
 
 
 def garmin_submit_mfa(user_slug: str, mfa_code: str) -> dict:

@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.39.0
+**Self-service Garmin Connect via chat**
+
+- **Chat-based Garmin login** — users can now connect (or reconnect) their Garmin account directly through the chatbot by providing their email and password; the `garmin_authenticate` tool accepts optional `garmin_email` / `garmin_password` parameters and prompts the LLM to ask the user if credentials are missing
+- **Credential persistence** — on successful authentication (or MFA initiation), credentials are saved to `users.json` and updated in the in-memory registry so subsequent syncs work without manual config editing
+- **Telegram Garmin tools enabled** — `garmin_authenticate`, `garmin_submit_mfa`, and `garmin_auth_status` are no longer excluded from the Telegram bot, allowing users to manage their Garmin connection from any channel
+
 ## v0.38.0
 **Accurate body battery and vitals refresh**
 

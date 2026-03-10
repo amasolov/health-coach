@@ -498,11 +498,13 @@ def _execute_tool(
             if tool_name == "garmin_auth_status":
                 return fn(user_slug, user_data.get("garmin_email", ""))
             elif tool_name == "garmin_authenticate":
-                return fn(
-                    user_slug,
-                    user_data.get("garmin_email", ""),
-                    user_data.get("garmin_password", ""),
-                )
+                email = arguments.pop("garmin_email", "") or user_data.get("garmin_email", "")
+                password = arguments.pop("garmin_password", "") or user_data.get("garmin_password", "")
+                result = fn(user_slug, email, password)
+                if result.get("status") in ("ok", "needs_mfa") and email:
+                    user_data["garmin_email"] = email
+                    user_data["garmin_password"] = password
+                return result
             elif tool_name == "generate_fitness_assessment":
                 hevy_key = user_data.get("hevy_api_key") or None
                 return fn(user_slug, hevy_key, **arguments)
