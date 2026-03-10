@@ -92,6 +92,7 @@ TOOL_DISPLAY_NAMES = {
     "get_hevy_routine_review":   "Hevy Routine Review",
     "compare_hevy_workout":      "Hevy ↔ iFit Comparison",
     "apply_exercise_feedback":   "Exercise Feedback Update",
+    "get_routine_weight_recommendations": "Routine Weight Recommendations",
 }
 ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "").lower() in ("true", "1", "yes")
 SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))
@@ -402,6 +403,9 @@ def _execute_tool(
             elif tool_name == "create_hevy_routine_from_recommendation":
                 hevy_key = user_data.get("hevy_api_key", "")
                 return fn(user_slug, hevy_api_key=hevy_key, **arguments)
+            elif tool_name == "get_routine_weight_recommendations":
+                hevy_key = user_data.get("hevy_api_key", "")
+                return fn(user_id, user_slug, hevy_api_key=hevy_key, **arguments)
             elif tool_name == "sync_data":
                 hevy_key = user_data.get("hevy_api_key", "")
                 return fn(user_slug, user_id, hevy_key, **arguments)

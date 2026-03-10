@@ -766,6 +766,33 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_routine_weight_recommendations",
+            "description": (
+                "Recommend specific weights, reps, and sets for each exercise in "
+                "a user's Hevy routine based on their training history, progression "
+                "trends, current fatigue (TSB, HRV, cardio leg stress), and "
+                "progressive overload principles. If no routine is specified, "
+                "lists all available routines so the user can pick one."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "routine_id": {
+                        "type": "string",
+                        "description": "Hevy routine ID. If omitted, lists available routines.",
+                    },
+                    "routine_name": {
+                        "type": "string",
+                        "description": "Partial name match for the routine (e.g. 'upper body').",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -824,4 +851,6 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "get_hevy_routine_review":      (health_tools.get_hevy_routine_review, "slug"),
     "compare_hevy_workout":         (health_tools.compare_hevy_workout, "uid"),
     "apply_exercise_feedback":      (health_tools.apply_exercise_feedback, "slug"),
+    # Weight recommendations
+    "get_routine_weight_recommendations": (health_tools.get_routine_weight_recommendations, "creds"),
 }

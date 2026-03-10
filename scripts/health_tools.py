@@ -2317,3 +2317,333 @@ def apply_exercise_feedback(
             "converted to a Hevy routine, it will use the corrected exercises."
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Routine weight recommendations
+# ---------------------------------------------------------------------------
+
+_COMPOUND_EXERCISES = {
+    "squat", "deadlift", "bench press", "overhead press", "row",
+    "romanian deadlift", "hip thrust", "lunge", "clean", "snatch",
+}
+
+
+def _is_compound(name: str) -> bool:
+    lower = name.lower()
+    return any(c in lower for c in _COMPOUND_EXERCISES)
+
+
+def _analyse_exercise_history(
+    rows: list[dict],
+) -> dict:
+    """Analyse sorted (oldest-first) sets for one exercise.
+
+    Returns trend, last session stats, and best working weight."""
+    if not rows:
+        return {"trend": "new", "sessions": []}
+
+    sessions: list[dict] = []
+    current_day = ""
+    for r in rows:
+        day = str(r["time"])[:10]
+        wt = float(r.get("weight_kg") or 0)
+        reps = int(r.get("reps") or 0)
+        if r.get("set_type", "normal") != "normal":
+            continue
+        if day != current_day:
+            current_day = day
+            sessions.append({"date": day, "sets": []})
+        sessions[-1]["sets"].append({"weight_kg": wt, "reps": reps})
+
+    if not sessions:
+        return {"trend": "new", "sessions": []}
+
+    def _session_best_weight(s: dict) -> float:
+        return max((st["weight_kg"] for st in s["sets"] if st["weight_kg"] > 0), default=0)
+
+    def _session_avg_reps(s: dict) -> float:
+        working = [st["reps"] for st in s["sets"] if st["weight_kg"] > 0 and st["reps"] > 0]
+        return sum(working) / len(working) if working else 0
+
+    # Trend: compare first half average to second half average
+    best_weights = [_session_best_weight(s) for s in sessions if _session_best_weight(s) > 0]
+    if len(best_weights) >= 3:
+        mid = len(best_weights) // 2
+        first_half = sum(best_weights[:mid]) / mid
+        second_half = sum(best_weights[mid:]) / (len(best_weights) - mid)
+        if second_half > first_half * 1.03:
+            trend = "progressing"
+        elif second_half < first_half * 0.97:
+            trend = "declining"
+        else:
+            trend = "plateau"
+    elif len(best_weights) == 2:
+        trend = "progressing" if best_weights[1] > best_weights[0] else "plateau"
+    else:
+        trend = "new"
+
+    last = sessions[-1]
+    last_best = _session_best_weight(last)
+    last_avg_reps = _session_avg_reps(last)
+    last_set_count = len([s for s in last["sets"] if s["weight_kg"] > 0])
+
+    all_best = max(best_weights) if best_weights else 0
+
+    return {
+        "trend": trend,
+        "session_count": len(sessions),
+        "last_date": last["date"],
+        "last_weight_kg": last_best,
+        "last_avg_reps": round(last_avg_reps, 1),
+        "last_set_count": last_set_count,
+        "all_time_best_kg": all_best,
+        "sessions": sessions,
+    }
+
+
+def _recommend_weight(
+    analysis: dict,
+    target_intensity: str,
+    muscle_group: str,
+    cardio_leg_stress: float,
+    is_compound: bool,
+) -> dict:
+    """Given exercise history analysis and athlete state, recommend weight/reps."""
+    trend = analysis.get("trend", "new")
+    last_wt = float(analysis.get("last_weight_kg", 0))
+    last_reps = analysis.get("last_avg_reps", 0)
+    last_sets = analysis.get("last_set_count", 3)
+    best_wt = float(analysis.get("all_time_best_kg", 0))
+
+    # Fatigue adjustments
+    fatigue_factor = 1.0
+    fatigue_notes = []
+
+    if target_intensity == "easy":
+        fatigue_factor *= 0.85
+        fatigue_notes.append("deload day (low readiness)")
+    elif target_intensity == "moderate":
+        fatigue_factor *= 0.95
+        fatigue_notes.append("moderate readiness")
+
+    lower_groups = {"quadriceps", "hamstrings", "glutes", "calves", "lower body",
+                    "lower-body", "legs", "lower"}
+    if muscle_group and muscle_group.lower() in lower_groups and cardio_leg_stress >= 30:
+        if cardio_leg_stress >= 60:
+            fatigue_factor *= 0.85
+            fatigue_notes.append(f"legs fatigued from cardio (stress {cardio_leg_stress:.0f})")
+        else:
+            fatigue_factor *= 0.92
+            fatigue_notes.append(f"moderate cardio leg load (stress {cardio_leg_stress:.0f})")
+
+    if trend == "new" or last_wt == 0:
+        return {
+            "weight_kg": None,
+            "reps": 10 if not is_compound else 8,
+            "sets": 3,
+            "strategy": "start_light",
+            "reasoning": (
+                "No history for this exercise. Start with a comfortable weight "
+                "where you can complete all reps with good form. "
+                "Track it in Hevy so I can make better recommendations next time."
+            ),
+        }
+
+    # Progressive overload logic
+    increment = 2.5 if is_compound else 1.0  # kg
+    rec_reps = round(last_reps) if last_reps else (6 if is_compound else 12)
+    rec_sets = last_sets if last_sets > 0 else 3
+
+    if trend == "progressing" and target_intensity != "easy":
+        if last_reps >= (8 if is_compound else 14):
+            rec_wt = round((last_wt + increment) * fatigue_factor * 2) / 2
+            strategy = "increase_weight"
+            reasoning = (
+                f"You've been progressing well and hit {last_reps:.0f} reps at "
+                f"{last_wt}kg last time. Ready for a small weight bump."
+            )
+        else:
+            rec_wt = round(last_wt * fatigue_factor * 2) / 2
+            rec_reps = round(last_reps) + 1
+            strategy = "increase_reps"
+            reasoning = (
+                f"Progressing well at {last_wt}kg. Add a rep before increasing "
+                f"weight — aim for {rec_reps} reps this time."
+            )
+    elif trend == "plateau":
+        if target_intensity == "easy":
+            rec_wt = round(last_wt * 0.85 * 2) / 2
+            strategy = "deload"
+            reasoning = f"Deload session — drop to ~85% of your {last_wt}kg working weight."
+        else:
+            rec_wt = round(last_wt * fatigue_factor * 2) / 2
+            rec_reps = round(last_reps) + 2 if last_reps < 15 else round(last_reps)
+            strategy = "break_plateau"
+            reasoning = (
+                f"You've been at {last_wt}kg for a few sessions. "
+                f"Try adding reps to build volume before bumping weight."
+            )
+    elif trend == "declining":
+        rec_wt = round(last_wt * 0.90 * fatigue_factor * 2) / 2
+        strategy = "recovery"
+        reasoning = (
+            f"Weight has been trending down from your best of {best_wt}kg. "
+            f"Drop to {rec_wt}kg, focus on form, and rebuild."
+        )
+    else:
+        rec_wt = round(last_wt * fatigue_factor * 2) / 2
+        strategy = "maintain"
+        reasoning = f"Maintain current working weight of {last_wt}kg."
+
+    if fatigue_notes:
+        reasoning += " Note: " + "; ".join(fatigue_notes) + "."
+
+    return {
+        "weight_kg": rec_wt,
+        "reps": rec_reps,
+        "sets": rec_sets,
+        "strategy": strategy,
+        "reasoning": reasoning,
+    }
+
+
+def get_routine_weight_recommendations(
+    user_id: int,
+    user_slug: str,
+    hevy_api_key: str = "",
+    routine_id: str = "",
+    routine_name: str = "",
+) -> dict:
+    """Recommend weights for each exercise in a Hevy routine.
+
+    Fetches the routine from the Hevy API, analyses the user's history for
+    each exercise, and recommends weight/reps based on progression trends,
+    current fatigue (TSB, cardio leg stress), and muscle freshness."""
+    import httpx
+
+    if not hevy_api_key:
+        return {"error": "Hevy API key required. Configure it in your integrations."}
+
+    headers = {"api-key": hevy_api_key, "Accept": "application/json"}
+
+    # Fetch routines from Hevy
+    try:
+        if routine_id:
+            r = httpx.get(
+                f"https://api.hevyapp.com/v1/routines/{routine_id}",
+                headers=headers, timeout=15,
+            )
+            r.raise_for_status()
+            routine = r.json().get("routine", r.json())
+        else:
+            r = httpx.get(
+                "https://api.hevyapp.com/v1/routines",
+                headers=headers, params={"page": 1, "pageSize": 50},
+                timeout=15,
+            )
+            r.raise_for_status()
+            routines = r.json().get("routines", [])
+            if not routines:
+                return {"error": "No routines found in your Hevy account."}
+
+            if routine_name:
+                name_lower = routine_name.lower()
+                matched = [rt for rt in routines
+                           if name_lower in rt.get("title", "").lower()]
+                if not matched:
+                    return {
+                        "error": f"No routine matching '{routine_name}'.",
+                        "available_routines": [
+                            {"id": rt["id"], "title": rt.get("title", "")}
+                            for rt in routines
+                        ],
+                    }
+                routine = matched[0]
+            else:
+                return {
+                    "available_routines": [
+                        {"id": rt["id"], "title": rt.get("title", "")}
+                        for rt in routines
+                    ],
+                    "hint": "Specify a routine_name or routine_id to get weight recommendations.",
+                }
+    except httpx.HTTPStatusError as exc:
+        return {"error": f"Hevy API error: {exc.response.status_code}"}
+    except Exception as exc:
+        return {"error": f"Failed to fetch routines: {exc}"}
+
+    # Gather athlete state for fatigue context
+    from scripts.ifit_strength_recommend import gather_athlete_state, MUSCLE_GROUP_CANONICAL
+    state = gather_athlete_state(user_slug)
+
+    # Build exercise list from routine
+    exercises = routine.get("exercises", [])
+    if not exercises:
+        return {"error": "Routine has no exercises.", "routine": routine.get("title", "")}
+
+    recommendations = []
+    for ex in exercises:
+        ex_id = ex.get("exercise_template_id", "")
+        ex_title = ex.get("title") or ex.get("exercise_template_title", "Unknown")
+        sets_in_routine = len(ex.get("sets", []))
+        muscle_group = ex.get("muscle_group", "")
+
+        # Query exercise history from DB (last 90 days, all normal sets)
+        history_rows = query(
+            """SELECT time, set_number, set_type, weight_kg, reps
+               FROM strength_sets
+               WHERE user_id = %s AND LOWER(exercise_name) = LOWER(%s)
+                 AND time >= NOW() - INTERVAL '90 days'
+               ORDER BY time ASC, set_number""",
+            (user_id, ex_title),
+        )
+
+        analysis = _analyse_exercise_history(history_rows)
+        canonical_mg = MUSCLE_GROUP_CANONICAL.get(
+            (muscle_group or "").lower(), muscle_group or ""
+        )
+
+        rec = _recommend_weight(
+            analysis,
+            target_intensity=state.target_intensity,
+            muscle_group=canonical_mg,
+            cardio_leg_stress=state.cardio_leg_stress,
+            is_compound=_is_compound(ex_title),
+        )
+
+        recommendations.append({
+            "exercise": ex_title,
+            "muscle_group": muscle_group,
+            "recommended_weight_kg": rec["weight_kg"],
+            "recommended_reps": rec["reps"],
+            "recommended_sets": rec.get("sets", sets_in_routine or 3),
+            "strategy": rec["strategy"],
+            "reasoning": rec["reasoning"],
+            "history": {
+                "trend": analysis["trend"],
+                "sessions_tracked": analysis.get("session_count", 0),
+                "last_date": analysis.get("last_date"),
+                "last_weight_kg": analysis.get("last_weight_kg"),
+                "all_time_best_kg": analysis.get("all_time_best_kg"),
+            },
+        })
+
+    return {
+        "routine_title": routine.get("title", ""),
+        "routine_id": routine.get("id", ""),
+        "athlete_state": {
+            "target_intensity": state.target_intensity,
+            "tsb": round(state.tsb, 1),
+            "form_status": state.form_status,
+            "cardio_leg_stress": round(state.cardio_leg_stress, 1),
+        },
+        "exercise_count": len(recommendations),
+        "recommendations": recommendations,
+        "instructions": (
+            "Present each exercise with its recommended weight, reps, and sets. "
+            "Highlight the strategy (increase_weight, increase_reps, deload, etc.) "
+            "and explain the reasoning. If an exercise has no history, encourage "
+            "the user to start light and track it."
+        ),
+    }

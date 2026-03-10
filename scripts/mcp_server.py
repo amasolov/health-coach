@@ -613,6 +613,22 @@ def apply_exercise_feedback(
     )
 
 
+@mcp.tool
+def get_routine_weight_recommendations(
+    ctx: Context, routine_id: str = "", routine_name: str = ""
+) -> dict:
+    """Recommend specific weights, reps, and sets for each exercise in a
+    Hevy routine based on training history, progression trends, and current
+    fatigue.  If no routine is specified, lists available routines."""
+    return _wrap(
+        health_tools.get_routine_weight_recommendations,
+        _uid(ctx), _uslug(ctx),
+        hevy_api_key=_get_hevy_key(ctx),
+        routine_id=routine_id,
+        routine_name=routine_name,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Health check endpoint
 # ---------------------------------------------------------------------------

@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.28.0
+**Routine weight recommendations**
+
+- New tool `get_routine_weight_recommendations` fetches a Hevy routine and recommends specific weights, reps, and sets for each exercise
+- Analyses 90 days of exercise history to detect trends: progressing, plateau, declining, or new
+- Progressive overload logic: weight bumps for compounds when reps hit threshold, rep increases for isolations, deload for easy days
+- Fatigue-aware: factors in TSB, body battery, cardio leg stress with proportional adjustments
+- Compound vs isolation detection for appropriate increment sizes (2.5kg vs 1kg)
+- Lists available routines if none specified; supports name-based fuzzy matching
+- 25 new tests covering history analysis, recommendation logic, and full tool flow
+
 ## v0.27.1
 **Scope guardrails for chatbot**
 
