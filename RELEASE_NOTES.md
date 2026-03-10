@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.38.0
+**Accurate body battery and vitals refresh**
+
+- **Intraday body battery** — vitals sync now fetches the Garmin body battery timeline for the current day, providing accurate high/low/latest values instead of stale daily summary data; new `body_battery_latest` column stores the most recent reading
+- **True vitals upsert** — today's vitals row is always refreshed on each sync cycle (previously skipped once inserted), so body battery, stress, and other metrics stay current throughout the day
+- **Current date in LLM system prompt** — both Chainlit and Telegram system prompts now include the user's local date/time and timezone, eliminating "today" vs "yesterday" misclassification
+
 ## v0.37.0
 **Timezone-aware timestamps and iFit import fix**
 

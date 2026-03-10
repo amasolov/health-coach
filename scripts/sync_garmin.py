@@ -370,6 +370,24 @@ def _insert_body_comp(cur, user_id: int, data: dict) -> None:
     """, {**data, "user_id": user_id})
 
 
+def _enrich_body_battery(client: Garmin, day_str: str, data: dict) -> None:
+    """Fetch the intraday body battery timeline and update data with
+    accurate high, low, and latest values."""
+    try:
+        bb = client.get_body_battery(day_str)
+        if not bb:
+            return
+        vals = bb[0].get("bodyBatteryValuesArray", []) if isinstance(bb, list) else []
+        readings = [v[1] for v in vals if v[1] is not None]
+        if not readings:
+            return
+        data["body_battery_high"] = max(readings)
+        data["body_battery_low"] = min(readings)
+        data["body_battery_latest"] = readings[-1]
+    except Exception:
+        pass
+
+
 def _vitals_exist(cur, user_id: int, dt: datetime) -> bool:
     cur.execute(
         "SELECT 1 FROM vitals WHERE user_id = %s AND time = %s LIMIT 1",
@@ -383,15 +401,29 @@ def _upsert_vitals(cur, user_id: int, data: dict) -> None:
         INSERT INTO vitals (
             time, user_id, resting_hr, hrv_ms, bp_systolic, bp_diastolic,
             bp_pulse, sleep_score, sleep_duration_min, stress_avg,
-            body_battery_high, body_battery_low, spo2_avg,
-            respiration_avg, source
+            body_battery_high, body_battery_low, body_battery_latest,
+            spo2_avg, respiration_avg, source
         ) VALUES (
             %(time)s, %(user_id)s, %(resting_hr)s, %(hrv_ms)s, %(bp_systolic)s,
             %(bp_diastolic)s, %(bp_pulse)s, %(sleep_score)s, %(sleep_duration_min)s,
             %(stress_avg)s, %(body_battery_high)s, %(body_battery_low)s,
-            %(spo2_avg)s, %(respiration_avg)s, %(source)s
+            %(body_battery_latest)s, %(spo2_avg)s, %(respiration_avg)s, %(source)s
         )
-    """, {**data, "user_id": user_id})
+        ON CONFLICT (time, user_id) DO UPDATE SET
+            resting_hr = EXCLUDED.resting_hr,
+            hrv_ms = EXCLUDED.hrv_ms,
+            bp_systolic = EXCLUDED.bp_systolic,
+            bp_diastolic = EXCLUDED.bp_diastolic,
+            bp_pulse = EXCLUDED.bp_pulse,
+            sleep_score = EXCLUDED.sleep_score,
+            sleep_duration_min = EXCLUDED.sleep_duration_min,
+            stress_avg = EXCLUDED.stress_avg,
+            body_battery_high = EXCLUDED.body_battery_high,
+            body_battery_low = EXCLUDED.body_battery_low,
+            body_battery_latest = EXCLUDED.body_battery_latest,
+            spo2_avg = EXCLUDED.spo2_avg,
+            respiration_avg = EXCLUDED.respiration_avg
+    """, {**data, "user_id": user_id, "body_battery_latest": data.get("body_battery_latest")})
 
 
 # ---------------------------------------------------------------------------
@@ -580,9 +612,14 @@ def sync_vitals(
 
         data = _extract_vitals(day_str, stats, sleep, hrv, resp, bp)
         if data["time"]:
-            if _vitals_exist(cur, user_id, data["time"]):
+            is_today = (current == end_date)
+            if not is_today and _vitals_exist(cur, user_id, data["time"]):
                 current += timedelta(days=1)
                 continue
+
+            if is_today:
+                _enrich_body_battery(client, day_str, data)
+
             _upsert_vitals(cur, user_id, data)
             inserted += 1
 

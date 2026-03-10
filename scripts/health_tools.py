@@ -347,8 +347,8 @@ def get_vitals(
     return _localise_rows(query(
         """SELECT time, resting_hr, hrv_ms, bp_systolic, bp_diastolic,
                   bp_pulse, sleep_score, sleep_duration_min, stress_avg,
-                  body_battery_high, body_battery_low, spo2_avg,
-                  respiration_avg
+                  body_battery_high, body_battery_low, body_battery_latest,
+                  spo2_avg, respiration_avg
            FROM vitals
            WHERE user_id = %s AND time >= %s AND time < %s
            ORDER BY time""",
