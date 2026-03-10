@@ -44,3 +44,4 @@ secrets.dec.yaml
 config/athlete.yaml
 config/equipment.yaml
 config/zones.yaml
+.mitm_captures/
