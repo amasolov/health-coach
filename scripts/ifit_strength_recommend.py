@@ -92,6 +92,21 @@ RECOVERY_DAYS = {
     "total": 2,
 }
 
+# Cardio activities stress specific muscle groups. Each entry maps an activity
+# type keyword to the canonical groups it loads and a weight factor (0-1) that
+# scales TSS into an equivalent "virtual volume" for that muscle group.
+# A factor of 1.0 means the full TSS is treated as leg stress; 0.3 means 30%.
+CARDIO_MUSCLE_STRESS: dict[str, dict[str, float]] = {
+    "running":  {"lower": 1.0, "core": 0.2},
+    "cycling":  {"lower": 0.7, "core": 0.15},
+    "walking":  {"lower": 0.3},
+    "hiking":   {"lower": 0.5, "core": 0.15},
+    "climbing": {"upper": 0.6, "lower": 0.3, "core": 0.3},
+}
+
+# TSS-per-minute thresholds for classifying cardio intensity.
+_CARDIO_INTENSITY = {"light": 0.5, "moderate": 1.0}  # >= moderate is "hard"
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -105,7 +120,8 @@ class AthleteState:
     sleep_score: float | None = None
     body_battery: int | None = None
     muscle_load: dict[str, dict] = field(default_factory=dict)
-    recent_cardio_legs: bool = False
+    recent_cardio_legs: bool = False  # kept for backward compat
+    cardio_leg_stress: float = 0.0    # 0-100 weighted leg fatigue from cardio
     goals: dict = field(default_factory=dict)
     ifit_prefs: dict = field(default_factory=dict)
     target_intensity: str = "moderate"
@@ -189,12 +205,14 @@ def gather_athlete_state(user_slug: str) -> AthleteState:
     except Exception:
         pass
 
-    # Muscle load from strength_sets (last 7 days)
+    # Combined muscle load: strength sets (7 days) + cardio stress (4 days)
+    load_by_group: dict[str, dict] = defaultdict(
+        lambda: {"volume": 0.0, "sets": 0, "last_date": ""}
+    )
+
+    # Strength sessions
     try:
         sets = get_strength_sessions(user_id, days=7)
-        load_by_group: dict[str, dict] = defaultdict(
-            lambda: {"volume": 0.0, "sets": 0, "last_date": ""}
-        )
         for s in sets:
             mg_raw = (s.get("muscle_group") or "").lower()
             mg = MUSCLE_GROUP_CANONICAL.get(mg_raw, mg_raw)
@@ -207,20 +225,61 @@ def gather_athlete_state(user_slug: str) -> AthleteState:
             dt = s.get("time", "")
             if dt > load_by_group[mg]["last_date"]:
                 load_by_group[mg]["last_date"] = dt
-        state.muscle_load = dict(load_by_group)
     except Exception:
         pass
 
-    # Recent running/cycling loading legs
+    # Cardio muscle stress — running/cycling/hiking inject fatigue into
+    # muscle_load so freshness scoring naturally penalises leg workouts
+    # after strenuous cardio.
     try:
-        activities = get_activities(user_id, days=3)
+        activities = get_activities(user_id, days=4)
         for a in activities:
             atype = (a.get("activity_type") or "").lower()
-            if any(k in atype for k in ("running", "cycling", "walking", "hiking")):
-                state.recent_cardio_legs = True
-                break
+            matched_key = ""
+            for key in CARDIO_MUSCLE_STRESS:
+                if key in atype:
+                    matched_key = key
+                    break
+            if not matched_key:
+                continue
+
+            state.recent_cardio_legs = True
+
+            tss = float(a.get("tss") or 0)
+            dur_min = (int(a.get("duration_s") or 0)) / 60
+            if tss <= 0 and dur_min > 0:
+                tss = dur_min * 0.8  # conservative estimate when TSS absent
+
+            # Recency decay: yesterday = 1.0, 2 days ago = 0.6, 3+ days = 0.3
+            days_ago = _days_since(str(a.get("time", "")))
+            if days_ago < 1.5:
+                decay = 1.0
+            elif days_ago < 2.5:
+                decay = 0.6
+            else:
+                decay = 0.3
+
+            stress_map = CARDIO_MUSCLE_STRESS[matched_key]
+            for mg, factor in stress_map.items():
+                # A TSS-100 run ≈ 5000 virtual volume for lower body,
+                # comparable to a heavy leg session in weight*reps terms.
+                virtual_vol = tss * factor * decay * 50
+                entry = load_by_group[mg]
+                entry["volume"] += virtual_vol
+                entry["sets"] += 1
+                dt = str(a.get("time", ""))
+                if dt > entry["last_date"]:
+                    entry["last_date"] = dt
+
+            # Scalar leg stress (capped at 100) for explicit penalty scoring
+            leg_factor = stress_map.get("lower", 0)
+            state.cardio_leg_stress = min(
+                100.0, state.cardio_leg_stress + tss * leg_factor * decay
+            )
     except Exception:
         pass
+
+    state.muscle_load = dict(load_by_group)
 
     # Determine target intensity
     if state.tsb < -20 or state.body_battery and state.body_battery < 25:
@@ -356,22 +415,37 @@ def stage1_filter(
         elif rating >= 4.0:
             score += 4
 
-        # Goal alignment (0-15 pts) -- runner needs upper body too
-        if is_runner:
-            if "upper" in muscles:
-                if state.recent_cardio_legs:
-                    score += 15
-                else:
-                    score += 10
-            elif "core" in muscles:
+        # Goal alignment (-15 to +20 pts)
+        # Uses cardio_leg_stress (0-100) for continuous penalty/boost.
+        # High leg stress from recent running/cycling steers toward upper/core.
+        leg_stress = state.cardio_leg_stress
+        if "lower" in muscles or "total" in muscles:
+            if leg_stress >= 60:
+                score -= 15
+            elif leg_stress >= 30:
+                score -= 5
+            elif leg_stress > 0:
+                score += 2
+            else:
+                score += 8
+        elif "upper" in muscles:
+            if leg_stress >= 30:
+                score += 20
+            elif leg_stress > 0:
                 score += 12
-            elif "lower" in muscles:
-                if state.recent_cardio_legs:
-                    score -= 5
-                else:
-                    score += 5
+            else:
+                score += 8
+        elif "core" in muscles:
+            if leg_stress >= 30:
+                score += 15
+            else:
+                score += 10
         else:
             score += 8
+
+        # Runners get an extra nudge toward complementary work
+        if is_runner and "upper" in muscles:
+            score += 5
 
         # Duration sweet spot bonus
         if 25 <= dur_min <= 40:
@@ -560,10 +634,24 @@ def _score_exercises_vs_state(
             adjustment += bonus
             reasons.append(f"{mg} recovered ({days:.0f}d)")
 
-    # Penalise lower body if recent cardio loaded legs
-    if state.recent_cardio_legs and muscle_counts.get("lower", 0) > total_ex * 0.5:
-        adjustment -= 15
-        reasons.append("heavy lower body after recent cardio")
+    # Penalise lower body proportionally to recent cardio leg stress
+    lower_proportion = muscle_counts.get("lower", 0) / total_ex
+    if state.cardio_leg_stress > 0 and lower_proportion > 0.3:
+        # Scale: stress 30 → -5, stress 60 → -10, stress 100 → -20
+        cardio_penalty = -(state.cardio_leg_stress / 100) * 20 * lower_proportion
+        adjustment += cardio_penalty
+        if state.cardio_leg_stress >= 60:
+            reasons.append(f"heavy lower body after intense cardio (stress {state.cardio_leg_stress:.0f})")
+        elif state.cardio_leg_stress >= 30:
+            reasons.append(f"lower body caution — moderate cardio leg load (stress {state.cardio_leg_stress:.0f})")
+
+    # Boost upper/core when legs are fatigued from cardio
+    upper_proportion = muscle_counts.get("upper", 0) / total_ex
+    core_proportion = muscle_counts.get("core", 0) / total_ex
+    if state.cardio_leg_stress >= 30 and (upper_proportion + core_proportion) > 0.5:
+        boost = (state.cardio_leg_stress / 100) * 10
+        adjustment += boost
+        reasons.append("good complement to recent cardio — focuses on upper/core")
 
     return round(adjustment, 1), "; ".join(reasons) if reasons else "balanced"
 
