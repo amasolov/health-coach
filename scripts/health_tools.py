@@ -2077,7 +2077,7 @@ def compare_hevy_workout(
     if not mapping:
         return {"error": "No iFit-to-Hevy routine conversions recorded yet."}
 
-    conn = _get_conn()
+    conn = get_conn()
     cur = conn.cursor()
     try:
         if hevy_workout_id:
