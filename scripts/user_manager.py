@@ -2,8 +2,7 @@
 User registration and management.
 
 Handles creating new users in:
-  - PostgreSQL (users table)
-  - /config/healthcoach/users.json (persistent user store)
+  - PostgreSQL (users table — primary store for all user metadata)
   - /config/healthcoach/athlete.yaml (athlete profile stub)
 
 Used by the onboarding flow in chat_app.py.
@@ -12,6 +11,7 @@ Used by the onboarding flow in chat_app.py.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import secrets
@@ -20,8 +20,16 @@ from typing import Any
 
 import yaml
 
+log = logging.getLogger(__name__)
+
 HA_CFG_DIR = Path("/config/healthcoach")
 USERS_FILE = HA_CFG_DIR / "users.json"
+
+_USER_COLUMNS = (
+    "id", "slug", "display_name", "email", "first_name", "last_name",
+    "garmin_email", "garmin_password", "hevy_api_key", "mcp_api_key",
+    "onboarding_complete",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +39,44 @@ USERS_FILE = HA_CFG_DIR / "users.json"
 def _get_conn():
     from scripts.db_pool import get_conn
     return get_conn()
+
+
+def load_all_users() -> list[dict]:
+    """Load every user from the DB.
+
+    Returns a list of dicts compatible with the in-memory user registries.
+    Falls back to the USERS_JSON env var when the DB is unreachable
+    (local-dev convenience).
+    """
+    try:
+        conn = _get_conn()
+        cur = conn.cursor()
+        cur.execute(f"SELECT {', '.join(_USER_COLUMNS)} FROM users ORDER BY id")
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(zip(_USER_COLUMNS, row)) for row in rows]
+    except Exception:
+        log.debug("load_all_users: DB unavailable, falling back to USERS_JSON", exc_info=True)
+
+    users_json = os.environ.get("USERS_JSON")
+    if users_json:
+        return json.loads(users_json)
+    return []
+
+
+def update_user_field(slug: str, field: str, value: Any) -> None:
+    """Update a single column on the users row identified by slug."""
+    allowed = {c for c in _USER_COLUMNS if c not in ("id", "slug")}
+    if field not in allowed:
+        raise ValueError(f"Unknown user field: {field}")
+    try:
+        conn = _get_conn()
+        cur = conn.cursor()
+        cur.execute(f"UPDATE users SET {field} = %s WHERE slug = %s", (value, slug))
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        log.warning("update_user_field(%s, %s) failed: %s", slug, field, exc)
 
 
 def slug_available(slug: str) -> bool:
@@ -43,46 +89,6 @@ def slug_available(slug: str) -> bool:
         conn.close()
         return not exists
     except Exception:
-        return False
-
-
-def create_db_user(slug: str, display_name: str) -> int | None:
-    """Insert a new user row. Returns the new user_id or None on failure."""
-    try:
-        conn = _get_conn()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO users (slug, display_name) VALUES (%s, %s) RETURNING id",
-            (slug, display_name),
-        )
-        user_id = cur.fetchone()[0]
-        conn.commit()
-        conn.close()
-        return user_id
-    except Exception as e:
-        print(f"ERROR: create_db_user failed: {e}")
-        return None
-
-
-# ---------------------------------------------------------------------------
-# users.json helpers
-# ---------------------------------------------------------------------------
-
-def add_user_to_users_file(user_entry: dict) -> bool:
-    """
-    Append a user entry to /config/healthcoach/users.json.
-    Creates the file if it doesn't exist.
-    """
-    HA_CFG_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        users = json.loads(USERS_FILE.read_text()) if USERS_FILE.exists() else []
-        # Idempotent: remove any existing entry with the same slug
-        users = [u for u in users if u.get("slug") != user_entry["slug"]]
-        users.append(user_entry)
-        USERS_FILE.write_text(json.dumps(users, indent=2))
-        return True
-    except Exception as e:
-        print(f"ERROR: add_user_to_users_file failed: {e}")
         return False
 
 
@@ -173,12 +179,11 @@ def create_athlete_config(
 
 
 def delete_user(slug: str) -> None:
-    """Remove a partially-created user (DB row, users.json entry, athlete config).
+    """Remove a partially-created user (DB row + athlete config).
 
     Used to clean up incomplete onboarding so the user can restart fresh.
     Silently ignores missing records.
     """
-    # DB
     try:
         conn = _get_conn()
         cur = conn.cursor()
@@ -186,18 +191,8 @@ def delete_user(slug: str) -> None:
         conn.commit()
         conn.close()
     except Exception as e:
-        print(f"WARN: delete_user DB cleanup failed for {slug}: {e}")
+        log.warning("delete_user DB cleanup failed for %s: %s", slug, e)
 
-    # users.json
-    try:
-        if USERS_FILE.exists():
-            users = json.loads(USERS_FILE.read_text())
-            users = [u for u in users if u.get("slug") != slug]
-            USERS_FILE.write_text(json.dumps(users, indent=2))
-    except Exception as e:
-        print(f"WARN: delete_user users.json cleanup failed for {slug}: {e}")
-
-    # athlete config
     try:
         from scripts import athlete_store
         athlete_store.delete(slug)
@@ -242,9 +237,8 @@ def register_user(
 ) -> dict:
     """
     Full user registration pipeline:
-      1. Create DB row
-      2. Append to options.json (HA addon context)
-      3. Create athlete.yaml stub
+      1. Create DB row with all credentials
+      2. Create athlete config stub
 
     Returns {"success": True, "user_id": int, "user_entry": dict}
          or {"error": str}.
@@ -252,15 +246,33 @@ def register_user(
     if not slug_available(slug):
         return {"error": f"Username '{slug}' is already taken. Please choose another."}
 
-    display_name = f"{first_name} {last_name}".strip()
-    user_id = create_db_user(slug, display_name)
-    if user_id is None:
-        return {"error": "Failed to create user record in database."}
-
     if not mcp_api_key:
         mcp_api_key = secrets.token_urlsafe(32)
 
+    display_name = f"{first_name} {last_name}".strip()
+
+    try:
+        conn = _get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO users
+               (slug, display_name, email, first_name, last_name,
+                garmin_email, garmin_password, hevy_api_key, mcp_api_key,
+                onboarding_complete)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE)
+               RETURNING id""",
+            (slug, display_name, email, first_name, last_name,
+             garmin_email, garmin_password, hevy_api_key, mcp_api_key),
+        )
+        user_id = cur.fetchone()[0]
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        log.error("register_user DB insert failed: %s", e)
+        return {"error": "Failed to create user record in database."}
+
     user_entry = {
+        "id": user_id,
         "first_name": first_name,
         "last_name": last_name,
         "slug": slug,
@@ -269,9 +281,9 @@ def register_user(
         "garmin_email": garmin_email,
         "garmin_password": garmin_password,
         "hevy_api_key": hevy_api_key,
+        "onboarding_complete": False,
     }
 
-    add_user_to_users_file(user_entry)
     create_athlete_config(slug, first_name, last_name, timezone)
 
     return {

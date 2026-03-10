@@ -2,8 +2,8 @@
 """
 Sync orchestrator.
 
-In the HA addon, iterates over users from USERS_JSON env var.
-Locally, uses USER_SLUG from .env.
+Iterates over users from the database.
+Falls back to USERS_JSON env var or USER_SLUG for local dev.
 
 Data sources:
   - Garmin Connect: activities, vitals, body composition
@@ -43,14 +43,9 @@ _THRESHOLD_GATE_FIELDS = [
 
 
 def get_users() -> list[dict]:
-    """Get user list from USERS_JSON (addon) or USER_SLUG (local dev)."""
-    users_json = os.environ.get("USERS_JSON")
-    if users_json:
-        return json.loads(users_json)
-
-    slug = os.environ.get("USER_SLUG", "alexey")
-    hevy_key = os.environ.get("HEVY_API_KEY", "")
-    return [{"slug": slug, "name": slug, "hevy_api_key": hevy_key}]
+    """Get user list from the database (or USERS_JSON/env fallback for local dev)."""
+    from scripts.user_manager import load_all_users
+    return load_all_users()
 
 
 def _get_conn():

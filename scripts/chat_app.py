@@ -194,32 +194,13 @@ def _build_user_registry() -> None:
     _USERS_BY_SLUG.clear()
     _USERS_BY_EMAIL.clear()
 
-    users_json = os.environ.get("USERS_JSON")
-    if users_json:
-        for u in json.loads(users_json):
-            slug = u.get("slug", "")
-            if slug:
-                _USERS_BY_SLUG[slug] = u
-                email = u.get("email", "").lower().strip()
-                if email:
-                    _USERS_BY_EMAIL[email] = u
-        return
-
-    slug = os.environ.get("USER_SLUG", "alexey")
-    email = os.environ.get("USER_EMAIL", "").lower().strip()
-    user = {
-        "slug": slug,
-        "first_name": os.environ.get("USER_FIRST_NAME", slug),
-        "last_name": os.environ.get("USER_LAST_NAME", ""),
-        "email": email,
-        "garmin_email": os.environ.get("GARMIN_EMAIL", ""),
-        "garmin_password": os.environ.get("GARMIN_PASSWORD", ""),
-        "hevy_api_key": os.environ.get("HEVY_API_KEY", ""),
-        "onboarding_complete": True,
-    }
-    _USERS_BY_SLUG[slug] = user
-    if email:
-        _USERS_BY_EMAIL[email] = user
+    for u in user_manager.load_all_users():
+        slug = u.get("slug", "")
+        if slug:
+            _USERS_BY_SLUG[slug] = u
+            email = (u.get("email") or "").lower().strip()
+            if email:
+                _USERS_BY_EMAIL[email] = u
 
 
 _build_user_registry()
@@ -790,7 +771,7 @@ async def run_onboarding(user: cl.User) -> None:
     # Mark onboarding as complete — must happen before the summary so that
     # a disconnect after this point doesn't trigger a re-onboarding loop.
     user_entry["onboarding_complete"] = True
-    user_manager.add_user_to_users_file(user_entry)
+    user_manager.update_user_field(slug, "onboarding_complete", True)
     _register_user_in_memory(user_entry)
 
     await cl.Message(

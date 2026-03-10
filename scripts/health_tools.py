@@ -1052,20 +1052,10 @@ def garmin_authenticate(
 
 
 def _persist_garmin_creds(user_slug: str, email: str, password: str) -> None:
-    """Save Garmin credentials to users.json and update in-memory registry."""
-    try:
-        from scripts.user_manager import USERS_FILE
-        if USERS_FILE.exists():
-            import json as _json
-            users = _json.loads(USERS_FILE.read_text())
-            for u in users:
-                if u.get("slug") == user_slug:
-                    u["garmin_email"] = email
-                    u["garmin_password"] = password
-                    break
-            USERS_FILE.write_text(_json.dumps(users, indent=2))
-    except Exception as exc:
-        print(f"WARN: Failed to persist Garmin creds to users.json: {exc}")
+    """Save Garmin credentials to the users table."""
+    from scripts.user_manager import update_user_field
+    update_user_field(user_slug, "garmin_email", email)
+    update_user_field(user_slug, "garmin_password", password)
 
 
 def garmin_submit_mfa(user_slug: str, mfa_code: str) -> dict:
@@ -1135,19 +1125,9 @@ def hevy_connect(user_slug: str, hevy_api_key: str = "") -> dict:
 
 
 def _persist_hevy_key(user_slug: str, api_key: str) -> None:
-    """Save Hevy API key to users.json and update in-memory registry."""
-    try:
-        from scripts.user_manager import USERS_FILE
-        if USERS_FILE.exists():
-            import json as _json
-            users = _json.loads(USERS_FILE.read_text())
-            for u in users:
-                if u.get("slug") == user_slug:
-                    u["hevy_api_key"] = api_key
-                    break
-            USERS_FILE.write_text(_json.dumps(users, indent=2))
-    except Exception as exc:
-        print(f"WARN: Failed to persist Hevy API key to users.json: {exc}")
+    """Save Hevy API key to the users table."""
+    from scripts.user_manager import update_user_field
+    update_user_field(user_slug, "hevy_api_key", api_key)
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ Tool logic lives in scripts.health_tools; this module is a thin wrapper
 that adds MCP transport, auth middleware, and Context extraction.
 
 Usage (standalone):
-    python scripts/mcp_server.py          # reads MCP_PORT, USERS_JSON from env
+    python scripts/mcp_server.py          # reads MCP_PORT from env, users from DB
     # or via addon run.sh (background)
 """
 
@@ -36,27 +36,21 @@ MCP_PORT = int(os.environ.get("MCP_PORT", "8765"))
 MCP_HOST = os.environ.get("MCP_HOST", "0.0.0.0")
 
 # ---------------------------------------------------------------------------
-# User registry (built from USERS_JSON or .env)
+# User registry (loaded from DB)
 # ---------------------------------------------------------------------------
 
 _TOKEN_TO_USER: dict[str, dict] = {}
 
 
 def _build_user_registry() -> None:
-    """Populate token->user map from USERS_JSON or fallback env vars."""
+    """Populate token->user map from the users table."""
     _TOKEN_TO_USER.clear()
 
-    users_json = os.environ.get("USERS_JSON")
-    if users_json:
-        for u in json.loads(users_json):
-            key = u.get("mcp_api_key", "")
-            if key:
-                _TOKEN_TO_USER[key] = u
-        return
-
-    dev_key = os.environ.get("MCP_API_KEY", "dev")
-    slug = os.environ.get("USER_SLUG", "alexey")
-    _TOKEN_TO_USER[dev_key] = {"slug": slug, "name": slug, "mcp_api_key": dev_key}
+    from scripts.user_manager import load_all_users
+    for u in load_all_users():
+        key = u.get("mcp_api_key", "")
+        if key:
+            _TOKEN_TO_USER[key] = u
 
 
 # ---------------------------------------------------------------------------

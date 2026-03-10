@@ -109,21 +109,11 @@ _USERS_BY_SLUG: dict[str, dict] = {}
 
 def _build_user_registry() -> None:
     _USERS_BY_SLUG.clear()
-    users_json = os.environ.get("USERS_JSON")
-    if users_json:
-        for u in json.loads(users_json):
-            slug = u.get("slug", "")
-            if slug:
-                _USERS_BY_SLUG[slug] = u
-        return
-    slug = os.environ.get("USER_SLUG", "alexey")
-    _USERS_BY_SLUG[slug] = {
-        "slug": slug,
-        "first_name": os.environ.get("USER_FIRST_NAME", slug),
-        "garmin_email": os.environ.get("GARMIN_EMAIL", ""),
-        "garmin_password": os.environ.get("GARMIN_PASSWORD", ""),
-        "hevy_api_key": os.environ.get("HEVY_API_KEY", ""),
-    }
+    from scripts.user_manager import load_all_users
+    for u in load_all_users():
+        slug = u.get("slug", "")
+        if slug:
+            _USERS_BY_SLUG[slug] = u
 
 
 # ---------------------------------------------------------------------------

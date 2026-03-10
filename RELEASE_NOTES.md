@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.42.0
+**Migrate users.json to the database**
+
+- **User credentials in DB** — all user metadata (email, names, Garmin/Hevy credentials, MCP API keys, onboarding status) now lives in the `users` table instead of a JSON file on disk; new columns added via migration `011_users_credentials.sql`
+- **Shared `load_all_users()`** — single DB query replaces 4 separate `USERS_JSON` env-var parsers across `chat_app`, `telegram_bot`, `mcp_server`, and `run_sync`; falls back to `USERS_JSON` env var when DB is unreachable (local dev)
+- **`register_user()` writes to DB** — new user registration inserts all fields into the `users` table in a single INSERT instead of writing to `users.json`
+- **Credential updates via DB** — `_persist_garmin_creds` and `_persist_hevy_key` now UPDATE the `users` row directly
+- **One-time data migration** — `run.sh` reads `users.json` on first startup, upserts all entries into the DB, then renames the file to `users.json.migrated`
+- **`USERS_JSON` env var eliminated** — no longer exported by `run.sh`; Garmin warm-up and user listing now query the DB directly
+
 ## v0.41.0
 **Mandatory onboarding completion**
 

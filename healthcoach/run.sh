@@ -116,44 +116,87 @@ else
 fi
 
 # ------------------------------------------------------------------
-# Users are stored in /config/healthcoach/users.json (not options.json)
-# so that user credentials survive addon option resets and to avoid
-# complex nested-object schemas that the HA supervisor rejects.
+# Migrate users.json into the DB (one-time, idempotent).
+# After migration, credentials live in the users table and
+# users.json is no longer the primary store.
 # ------------------------------------------------------------------
-eval "$(python3 -c "
-import json, secrets, shlex
+python3 -c "
+import json, secrets, sys, os
 from pathlib import Path
 
+sys.path.insert(0, '/app')
+
 users_file = Path('/config/healthcoach/users.json')
-
 if not users_file.exists():
-    users = []
-    print('echo \"INFO: users.json not found -- no users configured. Use the chat UI to register.\"')
+    print('INFO: No users.json to migrate — users are managed in the database.')
+    sys.exit(0)
+
+users = json.loads(users_file.read_text())
+if not users:
+    sys.exit(0)
+
+import psycopg2
+conn = psycopg2.connect(
+    host=os.environ['DB_HOST'], port=os.environ.get('DB_PORT', '5432'),
+    dbname=os.environ['DB_NAME'], user=os.environ['DB_USER'],
+    password=os.environ['DB_PASSWORD'],
+)
+cur = conn.cursor()
+migrated = 0
+for u in users:
+    slug = u.get('slug', '')
+    if not slug:
+        continue
+    mcp_key = u.get('mcp_api_key') or secrets.token_urlsafe(32)
+    onboarding = u.get('onboarding_complete', True)
+    cur.execute('''
+        UPDATE users SET
+            email              = COALESCE(NULLIF(%(email)s, ''), email),
+            first_name         = COALESCE(NULLIF(%(first_name)s, ''), first_name),
+            last_name          = COALESCE(NULLIF(%(last_name)s, ''), last_name),
+            garmin_email       = COALESCE(NULLIF(%(garmin_email)s, ''), garmin_email),
+            garmin_password    = COALESCE(NULLIF(%(garmin_password)s, ''), garmin_password),
+            hevy_api_key       = COALESCE(NULLIF(%(hevy_api_key)s, ''), hevy_api_key),
+            mcp_api_key        = COALESCE(NULLIF(%(mcp_api_key)s, ''), mcp_api_key),
+            onboarding_complete = %(onboarding)s
+        WHERE slug = %(slug)s
+    ''', {
+        'slug': slug,
+        'email': u.get('email', ''),
+        'first_name': u.get('first_name', ''),
+        'last_name': u.get('last_name', ''),
+        'garmin_email': u.get('garmin_email', ''),
+        'garmin_password': u.get('garmin_password', ''),
+        'hevy_api_key': u.get('hevy_api_key', ''),
+        'mcp_api_key': mcp_key,
+        'onboarding': onboarding,
+    })
+    if cur.rowcount:
+        migrated += 1
+        print(f'  Migrated {slug} from users.json -> DB')
+conn.commit()
+cur.close()
+conn.close()
+if migrated:
+    print(f'INFO: Migrated {migrated} user(s) from users.json into the database.')
+    # Rename the file so it won't be migrated again
+    users_file.rename(users_file.with_suffix('.json.migrated'))
+    print('INFO: Renamed users.json -> users.json.migrated (no longer needed).')
 else:
-    users = json.loads(users_file.read_text())
+    print('INFO: All users already in the database — nothing to migrate.')
+" || echo "WARN: users.json migration failed (will retry on next restart)"
 
-# Auto-generate MCP API keys and backfill onboarding_complete for existing users
-changed = False
-for u in users:
-    if not u.get('mcp_api_key'):
-        u['mcp_api_key'] = secrets.token_urlsafe(32)
-        changed = True
-    if 'onboarding_complete' not in u:
-        u['onboarding_complete'] = True
-        changed = True
-
-if changed:
-    users_file.write_text(json.dumps(users, indent=2))
-    print('echo \"INFO: Backfilled MCP API keys / onboarding_complete for existing users\"')
-
-print(f'export USERS_JSON={shlex.quote(json.dumps(users))}')
-
-for u in users:
+echo "Registered users:"
+python3 -c "
+import sys; sys.path.insert(0, '/app')
+from scripts.user_manager import load_all_users
+for u in load_all_users():
     slug = u.get('slug', '?')
     email = u.get('email', '')
-    key = u.get('mcp_api_key', '')
-    print(f'echo \"  User {slug} ({email}): MCP key {key}\"')
-")"
+    onb = 'yes' if u.get('onboarding_complete') else 'no'
+    print(f'  {slug} ({email}) onboarding={onb}')
+" || echo "  (could not load users from DB)"
+
 echo "DB: ${DB_HOST}:${DB_PORT}/${DB_NAME}"
 echo "Grafana: ${GRAFANA_HOST}:${GRAFANA_PORT}"
 echo "MCP server: port ${MCP_PORT}"
@@ -196,12 +239,12 @@ fi
 
 echo "Checking Garmin authentication for all users..."
 python3 -c "
-import json, os, sys
+import sys
 sys.path.insert(0, '/app')
 from scripts import garmin_auth
+from scripts.user_manager import load_all_users
 
-users_json = os.environ.get('USERS_JSON', '[]')
-for u in json.loads(users_json):
+for u in load_all_users():
     slug = u.get('slug', '')
     email = u.get('garmin_email', '')
     password = u.get('garmin_password', '')
