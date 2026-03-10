@@ -5,40 +5,58 @@
     ":semanticCommits",
     ":timezone(Pacific/Auckland)"
   ],
-  "schedule": ["before 7am on Monday"],
-  "labels": ["dependencies"],
+  "schedule": [
+    "before 7am on Monday"
+  ],
+  "labels": [
+    "dependencies"
+  ],
   "packageRules": [
     {
       "description": "Automerge patch updates",
-      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "matchUpdateTypes": [
+        "patch",
+        "pin",
+        "digest"
+      ],
       "automerge": true,
       "automergeType": "pr",
       "platformAutomerge": true
     },
     {
       "description": "Group minor updates into a single PR",
-      "matchUpdateTypes": ["minor"],
+      "matchUpdateTypes": [
+        "minor"
+      ],
       "groupName": "minor dependencies",
       "groupSlug": "minor-deps"
     },
     {
       "description": "Group major updates per package (manual review)",
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": [
+        "major"
+      ],
       "dependencyDashboardApproval": true
     },
     {
       "description": "Pin Docker digests for reproducibility",
-      "matchDatasources": ["docker"],
+      "matchDatasources": [
+        "docker"
+      ],
       "pinDigests": true
     },
     {
       "description": "Group GitHub Actions updates",
-      "matchManagers": ["github-actions"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "groupName": "github-actions",
       "automerge": true
     }
   ],
   "pip_requirements": {
-    "fileMatch": ["requirements\\.txt$"]
+    "managerFilePatterns": [
+      "/requirements\\.txt$/"
+    ]
   }
 }
