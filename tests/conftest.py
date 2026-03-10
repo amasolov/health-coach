@@ -17,11 +17,28 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import httpx
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
+
+
+@pytest.fixture(autouse=True)
+def _use_bare_httpx_in_clients():
+    """Force client wrappers to return the bare httpx module so existing
+    ``patch("scripts.xxx.httpx.get/post")`` mocks keep working."""
+    with patch("scripts.ifit_strength_recommend._hevy", return_value=httpx), \
+         patch("scripts.ifit_strength_recommend._ifit", return_value=httpx), \
+         patch("scripts.ifit_strength_recommend._llm_http", return_value=httpx), \
+         patch("scripts.hevy_exercise_resolver._hevy", return_value=httpx), \
+         patch("scripts.hevy_exercise_resolver._llm_http", return_value=httpx), \
+         patch("scripts.health_tools._hevy_http", return_value=httpx), \
+         patch("scripts.health_tools._ifit_http", return_value=httpx):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # User context

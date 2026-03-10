@@ -41,14 +41,8 @@ _YAML_PATH = _ROOT / "config" / "athlete.yaml"
 # ------------------------------------------------------------------
 
 def _get_conn():
-    import psycopg2
-    return psycopg2.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ.get("DB_NAME", "health"),
-        user=os.environ.get("DB_USER", "postgres"),
-        password=os.environ.get("DB_PASSWORD", ""),
-    )
+    from scripts.db_pool import get_conn
+    return get_conn()
 
 
 def _try_conn():

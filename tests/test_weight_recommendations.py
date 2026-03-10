@@ -285,15 +285,19 @@ class TestGetRoutineWeightRecommendations:
 
     @patch("httpx.get")
     def test_name_filter(self, mock_get, user_id, user_slug):
+        full_routine = {
+            "id": "r1", "title": "Upper Body", "exercises": [
+                {"exercise_template_id": "e1", "title": "Curl", "sets": [{}]},
+            ],
+        }
         mock_get.side_effect = [
             MockResponse(200, {
                 "routines": [
-                    {"id": "r1", "title": "Upper Body", "exercises": [
-                        {"exercise_template_id": "e1", "title": "Curl", "sets": [{}]},
-                    ]},
+                    full_routine,
                     {"id": "r2", "title": "Lower Body", "exercises": []},
                 ]
             }),
+            MockResponse(200, {"routine": full_routine}),
         ]
         result = get_routine_weight_recommendations(
             user_id, user_slug,

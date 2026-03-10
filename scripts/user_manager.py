@@ -18,7 +18,6 @@ import secrets
 from pathlib import Path
 from typing import Any
 
-import psycopg2
 import yaml
 
 HA_CFG_DIR = Path("/config/healthcoach")
@@ -30,13 +29,8 @@ USERS_FILE = HA_CFG_DIR / "users.json"
 # ---------------------------------------------------------------------------
 
 def _get_conn():
-    return psycopg2.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ.get("DB_NAME", "health"),
-        user=os.environ.get("DB_USER", "postgres"),
-        password=os.environ.get("DB_PASSWORD", ""),
-    )
+    from scripts.db_pool import get_conn
+    return get_conn()
 
 
 def slug_available(slug: str) -> bool:

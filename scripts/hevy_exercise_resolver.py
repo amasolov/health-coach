@@ -21,9 +21,25 @@ import time
 from difflib import SequenceMatcher
 from pathlib import Path
 
-import httpx
+import httpx  # kept as module-level name for test mocking; hot-path calls go through pooled clients
 
 _perf_log = logging.getLogger("perf")
+
+
+def _hevy():
+    try:
+        from scripts.http_clients import hevy_client
+        return hevy_client()
+    except Exception:
+        return httpx
+
+
+def _llm_http():
+    try:
+        from scripts.http_clients import openrouter_client
+        return openrouter_client()
+    except Exception:
+        return httpx
 
 HEVY_BASE = "https://api.hevyapp.com/v1"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -207,7 +223,7 @@ def _llm_classify(exercise_name: str, muscle_hint: str = "", weight_hint: str = 
         context_parts.append(f"Weight/equipment hint: {weight_hint}")
 
     try:
-        resp = httpx.post(
+        resp = _llm_http().post(
             OPENROUTER_URL,
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -293,7 +309,7 @@ def _find_custom_exercise_by_title(title: str, hevy_api_key: str) -> str | None:
     page = 1
     while True:
         try:
-            r = httpx.get(
+            r = _hevy().get(
                 f"{HEVY_BASE}/exercise_templates",
                 headers={"api-key": hevy_api_key, "accept": "application/json"},
                 params={"page": page, "pageSize": 100},
@@ -345,7 +361,7 @@ def _create_custom_exercise(
         }
     }
     try:
-        r = httpx.post(
+        r = _hevy().post(
             f"{HEVY_BASE}/exercise_templates",
             headers={
                 "api-key": hevy_api_key,

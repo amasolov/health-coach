@@ -448,7 +448,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     args = context.args
 
     if not args:
-        existing = get_user_by_telegram(chat_id)
+        existing = await asyncio.to_thread(get_user_by_telegram, chat_id)
         if existing:
             await update.message.reply_text(
                 f"Welcome back, {existing['display_name']}! "
@@ -464,15 +464,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     code = args[0].upper().strip()
-    user_id = validate_link_code(code)
+    user_id = await asyncio.to_thread(validate_link_code, code)
     if user_id is None:
         await update.message.reply_text(
             "Invalid or expired code. Please generate a new one from the web UI."
         )
         return
 
-    if set_telegram_chat_id(user_id, chat_id):
-        user = get_user_by_telegram(chat_id)
+    if await asyncio.to_thread(set_telegram_chat_id, user_id, chat_id):
+        user = await asyncio.to_thread(get_user_by_telegram, chat_id)
         name = user["display_name"] if user else "there"
         await update.message.reply_text(
             f"Linked successfully! Welcome, {name}.\n"
@@ -489,9 +489,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_unlink(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /unlink — remove Telegram association."""
     chat_id = update.effective_chat.id
-    if remove_telegram_chat_id(chat_id):
+    if await asyncio.to_thread(remove_telegram_chat_id, chat_id):
         _sessions.pop(chat_id, None)
-        clear_telegram_history(chat_id)
+        await asyncio.to_thread(clear_telegram_history, chat_id)
         await update.message.reply_text(
             "Your Telegram account has been unlinked from Health Coach."
         )
@@ -504,7 +504,7 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /reset — clear conversation history."""
     chat_id = update.effective_chat.id
     _sessions.pop(chat_id, None)
-    clear_telegram_history(chat_id)
+    await asyncio.to_thread(clear_telegram_history, chat_id)
     await update.message.reply_text("Conversation history cleared. Send a new message to start fresh.")
 
 
@@ -516,7 +516,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not user_text:
         return
 
-    user = get_user_by_telegram(chat_id)
+    user = await asyncio.to_thread(get_user_by_telegram, chat_id)
     if not user:
         await update.message.reply_text(
             "Your Telegram is not linked to a Health Coach account.\n"
@@ -530,9 +530,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_data = _USERS_BY_SLUG.get(user_slug, {})
     user_email = user_data.get("email", user_slug)
 
-    messages = _get_messages(chat_id, user_id, user_slug, first_name, user_email)
+    messages = await asyncio.to_thread(
+        _get_messages, chat_id, user_id, user_slug, first_name, user_email,
+    )
     messages.append({"role": "user", "content": user_text})
-    save_telegram_message(user_id, chat_id, "user", user_text)
+    await asyncio.to_thread(save_telegram_message, user_id, chat_id, "user", user_text)
 
     try:
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -555,13 +557,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if usage:
                 prompt_tok = getattr(usage, "prompt_tokens", 0) or 0
                 completion_tok = getattr(usage, "completion_tokens", 0) or 0
-                ops_emit.emit(
-                    "telegram", "llm_request",
-                    user_id=user_id,
-                    model=CHAT_MODEL,
-                    prompt_tokens=prompt_tok,
-                    completion_tokens=completion_tok,
-                    total_tokens=prompt_tok + completion_tok,
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: ops_emit.emit(
+                        "telegram", "llm_request",
+                        user_id=user_id,
+                        model=CHAT_MODEL,
+                        prompt_tokens=prompt_tok,
+                        completion_tokens=completion_tok,
+                        total_tokens=prompt_tok + completion_tok,
+                    ),
                 )
 
             choice = response.choices[0]
@@ -586,7 +591,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         fn_name, fn_args, user_id, user_slug, user_data,
                     )
 
-                    fig = maybe_chart(fn_name, result)
+                    fig = await asyncio.to_thread(maybe_chart, fn_name, result)
                     if fig:
                         charts.append(fig)
 
@@ -602,12 +607,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             final_text = sanitize_response(choice.message.content or "")
             messages.append({"role": "assistant", "content": final_text})
-            save_telegram_message(user_id, chat_id, "assistant", final_text)
+            asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: save_telegram_message(user_id, chat_id, "assistant", final_text),
+            )
             _trim_history(messages)
 
             charts_sent = 0
             for fig in charts:
-                png_bytes = _render_chart_png(fig)
+                png_bytes = await asyncio.to_thread(_render_chart_png, fig)
                 if png_bytes:
                     photo_bytes = io.BytesIO(png_bytes)
                     await _send_with_retry(

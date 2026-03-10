@@ -30,12 +30,40 @@ from pathlib import Path
 
 import logging
 
-import httpx
 from dotenv import load_dotenv
+
+import httpx  # kept as module-level name for test mocking; hot-path calls go through pooled clients
 
 _perf_log = logging.getLogger("perf")
 
 load_dotenv()
+
+
+def _hevy():
+    """Shared httpx client for Hevy API (connection pooled)."""
+    try:
+        from scripts.http_clients import hevy_client
+        return hevy_client()
+    except Exception:
+        return httpx
+
+
+def _ifit():
+    """Shared httpx client for iFit API (connection pooled)."""
+    try:
+        from scripts.http_clients import ifit_client
+        return ifit_client()
+    except Exception:
+        return httpx
+
+
+def _llm_http():
+    """Shared httpx client for OpenRouter (connection pooled)."""
+    try:
+        from scripts.http_clients import openrouter_client
+        return openrouter_client()
+    except Exception:
+        return httpx
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -522,7 +550,7 @@ Rules:
 def _fetch_vtt(workout_id: str, headers: dict) -> str | None:
     """Fetch English VTT caption text for a workout."""
     try:
-        r = httpx.get(
+        r = _ifit().get(
             f"https://gateway.ifit.com/video-streaming-service/v1/workoutVideo/{workout_id}",
             headers=headers, timeout=15,
         )
@@ -532,7 +560,7 @@ def _fetch_vtt(workout_id: str, headers: dict) -> str | None:
         eng_url = captions.get("eng", "")
         if not eng_url:
             return None
-        r2 = httpx.get(eng_url, timeout=15)
+        r2 = _ifit().get(eng_url, timeout=15)
         if r2.status_code != 200:
             return None
         lines = r2.text.split("\n")
@@ -567,7 +595,7 @@ def _llm_extract(
 Extract all main working exercises as a JSON array. Skip warm-up and stretching/cool-down."""
 
     try:
-        resp = httpx.post(
+        resp = _llm_http().post(
             OPENROUTER_URL,
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -860,7 +888,7 @@ def _ensure_routine_folder(hevy_api_key: str) -> str | None:
     try:
         page = 1
         while True:
-            r = httpx.get(
+            r = _hevy().get(
                 f"{HEVY_BASE}/v1/routine_folders",
                 headers=headers,
                 params={"page": page, "pageSize": 10},
@@ -882,7 +910,7 @@ def _ensure_routine_folder(hevy_api_key: str) -> str | None:
         print(f"  Warning: failed to list routine folders: {e}")
 
     try:
-        r = httpx.post(
+        r = _hevy().post(
             f"{HEVY_BASE}/v1/routine_folders",
             headers={**headers, "Content-Type": "application/json"},
             json={"routine_folder": {"title": ROUTINE_FOLDER_NAME}},
@@ -1008,7 +1036,7 @@ def _find_existing_routine(
             continue
         if entry.get("ifit_workout_id") == ifit_workout_id:
             try:
-                r = httpx.get(
+                r = _hevy().get(
                     f"{HEVY_BASE}/v1/routines/{routine_id}",
                     headers={"api-key": hevy_api_key, "accept": "application/json"},
                     timeout=15,
@@ -1043,7 +1071,7 @@ def _find_existing_routine(
     try:
         page = 1
         while True:
-            r = httpx.get(
+            r = _hevy().get(
                 f"{HEVY_BASE}/v1/routines",
                 headers={"api-key": hevy_api_key, "accept": "application/json"},
                 params={"page": page, "pageSize": 10},
@@ -1219,7 +1247,7 @@ def _create_hevy_routine_locked(rec: Recommendation, hevy_api_key: str) -> dict:
         }
     }
 
-    r = httpx.post(
+    r = _hevy().post(
         f"{HEVY_BASE}/v1/routines",
         headers={
             "api-key": hevy_api_key,
@@ -1244,7 +1272,7 @@ def _create_hevy_routine_locked(rec: Recommendation, hevy_api_key: str) -> dict:
                 "resolution": resolution_summary,
             }
         body["routine"]["exercises"] = exercises_payload
-        r = httpx.post(
+        r = _hevy().post(
             f"{HEVY_BASE}/v1/routines",
             headers={
                 "api-key": hevy_api_key,
@@ -1316,7 +1344,7 @@ def list_hevy_routines(hevy_api_key: str) -> list[dict]:
     routines: list[dict] = []
     page = 1
     while True:
-        r = httpx.get(
+        r = _hevy().get(
             f"{HEVY_BASE}/v1/routines",
             headers={"api-key": hevy_api_key, "accept": "application/json"},
             params={"page": page, "pageSize": 10},
@@ -1343,7 +1371,7 @@ def list_hevy_routines(hevy_api_key: str) -> list[dict]:
 def _get_full_routine(routine_id: str, hevy_api_key: str) -> dict | None:
     """Fetch full routine details by ID from the public API."""
     try:
-        r = httpx.get(
+        r = _hevy().get(
             f"{HEVY_BASE}/v1/routines/{routine_id}",
             headers={"api-key": hevy_api_key, "accept": "application/json"},
             timeout=15,
@@ -1402,7 +1430,7 @@ def rename_hevy_routine(
     }
 
     try:
-        r = httpx.put(
+        r = _hevy().put(
             f"{HEVY_BASE}/v1/routines/{routine_id}",
             headers={
                 "api-key": hevy_api_key,

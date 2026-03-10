@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.35.0
+**Connection pooling, shared HTTP clients, and async event loop improvements**
+
+- **DB connection pool** — replaced per-query `psycopg2.connect()` with a `ThreadedConnectionPool` in new `db_pool.py` module; all hot-path files (`health_tools`, `cross_channel`, `telegram_link`, `ops_emit`, `user_manager`, `athlete_store`, `knowledge_store`) now borrow/return connections from the pool, saving ~200-500ms per message
+- **Shared httpx clients** — new `http_clients.py` module provides persistent `httpx.Client` instances for Hevy, iFit, and OpenRouter APIs; TCP connections and TLS sessions are reused across requests, eliminating ~200-400ms of handshake overhead per call
+- **Async event loop unblocking** — wrapped all blocking DB and rendering calls in `telegram_bot.py` with `asyncio.to_thread()` (`get_user_by_telegram`, `_get_messages`, `save_telegram_message`, `validate_link_code`, `clear_telegram_history`, `maybe_chart`, `_render_chart_png`); fire-and-forget calls (`ops_emit.emit`, assistant message save) use `run_in_executor` to avoid blocking the event loop for concurrent users
+
 ## v0.34.0
 **Performance tracing and bottleneck fixes for iFit/Hevy operations**
 

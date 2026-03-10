@@ -12,7 +12,6 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 
-import psycopg2
 import psycopg2.extras
 
 log = logging.getLogger(__name__)
@@ -22,23 +21,13 @@ MAX_CROSS_CHANNEL_MESSAGES = 10
 
 
 def _health_conn():
-    return psycopg2.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ.get("DB_NAME", "health"),
-        user=os.environ.get("DB_USER", "postgres"),
-        password=os.environ.get("DB_PASSWORD", ""),
-    )
+    from scripts.db_pool import get_conn
+    return get_conn()
 
 
 def _chat_conn():
-    return psycopg2.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname="healthcoach_chat",
-        user=os.environ.get("DB_USER", "postgres"),
-        password=os.environ.get("DB_PASSWORD", ""),
-    )
+    from scripts.db_pool import get_conn_chat
+    return get_conn_chat()
 
 
 # ---------------------------------------------------------------------------

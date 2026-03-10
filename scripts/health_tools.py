@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import psycopg2
 import yaml
 
 from scripts.tz import DEFAULT_TZ_NAME, load_user_tz, user_today
@@ -51,18 +50,36 @@ TEMPLATES_PATH = ROOT / "config" / "treadmill_templates.yaml"
 EQUIPMENT_PATH = ROOT / "config" / "equipment.yaml"
 
 # ---------------------------------------------------------------------------
+# Shared HTTP clients (connection-pooled; fallback to bare httpx for tests)
+# ---------------------------------------------------------------------------
+
+import httpx
+
+
+def _hevy_http():
+    try:
+        from scripts.http_clients import hevy_client
+        return hevy_client()
+    except Exception:
+        return httpx
+
+
+def _ifit_http():
+    try:
+        from scripts.http_clients import ifit_client
+        return ifit_client()
+    except Exception:
+        return httpx
+
+
+# ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
 
 
 def get_conn():
-    return psycopg2.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ.get("DB_NAME", "health"),
-        user=os.environ.get("DB_USER", "postgres"),
-        password=os.environ.get("DB_PASSWORD", ""),
-    )
+    from scripts.db_pool import get_conn as _pool_get_conn
+    return _pool_get_conn()
 
 
 def resolve_user_id(slug: str) -> int | None:
@@ -1888,7 +1905,7 @@ def get_ifit_program_details(series_id: str) -> dict:
         program = download_json(f"programs/{series_id}.json")
 
     if not program:
-        import httpx as _httpx
+        _httpx = _ifit_http()
         try:
             from scripts.ifit_auth import get_auth_headers
             headers = get_auth_headers()
@@ -1982,7 +1999,7 @@ def get_ifit_workout_details(workout_id: str) -> dict:
 
 
 def _get_ifit_workout_details_inner(workout_id: str) -> dict:
-    import httpx as _httpx
+    _httpx = _ifit_http()
     from scripts.ifit_auth import get_auth_headers
 
     try:
@@ -3078,7 +3095,7 @@ def get_routine_weight_recommendations(
     Fetches the routine from the Hevy API, analyses the user's history for
     each exercise, and recommends weight/reps based on progression trends,
     current fatigue (TSB, cardio leg stress), and muscle freshness."""
-    import httpx
+    _hc = _hevy_http()
 
     if not hevy_api_key:
         return {"error": "Hevy API key required. Configure it in your integrations."}
@@ -3088,7 +3105,7 @@ def get_routine_weight_recommendations(
     # Fetch routines from Hevy
     try:
         if routine_id:
-            r = httpx.get(
+            r = _hc.get(
                 f"https://api.hevyapp.com/v1/routines/{routine_id}",
                 headers=headers, timeout=15,
             )
@@ -3098,7 +3115,7 @@ def get_routine_weight_recommendations(
             routines = []
             page = 1
             while True:
-                r = httpx.get(
+                r = _hc.get(
                     "https://api.hevyapp.com/v1/routines",
                     headers=headers, params={"page": page, "pageSize": 10},
                     timeout=15,
@@ -3126,7 +3143,7 @@ def get_routine_weight_recommendations(
                     }
                 matched_rt = matched[0]
                 rid = matched_rt.get("id", "")
-                r = httpx.get(
+                r = _hc.get(
                     f"https://api.hevyapp.com/v1/routines/{rid}",
                     headers=headers, timeout=15,
                 )
