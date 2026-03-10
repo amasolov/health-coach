@@ -3,6 +3,11 @@ RAG knowledge base: PDF ingestion, chunking, embedding, and retrieval.
 
 Uses PyMuPDF for text extraction, fastembed for local ONNX-based embeddings
 (all-MiniLM-L6-v2), and pgvector on TimescaleDB for vector storage/search.
+
+fastembed is optional: if unavailable (e.g. on Alpine where onnxruntime has
+no musl wheels), ingestion still extracts and chunks text but embedding and
+semantic search will raise RuntimeError until an alternative backend is
+configured.
 """
 
 from __future__ import annotations
@@ -18,6 +23,13 @@ import psycopg2
 import psycopg2.extras
 
 log = logging.getLogger(__name__)
+
+try:
+    from fastembed import TextEmbedding
+    _FASTEMBED_AVAILABLE = True
+except ImportError:
+    _FASTEMBED_AVAILABLE = False
+    log.warning("fastembed not installed — RAG embedding/search disabled")
 
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIM = 384
@@ -48,8 +60,12 @@ def _get_conn():
 
 def _get_embedding_model():
     global _embedding_model
+    if not _FASTEMBED_AVAILABLE:
+        raise RuntimeError(
+            "fastembed is not installed. Install it (`pip install fastembed`) "
+            "or switch to a glibc-based base image for onnxruntime support."
+        )
     if _embedding_model is None:
-        from fastembed import TextEmbedding
         log.info("Loading embedding model %s ...", EMBEDDING_MODEL)
         _embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
         log.info("Embedding model ready.")

@@ -13,6 +13,5 @@ greenlet
 sqlalchemy
 boto3
 pymupdf
-fastembed
 pgvector
 python-telegram-bot
