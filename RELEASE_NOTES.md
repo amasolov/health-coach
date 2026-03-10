@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.33.0
+**Hevy routine management — list, delete, and duplicate cleanup**
+
+- New `manage_hevy_routines` chatbot tool with three actions: `list` (show all routines), `delete` (remove by ID), and `delete_duplicates` (auto-clean identical titles)
+- Routine deletion tries the public Hevy API first, then falls back to the internal app API (requires `HEVY_AUTH_TOKEN` env var from a captured Hevy app session)
+- Custom exercise deletion via internal API (`DELETE /custom_exercise_template/{id}`)
+- Added `HEVY_AUTH_TOKEN` env var for internal Hevy API operations not supported by the public API
+- Tool available in both the Chainlit web chat and Telegram bot
+
 ## v0.32.2
 **Resilient Hevy routine creation with title search and stale-cache retry**
 

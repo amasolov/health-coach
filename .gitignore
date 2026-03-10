@@ -21,6 +21,9 @@ build/
 .ifit_capture/
 .ifit_login_debug.png
 
+# Hevy MITM captures
+.hevy_capture/
+
 # IDE / editor config (contains machine-specific paths and secrets)
 .vscode/
 .cursor/

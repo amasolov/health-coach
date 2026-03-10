@@ -489,6 +489,9 @@ def _execute_tool(
             elif tool_name == "create_hevy_routine_from_recommendation":
                 hevy_key = user_data.get("hevy_api_key", "")
                 return fn(user_slug, hevy_api_key=hevy_key, **arguments)
+            elif tool_name == "manage_hevy_routines":
+                hevy_key = user_data.get("hevy_api_key", "")
+                return fn(user_slug, hevy_api_key=hevy_key, **arguments)
             elif tool_name == "get_routine_weight_recommendations":
                 hevy_key = user_data.get("hevy_api_key", "")
                 return fn(user_id, user_slug, hevy_api_key=hevy_key, **arguments)

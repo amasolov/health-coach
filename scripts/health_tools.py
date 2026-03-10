@@ -2436,6 +2436,83 @@ def create_hevy_routine_from_recommendation(
 
 
 # ---------------------------------------------------------------------------
+# Hevy routine management (list / delete)
+# ---------------------------------------------------------------------------
+
+
+def manage_hevy_routines(
+    user_slug: str,
+    action: str = "list",
+    routine_id: str = "",
+    hevy_api_key: str = "",
+) -> dict:
+    """List or delete Hevy routines.
+
+    Actions:
+      - list: return all routines in the user's Hevy account
+      - delete: delete a specific routine by ID
+      - delete_duplicates: find routines with identical titles and delete extras
+    """
+    from scripts.ifit_strength_recommend import (
+        list_hevy_routines,
+        delete_hevy_routine,
+    )
+
+    if not hevy_api_key:
+        return {"error": "hevy_api_key required."}
+
+    if action == "list":
+        routines = list_hevy_routines(hevy_api_key)
+        return {
+            "routines": routines,
+            "count": len(routines),
+        }
+
+    if action == "delete":
+        if not routine_id:
+            return {"error": "routine_id required for delete action."}
+        return delete_hevy_routine(routine_id, hevy_api_key)
+
+    if action == "delete_duplicates":
+        routines = list_hevy_routines(hevy_api_key)
+        seen: dict[str, dict] = {}
+        duplicates: list[dict] = []
+        for rt in routines:
+            title = rt["title"].strip().lower()
+            if title in seen:
+                duplicates.append(rt)
+            else:
+                seen[title] = rt
+
+        if not duplicates:
+            return {"status": "no_duplicates", "routine_count": len(routines)}
+
+        deleted = []
+        failed = []
+        for dup in duplicates:
+            result = delete_hevy_routine(dup["id"], hevy_api_key)
+            if result.get("status") == "deleted":
+                deleted.append({"id": dup["id"], "title": dup["title"]})
+            else:
+                failed.append({
+                    "id": dup["id"],
+                    "title": dup["title"],
+                    "error": result.get("error", ""),
+                })
+
+        return {
+            "status": "cleaned",
+            "deleted_count": len(deleted),
+            "deleted": deleted,
+            "failed_count": len(failed),
+            "failed": failed,
+            "remaining_count": len(routines) - len(deleted),
+        }
+
+    return {"error": f"Unknown action: {action}. Use 'list', 'delete', or 'delete_duplicates'."}
+
+
+# ---------------------------------------------------------------------------
 # iFit ↔ Hevy feedback loop
 # ---------------------------------------------------------------------------
 

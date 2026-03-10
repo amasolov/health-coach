@@ -895,6 +895,35 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    # ===== HEVY ROUTINE MANAGEMENT =====
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_hevy_routines",
+            "description": (
+                "List, delete, or clean up duplicate Hevy routines. "
+                "Use action='list' to see all routines in the user's Hevy account. "
+                "Use action='delete' with a routine_id to remove a specific routine. "
+                "Use action='delete_duplicates' to automatically find routines with "
+                "identical titles and delete the extras, keeping one of each."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "delete", "delete_duplicates"],
+                        "description": "The action to perform.",
+                    },
+                    "routine_id": {
+                        "type": "string",
+                        "description": "The routine ID to delete (required for action='delete').",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
 ]
 
 
@@ -950,6 +979,7 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "discover_ifit_series":         (health_tools.discover_ifit_series, "none"),
     "recommend_strength_workout":   (health_tools.recommend_strength_workout, "slug"),
     "create_hevy_routine_from_recommendation": (health_tools.create_hevy_routine_from_recommendation, "creds"),
+    "manage_hevy_routines":         (health_tools.manage_hevy_routines, "creds"),
     # iFit ↔ Hevy feedback loop
     "get_hevy_routine_review":      (health_tools.get_hevy_routine_review, "slug"),
     "compare_hevy_workout":         (health_tools.compare_hevy_workout, "uid"),

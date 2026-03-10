@@ -1175,6 +1175,160 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Hevy routine management (list / delete)
+# ---------------------------------------------------------------------------
+
+_HEVY_APP_HEADERS = {
+    "x-api-key": "klean_kanteen_insulated",
+    "accept": "application/json, text/plain, */*",
+    "content-type": "application/json",
+}
+
+
+def list_hevy_routines(hevy_api_key: str) -> list[dict]:
+    """List all routines from the user's Hevy account via the public API.
+
+    Returns a list of routine summary dicts.
+    """
+    routines: list[dict] = []
+    page = 1
+    while True:
+        r = httpx.get(
+            f"{HEVY_BASE}/v1/routines",
+            headers={"api-key": hevy_api_key, "accept": "application/json"},
+            params={"page": page, "pageSize": 10},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            print(f"  list_hevy_routines: page {page} returned {r.status_code} — {r.text[:200]}")
+            break
+        data = r.json()
+        for rt in data.get("routines", []):
+            routines.append({
+                "id": str(rt.get("id", "")),
+                "title": rt.get("title", ""),
+                "exercise_count": len(rt.get("exercises", [])),
+                "created_at": rt.get("created_at", ""),
+                "updated_at": rt.get("updated_at", ""),
+            })
+        if page >= data.get("page_count", 1):
+            break
+        page += 1
+    return routines
+
+
+def delete_hevy_routine(
+    routine_id: str,
+    hevy_api_key: str,
+    hevy_auth_token: str = "",
+) -> dict:
+    """Delete a routine from the user's Hevy account.
+
+    Tries the public API first, then the internal app API with
+    ``hevy_auth_token`` (session token captured from the Hevy iOS app).
+    Also cleans up the R2 routine mapping.
+    """
+    if not routine_id:
+        return {"error": "routine_id is required"}
+
+    if not hevy_auth_token:
+        hevy_auth_token = os.environ.get("HEVY_AUTH_TOKEN", "")
+
+    # 1) Try public API DELETE (undocumented but may work)
+    try:
+        r = httpx.delete(
+            f"{HEVY_BASE}/v1/routines/{routine_id}",
+            headers={"api-key": hevy_api_key, "accept": "application/json"},
+            timeout=15,
+        )
+        print(f"  Hevy public DELETE /v1/routines/{routine_id}: {r.status_code}")
+        if r.status_code in (200, 204):
+            _remove_routine_mapping(routine_id)
+            return {"status": "deleted", "routine_id": routine_id, "method": "public_api"}
+    except Exception as e:
+        print(f"  Public API DELETE failed: {e}")
+
+    # 2) Fallback: internal app API (captured from Hevy iOS app)
+    if hevy_auth_token:
+        try:
+            r = httpx.delete(
+                f"{HEVY_BASE}/routine/{routine_id}",
+                headers={
+                    **_HEVY_APP_HEADERS,
+                    "auth-token": hevy_auth_token,
+                },
+                timeout=15,
+            )
+            print(f"  Hevy internal DELETE /routine/{routine_id}: {r.status_code}")
+            if r.status_code in (200, 204):
+                _remove_routine_mapping(routine_id)
+                return {"status": "deleted", "routine_id": routine_id, "method": "internal_api"}
+        except Exception as e:
+            print(f"  Internal API DELETE failed: {e}")
+
+    return {
+        "error": f"Failed to delete routine {routine_id}",
+        "hint": (
+            "The public Hevy API does not support DELETE. "
+            "Set HEVY_AUTH_TOKEN (from your Hevy app session) to enable "
+            "deletion via the internal API, or delete manually in the Hevy app."
+            if not hevy_auth_token
+            else "The routine may need to be deleted manually in the Hevy app."
+        ),
+    }
+
+
+def delete_hevy_custom_exercise(
+    exercise_id: str,
+    hevy_auth_token: str = "",
+) -> dict:
+    """Delete a custom exercise template from Hevy via the internal API."""
+    if not exercise_id:
+        return {"error": "exercise_id is required"}
+
+    if not hevy_auth_token:
+        hevy_auth_token = os.environ.get("HEVY_AUTH_TOKEN", "")
+
+    if not hevy_auth_token:
+        return {
+            "error": "HEVY_AUTH_TOKEN required for deleting custom exercises.",
+            "hint": "Set HEVY_AUTH_TOKEN from your Hevy app session.",
+        }
+
+    try:
+        r = httpx.delete(
+            f"{HEVY_BASE}/custom_exercise_template/{exercise_id}",
+            headers={
+                **_HEVY_APP_HEADERS,
+                "auth-token": hevy_auth_token,
+            },
+            timeout=15,
+        )
+        print(f"  Hevy DELETE /custom_exercise_template/{exercise_id}: {r.status_code}")
+        if r.status_code in (200, 204):
+            return {"status": "deleted", "exercise_id": exercise_id}
+    except Exception as e:
+        print(f"  Custom exercise DELETE failed: {e}")
+
+    return {"error": f"Failed to delete custom exercise {exercise_id}: HTTP {r.status_code}"}
+
+
+def _remove_routine_mapping(routine_id: str) -> None:
+    """Remove a deleted routine from the R2 mapping."""
+    try:
+        from scripts.r2_store import is_configured, upload_json
+        if not is_configured():
+            return
+        mapping = _load_routine_map()
+        if routine_id in mapping:
+            del mapping[routine_id]
+            upload_json(R2_ROUTINE_MAP_KEY, mapping)
+            print(f"  Removed routine mapping: {routine_id}")
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Main orchestrator
 # ---------------------------------------------------------------------------
 
