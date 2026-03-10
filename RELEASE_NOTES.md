@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.44.0
+**Async task runner with per-user parallelism and retry (issue #14)**
+
+- **APScheduler task runner** — replaces the bash `while true; sleep N; done` loop with a Python-native `AsyncIOScheduler`; sync cycles are triggered on the configured interval with missed-fire coalescing
+- **Per-user parallel sync** — users are synced concurrently via `asyncio.gather`; each user's 6-step sync pipeline (Garmin, Hevy, templates, thresholds, strength TSS, TSS backfill) still runs sequentially within that user
+- **Retry with exponential back-off** — transient failures (API rate limits, timeouts) are retried up to `SYNC_MAX_RETRIES` times (default 2) with exponential delay (10s, 20s, 40s)
+- **Per-user timeout** — each user's sync is capped at `SYNC_USER_TIMEOUT` seconds (default 600) so a hung API call cannot stall the entire cycle
+- **Structured ops_log events** — every cycle emits `sync_cycle` with `parallel=True`, user count, error count, and timeout count
+- **`run_sync.py` refactored** — extracted `sync_one_user(user)` and `sync_global()` from `main()` for reuse by the task runner; `main()` still works standalone for local dev / CLI
+- **Graceful shutdown** — task runner handles SIGTERM/SIGINT; `run.sh` cleanup trap includes the new process
+
 ## v0.43.0
 **Async MCP tools — non-blocking event loop (issue #11)**
 

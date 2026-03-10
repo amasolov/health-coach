@@ -279,8 +279,15 @@ else
     echo "INFO: Telegram bot disabled (set telegram_bot_token to enable)"
 fi
 
+# Start async task runner (replaces the old while-true/sleep loop)
+echo "Starting async task runner (sync every ${SYNC_INTERVAL} min)..."
+python3 /app/scripts/task_runner.py &
+SYNC_PID=$!
+
 # Trap signals to cleanly shut down background processes
 cleanup() {
+    echo "Shutting down task runner (PID ${SYNC_PID})..."
+    kill "$SYNC_PID" 2>/dev/null || true
     echo "Shutting down MCP server (PID ${MCP_PID})..."
     kill "$MCP_PID" 2>/dev/null || true
     if [[ -n "$CHAT_PID" ]]; then
@@ -294,19 +301,10 @@ cleanup() {
         wait "$TG_PID" 2>/dev/null || true
     fi
     wait "$MCP_PID" 2>/dev/null || true
+    wait "$SYNC_PID" 2>/dev/null || true
     exit 0
 }
 trap cleanup SIGTERM SIGINT
 
-while true; do
-    echo ""
-    echo "=== Sync cycle started at $(date -Iseconds) ==="
-
-    python3 /app/scripts/run_sync.py || echo "WARN: Sync encountered errors"
-
-    echo "Calculating PMC..."
-    python3 /app/scripts/calc_pmc.py || echo "WARN: PMC calculation failed"
-
-    echo "=== Sync cycle complete. Sleeping ${SYNC_INTERVAL} minutes ==="
-    sleep $((SYNC_INTERVAL * 60))
-done
+# Keep the container alive — wait for the task runner (foreground equivalent)
+wait "$SYNC_PID"

@@ -725,134 +725,140 @@ def _emit_system_stats() -> None:
         ops_emit.emit("system", "resource_snapshot", **detail)
 
 
-def main() -> int:
-    _t0 = _time.monotonic()
-    users = get_users()
+def sync_one_user(user: dict) -> dict:
+    """Run all sync steps for a single user.
+
+    Returns ``{"slug": str, "errors": int}`` with the count of failed steps.
+    Called by :func:`main` (sequential) or by the async task runner (parallel).
+    """
+    slug = user["slug"]
+    name = user.get("name", slug)
     errors = 0
 
-    for user in users:
-        slug = user["slug"]
-        name = user.get("name", slug)
-        print(f"\n{'='*60}")
-        print(f"Syncing data for {name} ({slug})")
-        print(f"{'='*60}")
+    print(f"\n{'='*60}")
+    print(f"Syncing data for {name} ({slug})")
+    print(f"{'='*60}")
 
-        user_id = _resolve_user_id(slug)
-        if not user_id:
-            print(f"  ERROR: User '{slug}' not found in database. Run migrations first.")
-            errors += 1
-            continue
+    user_id = _resolve_user_id(slug)
+    if not user_id:
+        print(f"  ERROR: User '{slug}' not found in database. Run migrations first.")
+        return {"slug": slug, "errors": 1}
 
-        tz = load_user_tz(slug)
-        tz_name = str(tz)
+    tz = load_user_tz(slug)
+    tz_name = str(tz)
 
-        # --- Garmin Connect ---
-        print(f"\n  [Garmin Connect]")
+    # --- Garmin Connect ---
+    print(f"\n  [Garmin Connect]")
+    try:
+        with ops_emit.timed("sync", "garmin_sync", user_id=user_id, source="garmin") as ctx:
+            result = sync_garmin_user(slug, user_id)
+            if "error" in result:
+                ctx["_status"] = "warning"
+                ctx["skip_reason"] = result["error"]
+            else:
+                ctx["new_activities"] = result["activities_inserted"]
+                ctx["new_body_comp"] = result["body_comp_inserted"]
+                ctx["new_vitals"] = result["vitals_inserted"]
+        if "error" in result:
+            print(f"    SKIP: {result['error']}")
+        else:
+            print(f"    Activities: {result['activities_inserted']} new  (found {result.get('activities_found', '?')} from Garmin)")
+            print(f"    Body comp:  {result['body_comp_inserted']} new  (found {result.get('body_comp_found', '?')} from Garmin)")
+            print(f"    Vitals:     {result['vitals_inserted']} new  (found {result.get('vitals_found', '?')} days with data)")
+    except Exception as e:
+        print(f"    ERROR: Garmin sync failed: {e}")
+        traceback.print_exc()
+        errors += 1
+
+    # --- Hevy ---
+    hevy_key = user.get("hevy_api_key") or os.environ.get("HEVY_API_KEY", "")
+    print(f"\n  [Hevy]")
+    if hevy_key:
         try:
-            with ops_emit.timed("sync", "garmin_sync", user_id=user_id, source="garmin") as ctx:
-                result = sync_garmin_user(slug, user_id)
+            with ops_emit.timed("sync", "hevy_sync", user_id=user_id, source="hevy") as ctx:
+                result = sync_hevy_user(slug, user_id, hevy_key)
                 if "error" in result:
                     ctx["_status"] = "warning"
                     ctx["skip_reason"] = result["error"]
                 else:
-                    ctx["new_activities"] = result["activities_inserted"]
-                    ctx["new_body_comp"] = result["body_comp_inserted"]
-                    ctx["new_vitals"] = result["vitals_inserted"]
+                    ctx["new_workouts"] = result["workouts_inserted"]
+                    ctx["new_sets"] = result["sets_inserted"]
             if "error" in result:
                 print(f"    SKIP: {result['error']}")
             else:
-                print(f"    Activities: {result['activities_inserted']} new  (found {result.get('activities_found', '?')} from Garmin)")
-                print(f"    Body comp:  {result['body_comp_inserted']} new  (found {result.get('body_comp_found', '?')} from Garmin)")
-                print(f"    Vitals:     {result['vitals_inserted']} new  (found {result.get('vitals_found', '?')} days with data)")
+                print(f"    Workouts: {result['workouts_inserted']} new  (found {result.get('workouts_found', '?')} total, {result['sets_inserted']} sets)")
         except Exception as e:
-            print(f"    ERROR: Garmin sync failed: {e}")
+            print(f"    ERROR: Hevy sync failed: {e}")
             traceback.print_exc()
             errors += 1
 
-        # --- Hevy ---
-        hevy_key = user.get("hevy_api_key") or os.environ.get("HEVY_API_KEY", "")
-        print(f"\n  [Hevy]")
-        if hevy_key:
-            try:
-                with ops_emit.timed("sync", "hevy_sync", user_id=user_id, source="hevy") as ctx:
-                    result = sync_hevy_user(slug, user_id, hevy_key)
-                    if "error" in result:
-                        ctx["_status"] = "warning"
-                        ctx["skip_reason"] = result["error"]
-                    else:
-                        ctx["new_workouts"] = result["workouts_inserted"]
-                        ctx["new_sets"] = result["sets_inserted"]
-                if "error" in result:
-                    print(f"    SKIP: {result['error']}")
-                else:
-                    print(f"    Workouts: {result['workouts_inserted']} new  (found {result.get('workouts_found', '?')} total, {result['sets_inserted']} sets)")
-            except Exception as e:
-                print(f"    ERROR: Hevy sync failed: {e}")
-                traceback.print_exc()
-                errors += 1
+        # Sync exercise templates (used by iFit-to-Hevy routine pipeline)
+        print(f"\n  [Hevy Exercise Templates]")
+        try:
+            from scripts.sync_hevy import sync_exercise_templates
+            tmpl_result = sync_exercise_templates(hevy_key)
+            print(f"    Templates: {tmpl_result.get('count', 0)} "
+                  f"({'cached' if tmpl_result.get('cached') else 'refreshed'})")
+        except Exception as e:
+            print(f"    ERROR: Exercise template sync failed: {e}")
+            traceback.print_exc()
+    else:
+        print(f"    SKIP: No Hevy API key configured")
 
-            # Sync exercise templates (used by iFit-to-Hevy routine pipeline)
-            print(f"\n  [Hevy Exercise Templates]")
-            try:
-                from scripts.sync_hevy import sync_exercise_templates
-                tmpl_result = sync_exercise_templates(hevy_key)
-                print(f"    Templates: {tmpl_result.get('count', 0)} "
-                      f"({'cached' if tmpl_result.get('cached') else 'refreshed'})")
-            except Exception as e:
-                print(f"    ERROR: Exercise template sync failed: {e}")
-                traceback.print_exc()
+    # --- Garmin threshold refresh (always fetches, source-aware merge) ---
+    print(f"\n  [Garmin Thresholds]")
+    try:
+        result = refresh_garmin_thresholds(slug, user_id=user_id)
+        if "error" in result:
+            print(f"    SKIP: {result['error']}")
         else:
-            print(f"    SKIP: No Hevy API key configured")
-
-        # --- Garmin threshold refresh (always fetches, source-aware merge) ---
-        print(f"\n  [Garmin Thresholds]")
-        try:
-            result = refresh_garmin_thresholds(slug, user_id=user_id)
-            if "error" in result:
-                print(f"    SKIP: {result['error']}")
+            if result.get("updated"):
+                print(f"    Updated: {', '.join(f'{k}={v}' for k, v in result['updated'].items())}")
             else:
-                if result.get("updated"):
-                    print(f"    Updated: {', '.join(f'{k}={v}' for k, v in result['updated'].items())}")
-                else:
-                    print(f"    All thresholds up to date")
-                if result.get("garmin_latest"):
-                    print(f"    Garmin latest: {', '.join(f'{k}={v}' for k, v in result['garmin_latest'].items())}")
-                missing_count = len(result.get("still_missing", []))
-                if missing_count:
-                    print(f"    Still missing: {missing_count} field(s)")
-        except Exception as e:
-            print(f"    ERROR: Garmin profile sync failed: {e}")
-            traceback.print_exc()
+                print(f"    All thresholds up to date")
+            if result.get("garmin_latest"):
+                print(f"    Garmin latest: {', '.join(f'{k}={v}' for k, v in result['garmin_latest'].items())}")
+            missing_count = len(result.get("still_missing", []))
+            if missing_count:
+                print(f"    Still missing: {missing_count} field(s)")
+    except Exception as e:
+        print(f"    ERROR: Garmin profile sync failed: {e}")
+        traceback.print_exc()
 
-        # --- Strength TSS backfill ---
-        print(f"\n  [Strength TSS]")
-        try:
-            with ops_emit.timed("sync", "strength_tss", user_id=user_id) as ctx:
-                result = backfill_strength_tss(user_id, tz_name=tz_name, slug=slug)
-                ctx["updated"] = result["updated"]
-                ctx["inserted"] = result["inserted"]
-                ctx["hybrid"] = result["hybrid"]
-            print(f"    Garmin updated: {result['updated']}, Hevy-only inserted: {result['inserted']}, hybrid(HR): {result['hybrid']}")
-        except Exception as e:
-            print(f"    ERROR: Strength TSS backfill failed: {e}")
-            traceback.print_exc()
-            errors += 1
+    # --- Strength TSS backfill ---
+    print(f"\n  [Strength TSS]")
+    try:
+        with ops_emit.timed("sync", "strength_tss", user_id=user_id) as ctx:
+            result = backfill_strength_tss(user_id, tz_name=tz_name, slug=slug)
+            ctx["updated"] = result["updated"]
+            ctx["inserted"] = result["inserted"]
+            ctx["hybrid"] = result["hybrid"]
+        print(f"    Garmin updated: {result['updated']}, Hevy-only inserted: {result['inserted']}, hybrid(HR): {result['hybrid']}")
+    except Exception as e:
+        print(f"    ERROR: Strength TSS backfill failed: {e}")
+        traceback.print_exc()
+        errors += 1
 
-        # --- General TSS backfill (power / HR / duration estimates) ---
-        print(f"\n  [TSS Backfill]")
-        try:
-            with ops_emit.timed("sync", "tss_backfill", user_id=user_id) as ctx:
-                result = backfill_missing_tss(user_id, slug=slug)
-                ctx["hr_corrected"] = result["hr_corrected"]
-                ctx["power_updated"] = result["power_updated"]
-                ctx["hr_updated"] = result["hr_updated"]
-                ctx["duration_updated"] = result["duration_updated"]
-            print(f"    HR-corrected: {result['hr_corrected']}, Power-based: {result['power_updated']}, HR-based: {result['hr_updated']}, Duration-estimated: {result['duration_updated']}")
-        except Exception as e:
-            print(f"    ERROR: TSS backfill failed: {e}")
-            traceback.print_exc()
-            errors += 1
+    # --- General TSS backfill (power / HR / duration estimates) ---
+    print(f"\n  [TSS Backfill]")
+    try:
+        with ops_emit.timed("sync", "tss_backfill", user_id=user_id) as ctx:
+            result = backfill_missing_tss(user_id, slug=slug)
+            ctx["hr_corrected"] = result["hr_corrected"]
+            ctx["power_updated"] = result["power_updated"]
+            ctx["hr_updated"] = result["hr_updated"]
+            ctx["duration_updated"] = result["duration_updated"]
+        print(f"    HR-corrected: {result['hr_corrected']}, Power-based: {result['power_updated']}, HR-based: {result['hr_updated']}, Duration-estimated: {result['duration_updated']}")
+    except Exception as e:
+        print(f"    ERROR: TSS backfill failed: {e}")
+        traceback.print_exc()
+        errors += 1
 
+    return {"slug": slug, "errors": errors}
+
+
+def sync_global() -> None:
+    """Run sync tasks that are shared across all users (iFit library, R2)."""
     # --- iFit library cache (shared across all users, refreshes every 7 days) ---
     print(f"\n{'='*60}")
     print("Refreshing iFit library cache")
@@ -868,6 +874,19 @@ def main() -> int:
         _sync_ifit_r2()
 
     _emit_system_stats()
+
+
+def main() -> int:
+    _t0 = _time.monotonic()
+    users = get_users()
+    errors = 0
+
+    for user in users:
+        result = sync_one_user(user)
+        errors += result.get("errors", 0)
+
+    sync_global()
+
     cycle_ms = int((_time.monotonic() - _t0) * 1000)
     ops_emit.emit(
         "sync", "sync_cycle",
