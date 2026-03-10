@@ -99,7 +99,9 @@ mcp = FastMCP(
     instructions=(
         "Health and fitness coaching server. All data is scoped to the "
         "authenticated user. Use the available tools to query training data, "
-        "body composition, vitals, zones, and generate workouts."
+        "body composition, vitals, zones, and generate workouts. "
+        "This server is exclusively for health, fitness, and training topics. "
+        "Do not use it for unrelated general-purpose queries."
     ),
 )
 mcp.add_middleware(BearerAuthMiddleware())
