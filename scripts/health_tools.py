@@ -1785,11 +1785,22 @@ def recommend_ifit_workout(user_slug: str) -> dict:
 
     top = []
     for cand in ranked[:5]:
+        raw = cand.get("score", 0)
+        if raw >= 100:
+            stars, label = 5, "Perfect"
+        elif raw >= 80:
+            stars, label = 4, "Great"
+        elif raw >= 55:
+            stars, label = 3, "Good"
+        elif raw >= 30:
+            stars, label = 2, "Fair"
+        else:
+            stars, label = 1, "Poor"
         top.append({
             "title": cand.get("title", "?"),
             "source": cand.get("source", "?"),
             "series_progress": cand.get("series_progress", ""),
-            "score": cand.get("score", 0),
+            "match": f"{'★' * stars}{'☆' * (5 - stars)} {label} match",
             "type": cand.get("type", "?"),
             "muscle_groups": sorted(cand.get("muscle_groups", set())),
             "styles": sorted(cand.get("styles", set())),
@@ -2264,8 +2275,25 @@ def recommend_strength_workout(user_slug: str) -> dict:
     if not recs:
         return {"error": "No recommendations generated. Ensure library cache exists (run ifit_list_series.py)."}
 
+    def _with_match(rec_dict: dict) -> dict:
+        raw = rec_dict.get("stage2_score", 0)
+        if raw >= 100:
+            stars, label = 5, "Perfect"
+        elif raw >= 80:
+            stars, label = 4, "Great"
+        elif raw >= 55:
+            stars, label = 3, "Good"
+        elif raw >= 30:
+            stars, label = 2, "Fair"
+        else:
+            stars, label = 1, "Poor"
+        rec_dict["match"] = f"{'★' * stars}{'☆' * (5 - stars)} {label} match"
+        del rec_dict["stage1_score"]
+        del rec_dict["stage2_score"]
+        return rec_dict
+
     return {
-        "recommendations": [asdict(r) for r in recs],
+        "recommendations": [_with_match(asdict(r)) for r in recs],
         "count": len(recs),
         "instructions": (
             "Present these 3 workouts to the user with their exercise breakdowns. "
