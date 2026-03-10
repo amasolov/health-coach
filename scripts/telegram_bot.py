@@ -74,7 +74,7 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 CHAT_MODEL = os.environ.get("CHAT_MODEL", "anthropic/claude-sonnet-4")
 MAX_TOOL_ROUNDS = 10
-MAX_HISTORY_MESSAGES = 40
+MAX_HISTORY_MESSAGES = 20
 TELEGRAM_MSG_LIMIT = 4096
 
 # ---------------------------------------------------------------------------
