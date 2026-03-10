@@ -949,8 +949,10 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
 
         exercises_payload.append({
             "exercise_template_id": hevy_id,
-            "sets": sets_payload,
+            "superset_id": None,
+            "rest_seconds": 90,
             "notes": notes,
+            "sets": sets_payload,
         })
 
     if not exercises_payload:
@@ -963,6 +965,7 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
     body = {
         "routine": {
             "title": f"iFit: {rec.title}",
+            "folder_id": None,
             "notes": f"From iFit workout. Trainer: {rec.trainer_name}",
             "exercises": exercises_payload,
         }

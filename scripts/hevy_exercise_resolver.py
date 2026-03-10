@@ -140,10 +140,22 @@ def _save_custom_map(mapping: dict[str, str]) -> None:
 
 
 def _load_resolved(workout_id: str) -> list[dict] | None:
-    """Load previously resolved exercises for a workout from R2."""
+    """Load previously resolved exercises for a workout from R2.
+
+    Returns None (cache miss) if any exercise has a failed resolution,
+    so the resolver gets a chance to retry with a potentially updated
+    library or custom-exercise map.
+    """
     if _r2_available():
         data = _r2_download_json(f"{R2_RESOLVED_PREFIX}{workout_id}.json")
         if isinstance(data, list):
+            has_failures = any(
+                ex.get("resolution", "").endswith("failed") or not ex.get("hevy_id")
+                for ex in data
+            )
+            if has_failures:
+                print(f"    Cached resolution for {workout_id} has failures -- re-resolving")
+                return None
             return data
     return None
 
