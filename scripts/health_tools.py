@@ -2292,20 +2292,46 @@ def sync_data(user_slug: str, user_id: int, hevy_api_key: str = "", full_sync: b
     return {"synced": results, "full_sync": full_sync}
 
 
+def _build_rec_from_details(workout_id: str, details: dict) -> dict | None:
+    """Build a Recommendation dict from get_ifit_workout_details output."""
+    exercises = details.get("exercises", [])
+    if not exercises:
+        return None
+    return {
+        "rank": 0,
+        "workout_id": workout_id,
+        "title": details.get("title", "iFit Workout"),
+        "trainer_name": (details.get("trainer") or {}).get("name", ""),
+        "duration_min": details.get("duration_min") or 0,
+        "difficulty": details.get("difficulty", ""),
+        "rating": details.get("rating_avg", 0),
+        "focus": "",
+        "subcategories": details.get("subcategories", []),
+        "required_equipment": details.get("required_equipment", []),
+        "stage1_score": 0,
+        "stage2_score": 0,
+        "exercises": exercises,
+        "reasoning": "User-selected workout",
+    }
+
+
 def create_hevy_routine_from_recommendation(
     user_slug: str,
     recommendation_index: int = 0,
     ifit_workout_id: str = "",
+    workout_title: str = "",
     hevy_api_key: str = "",
 ) -> dict:
     """Create a Hevy routine from an iFit workout.
 
     Lookup priority:
-      1. ifit_workout_id — find the workout in cached recommendations by ID,
-         or fetch exercises on-the-fly if not cached.
-      2. recommendation_index — positional fallback into recommendations.json.
+      1. ifit_workout_id — find in cached recs or fetch on-the-fly.
+      2. workout_title — search the iFit library by title if no valid ID.
+      3. recommendation_index — positional fallback into recommendations.json.
 
-    Always prefer passing ifit_workout_id for reliable identification."""
+    Always prefer passing ifit_workout_id when you have a confirmed ID from
+    a previous tool call in the same conversation. Pass workout_title as a
+    fallback for title-based search."""
     import json as _json
     from scripts.ifit_strength_recommend import (
         create_hevy_routine,
@@ -2332,32 +2358,34 @@ def create_hevy_routine_from_recommendation(
                 break
 
         if rec_dict is None:
-            # Not in cached recommendations — build on-the-fly
             print(f"  Workout {ifit_workout_id} not in cached recs, fetching on-the-fly")
             details = get_ifit_workout_details(ifit_workout_id)
-            if "error" in details:
-                return {"error": f"Could not fetch workout: {details['error']}"}
+            if "error" not in details:
+                rec_dict = _build_rec_from_details(ifit_workout_id, details)
+            else:
+                print(f"  ID lookup failed ({details['error']}), will try title search")
 
-            exercises = details.get("exercises", [])
-            if not exercises:
-                return {"error": f"No exercises found for workout {ifit_workout_id}. Cannot create routine."}
-
-            rec_dict = {
-                "rank": 0,
-                "workout_id": ifit_workout_id,
-                "title": details.get("title", "iFit Workout"),
-                "trainer_name": (details.get("trainer") or {}).get("name", ""),
-                "duration_min": details.get("duration_min") or 0,
-                "difficulty": details.get("difficulty", ""),
-                "rating": details.get("rating_avg", 0),
-                "focus": "",
-                "subcategories": details.get("subcategories", []),
-                "required_equipment": details.get("required_equipment", []),
-                "stage1_score": 0,
-                "stage2_score": 0,
-                "exercises": exercises,
-                "reasoning": "User-selected workout",
-            }
+    # Fallback: search by title when ID is missing or returned 404
+    if rec_dict is None and workout_title:
+        print(f"  Searching iFit library for: {workout_title}")
+        search_result = search_ifit_library(workout_title, workout_type="strength", limit=5)
+        matches = search_result.get("results", [])
+        for m in matches:
+            if m.get("title", "").lower().strip() == workout_title.lower().strip():
+                found_id = m.get("id", "")
+                if found_id:
+                    print(f"  Exact title match: {m['title']} -> {found_id}")
+                    details = get_ifit_workout_details(found_id)
+                    if "error" not in details:
+                        rec_dict = _build_rec_from_details(found_id, details)
+                        break
+        if rec_dict is None and matches:
+            found_id = matches[0].get("id", "")
+            if found_id:
+                print(f"  Best title match: {matches[0].get('title', '')} -> {found_id}")
+                details = get_ifit_workout_details(found_id)
+                if "error" not in details:
+                    rec_dict = _build_rec_from_details(found_id, details)
 
     # Fallback: positional index
     if rec_dict is None:

@@ -621,6 +621,96 @@ class TestCreateHevyRoutine:
             assert created_rec.workout_id == "ifit_b"
             assert created_rec.title == "Workout B"
 
+    def test_title_fallback_when_id_404s(self, tmp_path):
+        """When ifit_workout_id 404s, fall back to title-based search."""
+        cache_dir = tmp_path / ".ifit_capture"
+        cache_dir.mkdir()
+        (cache_dir / "recommendations.json").write_text(json.dumps([]))
+
+        bad_details = {"error": "iFit API returned 404"}
+        search_result = {
+            "results": [
+                {"id": "real_id_001", "title": "Week 2 - Upper Body Pull", "type": "strength"},
+            ],
+            "count": 1,
+        }
+        good_details = {
+            "title": "Week 2 - Upper Body Pull",
+            "trainer": {"name": "Trainer X"},
+            "duration_min": 35,
+            "difficulty": "moderate",
+            "rating_avg": 4.7,
+            "subcategories": ["upper body"],
+            "required_equipment": ["dumbbell"],
+            "exercises": [
+                {"hevy_name": "Pull Up", "hevy_id": "PU001", "muscle_group": "lats",
+                 "sets": 3, "reps": 10, "weight": "bodyweight", "notes": ""},
+            ],
+        }
+
+        def mock_details(wid):
+            if wid == "bad_id":
+                return bad_details
+            return good_details
+
+        with patch("scripts.health_tools.ROOT", tmp_path), \
+             patch("scripts.health_tools.get_ifit_workout_details", side_effect=mock_details), \
+             patch("scripts.health_tools.search_ifit_library", return_value=search_result), \
+             patch("scripts.ifit_strength_recommend.create_hevy_routine") as mock_create:
+            mock_create.return_value = {"status": "created", "routine_id": "r-title"}
+
+            result = health_tools.create_hevy_routine_from_recommendation(
+                user_slug="test",
+                ifit_workout_id="bad_id",
+                workout_title="Week 2 - Upper Body Pull",
+                hevy_api_key="key",
+            )
+            assert result["status"] == "created"
+            created_rec = mock_create.call_args[0][0]
+            assert created_rec.workout_id == "real_id_001"
+            assert created_rec.title == "Week 2 - Upper Body Pull"
+
+    def test_title_only_no_id(self, tmp_path):
+        """When no ifit_workout_id is provided, title search finds the workout."""
+        cache_dir = tmp_path / ".ifit_capture"
+        cache_dir.mkdir()
+        (cache_dir / "recommendations.json").write_text(json.dumps([]))
+
+        search_result = {
+            "results": [
+                {"id": "found_123", "title": "Lower Body Blast", "type": "strength"},
+            ],
+            "count": 1,
+        }
+        workout_details = {
+            "title": "Lower Body Blast",
+            "trainer": {"name": "Coach Y"},
+            "duration_min": 40,
+            "difficulty": "strenuous",
+            "rating_avg": 4.8,
+            "subcategories": ["lower body"],
+            "required_equipment": ["barbell"],
+            "exercises": [
+                {"hevy_name": "Squat", "hevy_id": "SQ001", "muscle_group": "quadriceps",
+                 "sets": 4, "reps": 8, "weight": "barbell", "notes": ""},
+            ],
+        }
+
+        with patch("scripts.health_tools.ROOT", tmp_path), \
+             patch("scripts.health_tools.search_ifit_library", return_value=search_result), \
+             patch("scripts.health_tools.get_ifit_workout_details", return_value=workout_details), \
+             patch("scripts.ifit_strength_recommend.create_hevy_routine") as mock_create:
+            mock_create.return_value = {"status": "created", "routine_id": "r-found"}
+
+            result = health_tools.create_hevy_routine_from_recommendation(
+                user_slug="test",
+                workout_title="Lower Body Blast",
+                hevy_api_key="key",
+            )
+            assert result["status"] == "created"
+            created_rec = mock_create.call_args[0][0]
+            assert created_rec.workout_id == "found_123"
+
 
 # ---------------------------------------------------------------------------
 # Routine review

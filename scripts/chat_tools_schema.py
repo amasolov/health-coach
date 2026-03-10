@@ -646,12 +646,14 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "create_hevy_routine_from_recommendation",
             "description": (
-                "Create a Hevy routine from an iFit workout. ALWAYS pass "
-                "ifit_workout_id when you know the workout ID — this is the "
-                "reliable way to identify the workout. The tool can fetch "
-                "exercises on-the-fly if the workout wasn't in the last "
-                "recommendation batch. Only fall back to recommendation_index "
-                "if the workout ID is unavailable."
+                "Create a Hevy routine from an iFit workout. Pass "
+                "ifit_workout_id ONLY if you obtained it from a tool call "
+                "in THIS conversation (search_ifit_library, "
+                "get_ifit_workout_details, recommend_strength_workout, etc). "
+                "NEVER guess or recall IDs from memory — they will 404. "
+                "If you don't have a confirmed ID, pass workout_title "
+                "instead and the tool will search for the workout. "
+                "ALWAYS pass workout_title as a fallback."
             ),
             "parameters": {
                 "type": "object",
@@ -659,20 +661,27 @@ TOOL_SCHEMAS: list[dict] = [
                     "ifit_workout_id": {
                         "type": "string",
                         "description": (
-                            "The iFit workout ID to create a routine for. "
-                            "Preferred over recommendation_index — always "
-                            "pass this when available."
+                            "The iFit workout ID — ONLY from a tool response "
+                            "in this conversation. Never guess."
+                        ),
+                    },
+                    "workout_title": {
+                        "type": "string",
+                        "description": (
+                            "The workout title (e.g. 'Week 2 - Upper Body "
+                            "Pull'). ALWAYS pass this. Used as fallback when "
+                            "ID is missing or invalid."
                         ),
                     },
                     "recommendation_index": {
                         "type": "integer",
                         "description": (
-                            "0-based index into the last recommend_strength_workout "
-                            "results. Only use if ifit_workout_id is unavailable."
+                            "0-based index into recommend_strength_workout "
+                            "results. Last resort only."
                         ),
                     },
                 },
-                "required": [],
+                "required": ["workout_title"],
             },
         },
     },
