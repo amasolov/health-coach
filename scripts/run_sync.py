@@ -216,7 +216,7 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug:
       2. Garmin activity exists but no HR → volume-model TSS, tagged.
       3. No Garmin activity → insert synthetic hevy-source activity.
 
-    Returns counts of updated/inserted/skipped/hybrid rows.
+    Returns counts of updated/inserted/skipped/hybrid rows plus match details.
     """
     conn = _get_conn()
     conn.autocommit = True
@@ -238,6 +238,8 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug:
     inserted = 0
     skipped = 0
     hybrid_count = 0
+    matched_pairs: list[dict] = []
+    hevy_only: list[dict] = []
 
     for wid, wtime in hevy_workouts:
         day = wtime.date() if isinstance(wtime, datetime) else wtime
@@ -276,22 +278,24 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug:
             skipped += 1
             continue
 
-        # --- Try to match untagged Garmin strength activity on the same day ---
-        date_expr = f"(time AT TIME ZONE '{tz_name}')::date"
-        cur.execute(f"""
-            SELECT source_id, avg_hr, duration_s FROM activities
+        # --- Try to match untagged Garmin strength activity by time overlap ---
+        # Buffer of 30 min on each side accounts for watch start/stop drift
+        _MATCH_BUFFER_S = 1800
+        cur.execute("""
+            SELECT source_id, avg_hr, duration_s, time FROM activities
             WHERE user_id = %s
               AND activity_type = 'strength_training'
-              AND {date_expr} = %s
               AND source = 'garmin'
               AND (raw_data IS NULL OR raw_data->>'hevy_workout_id' IS NULL)
-            ORDER BY time
+              AND time BETWEEN %s - interval '1 second' * %s
+                          AND %s + interval '1 second' * %s
+            ORDER BY ABS(EXTRACT(EPOCH FROM (time - %s)))
             LIMIT 1
-        """, (user_id, day))
+        """, (user_id, wtime, _MATCH_BUFFER_S, wtime, _MATCH_BUFFER_S, wtime))
         garmin_match = cur.fetchone()
 
         if garmin_match:
-            garmin_sid, avg_hr, dur_s = garmin_match
+            garmin_sid, avg_hr, dur_s, garmin_time = garmin_match
 
             if avg_hr and avg_hr > 0 and dur_s and dur_s > 60:
                 tss = estimate_hybrid_tss(
@@ -314,6 +318,13 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug:
                 WHERE user_id = %s AND source_id = %s
             """, (tss, wid, method, user_id, garmin_sid))
             updated += 1
+            matched_pairs.append({
+                "hevy_workout_id": wid,
+                "garmin_source_id": garmin_sid,
+                "time": wtime.isoformat() if hasattr(wtime, "isoformat") else str(wtime),
+                "tss_method": method,
+                "tss": round(tss, 1) if tss else None,
+            })
         else:
             tss = estimate_volume_tss(sets, exercise_maxes)
             working = sum(1 for s in sets if not s.set_type or s.set_type != "warmup")
@@ -328,6 +339,11 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug:
                   working * 90,
                   tss))
             inserted += 1
+            hevy_only.append({
+                "hevy_workout_id": wid,
+                "time": wtime.isoformat() if hasattr(wtime, "isoformat") else str(wtime),
+                "tss": round(tss, 1) if tss else None,
+            })
 
     cur.close()
     conn.close()
@@ -336,6 +352,8 @@ def backfill_strength_tss(user_id: int, tz_name: str = "Australia/Sydney", slug:
         "inserted": inserted,
         "skipped": skipped,
         "hybrid": hybrid_count,
+        "matched_pairs": matched_pairs,
+        "hevy_only": hevy_only,
     }
 
 

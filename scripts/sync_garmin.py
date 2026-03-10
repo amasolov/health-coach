@@ -466,7 +466,8 @@ def sync_activities(
 
     if updated:
         print(f"    Updated TSS for {updated} existing activities")
-    return {"found": found, "inserted": inserted, "updated": updated}
+    return {"found": found, "inserted": inserted, "updated": updated,
+            "sync_from": start, "sync_to": end}
 
 
 def sync_body_composition(
@@ -618,6 +619,8 @@ def sync_user(
             "body_comp_inserted": bc["inserted"],
             "vitals_found": vit["found"],
             "vitals_inserted": vit["inserted"],
+            "sync_from": act.get("sync_from", ""),
+            "sync_to": act.get("sync_to", ""),
         }
     finally:
         cur.close()

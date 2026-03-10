@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.36.0
+**Cross-platform workout deduplication (Garmin + Hevy)**
+
+- **Smarter matching** — replaced naive same-calendar-day matching with time-window overlap (30-min buffer); correctly handles multiple strength sessions in one day by picking the closest Garmin activity by start time
+- **Enriched sync results** — `sync_data` now runs `backfill_strength_tss` after syncing both platforms, and returns `cross_platform` section showing matched Garmin/Hevy workout pairs and Hevy-only workouts; sync period (`from`/`to` dates) included in Garmin results
+- **New `get_workout_summary` tool** — unified view that merges Garmin metrics (HR, duration, calories) with Hevy exercise details (sets, reps, weight, volume) for strength workouts; a single physical session tracked on both platforms appears as one record with `sources: ["garmin", "hevy"]`
+
 ## v0.35.0
 **Connection pooling, shared HTTP clients, and async event loop improvements**
 

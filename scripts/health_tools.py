@@ -776,6 +776,129 @@ def get_strength_sessions(
 
 
 # ---------------------------------------------------------------------------
+# Unified workout view (cross-platform merge)
+# ---------------------------------------------------------------------------
+
+
+def get_workout_summary(
+    user_id: int,
+    start_date: str = "",
+    end_date: str = "",
+    days: int = 7,
+    tz_name: str = "",
+) -> list[dict]:
+    """Strength workouts merged across Garmin (HR, duration) and Hevy (exercises,
+    sets, reps).  A single physical session that was tracked on both platforms
+    appears as one record with data from both sources.
+
+    Defaults to last 7 days.  Returns a list sorted by time descending."""
+    today = user_today(ZoneInfo(tz_name) if tz_name else None)
+    if not start_date:
+        start_date = (today - timedelta(days=days)).isoformat()
+    if not end_date:
+        end_date = (today + timedelta(days=1)).isoformat()
+
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT time, source, source_id, activity_type, title,
+                   duration_s, avg_hr, max_hr, calories, tss,
+                   raw_data
+            FROM activities
+            WHERE user_id = %s
+              AND time >= %s AND time < %s
+              AND activity_type = 'strength_training'
+            ORDER BY time DESC
+        """, (user_id, start_date, end_date))
+        cols = [d[0] for d in cur.description]
+        activities = [dict(zip(cols, row)) for row in cur.fetchall()]
+
+        seen_hevy_ids: set[str] = set()
+        results: list[dict] = []
+
+        for act in activities:
+            raw = act.get("raw_data") or {}
+            hevy_wid = raw.get("hevy_workout_id") if isinstance(raw, dict) else None
+            source = act["source"]
+
+            entry: dict[str, Any] = {
+                "time": _serialise(act["time"]),
+                "title": act.get("title", ""),
+                "sources": [],
+                "tss": float(act["tss"]) if act.get("tss") else None,
+                "tss_method": raw.get("tss_method") if isinstance(raw, dict) else None,
+            }
+
+            if source == "garmin":
+                entry["sources"].append("garmin")
+                entry["garmin"] = {
+                    "source_id": act["source_id"],
+                    "duration_min": round(act["duration_s"] / 60, 1) if act.get("duration_s") else None,
+                    "avg_hr": act.get("avg_hr"),
+                    "max_hr": act.get("max_hr"),
+                    "calories": act.get("calories"),
+                }
+            elif source == "hevy":
+                hevy_wid = act["source_id"]
+
+            if hevy_wid:
+                entry["sources"].append("hevy")
+                seen_hevy_ids.add(hevy_wid)
+                cur.execute("""
+                    SELECT exercise_name, muscle_group, set_type,
+                           weight_kg, reps, set_number
+                    FROM strength_sets
+                    WHERE user_id = %s AND workout_id = %s
+                    ORDER BY time, set_number
+                """, (user_id, hevy_wid))
+                sets = cur.fetchall()
+                exercises: dict[str, dict] = {}
+                total_volume = 0.0
+                total_sets = 0
+                for ename, mgroup, stype, wkg, rp, _ in sets:
+                    total_sets += 1
+                    vol = float(wkg or 0) * int(rp or 0)
+                    total_volume += vol
+                    if ename not in exercises:
+                        exercises[ename] = {
+                            "muscle_group": mgroup,
+                            "sets": 0,
+                            "best_set": None,
+                        }
+                    exercises[ename]["sets"] += 1
+                    if stype != "warmup" and vol > 0:
+                        best = exercises[ename]["best_set"]
+                        if best is None or vol > best.get("volume", 0):
+                            exercises[ename]["best_set"] = {
+                                "weight_kg": float(wkg) if wkg else 0,
+                                "reps": int(rp) if rp else 0,
+                                "volume": vol,
+                            }
+
+                entry["hevy"] = {
+                    "workout_id": hevy_wid,
+                    "exercises": len(exercises),
+                    "total_sets": total_sets,
+                    "total_volume_kg": round(total_volume, 1),
+                    "exercise_details": [
+                        {"name": k, **v} for k, v in exercises.items()
+                    ],
+                }
+
+            if not entry["sources"]:
+                entry["sources"].append("unknown")
+
+            results.append(entry)
+
+        return results
+
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Treadmill workouts
 # ---------------------------------------------------------------------------
 
@@ -2314,9 +2437,11 @@ def sync_data(user_slug: str, user_id: int, hevy_api_key: str = "", full_sync: b
     data from the beginning of time (Garmin: back to 2000-01-01; Hevy: all pages).
     Use this when the normal sync shows 0 new items but data is missing.
 
-    Returns a summary of what was found and inserted."""
+    Returns a summary of what was found and inserted, including cross-platform
+    matching of Garmin strength activities to Hevy workouts."""
     from scripts.sync_garmin import sync_user as _sync_garmin
     from scripts.sync_hevy import sync_user as _sync_hevy
+    from scripts.run_sync import backfill_strength_tss
 
     results: dict[str, Any] = {}
 
@@ -2332,6 +2457,10 @@ def sync_data(user_slug: str, user_id: int, hevy_api_key: str = "", full_sync: b
             "body_comp_new": garmin_result.get("body_comp_inserted", 0),
             "vitals_found": garmin_result.get("vitals_found", 0),
             "vitals_new": garmin_result.get("vitals_inserted", 0),
+            "sync_period": {
+                "from": garmin_result.get("sync_from", ""),
+                "to": garmin_result.get("sync_to", ""),
+            },
         }
 
     if hevy_api_key:
@@ -2347,6 +2476,19 @@ def sync_data(user_slug: str, user_id: int, hevy_api_key: str = "", full_sync: b
             }
     else:
         results["hevy"] = {"status": "skipped", "reason": "No Hevy API key configured"}
+
+    tz = load_user_tz(user_slug)
+    tz_str = str(tz) if tz else DEFAULT_TZ_NAME
+    try:
+        tss_result = backfill_strength_tss(user_id, tz_name=tz_str, slug=user_slug)
+        results["cross_platform"] = {
+            "garmin_hevy_matched": tss_result.get("updated", 0),
+            "hevy_only_inserted": tss_result.get("inserted", 0),
+            "matched_workouts": tss_result.get("matched_pairs", []),
+            "hevy_only_workouts": tss_result.get("hevy_only", []),
+        }
+    except Exception:
+        pass
 
     return {"synced": results, "full_sync": full_sync}
 

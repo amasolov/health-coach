@@ -163,6 +163,28 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    # ===== UNIFIED WORKOUT VIEW =====
+    {
+        "type": "function",
+        "function": {
+            "name": "get_workout_summary",
+            "description": (
+                "Get strength workouts merged across Garmin (HR, duration, calories) "
+                "and Hevy (exercises, sets, reps, weight). A single workout tracked on "
+                "both platforms appears as one record with combined data from both sources. "
+                "Defaults to last 7 days."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "end_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "days": {"type": "integer", "description": "Lookback days. Default 7."},
+                },
+                "required": [],
+            },
+        },
+    },
     # ===== TREADMILL =====
     {
         "type": "function",
@@ -948,6 +970,7 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "setup_running_hr_zones":       (health_tools.setup_running_hr_zones, "slug"),
     "get_athlete_profile":          (health_tools.get_athlete_profile, "slug"),
     "get_strength_sessions":        (health_tools.get_strength_sessions, "uid"),
+    "get_workout_summary":          (health_tools.get_workout_summary, "uid"),
     "list_treadmill_templates":     (health_tools.list_treadmill_templates, "none"),
     "generate_treadmill_workout":   (health_tools.generate_treadmill_workout, "slug"),
     "garmin_auth_status":           (health_tools.garmin_auth_status, "creds"),
