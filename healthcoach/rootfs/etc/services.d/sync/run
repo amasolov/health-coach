@@ -1,3 +1,4 @@
 #!/command/with-contenv bash
 # Async task runner (APScheduler) — periodic data sync + PMC calculation.
+cd /app
 exec python3 /app/scripts/task_runner.py

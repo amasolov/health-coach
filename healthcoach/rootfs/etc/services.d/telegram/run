@@ -5,4 +5,5 @@ if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${OPENROUTER_API_KEY:-}" ]; then
     sleep infinity
 fi
 
+cd /app
 exec python3 /app/scripts/telegram_bot.py

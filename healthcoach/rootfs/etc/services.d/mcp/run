@@ -1,3 +1,4 @@
 #!/command/with-contenv bash
 # MCP server (Streamable HTTP) — always runs.
+cd /app
 exec python3 /app/scripts/mcp_server.py
