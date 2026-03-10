@@ -2324,11 +2324,18 @@ def _build_rec_from_details(workout_id: str, details: dict) -> dict | None:
     exercises = details.get("exercises", [])
     if not exercises:
         return None
+    trainer = details.get("trainer")
+    if isinstance(trainer, dict):
+        trainer_name = trainer.get("name", "")
+    elif isinstance(trainer, str):
+        trainer_name = trainer
+    else:
+        trainer_name = ""
     return {
         "rank": 0,
         "workout_id": workout_id,
         "title": details.get("title", "iFit Workout"),
-        "trainer_name": (details.get("trainer") or {}).get("name", ""),
+        "trainer_name": trainer_name,
         "duration_min": details.get("duration_min") or 0,
         "difficulty": details.get("difficulty", ""),
         "rating": details.get("rating_avg", 0),
@@ -2422,7 +2429,9 @@ def create_hevy_routine_from_recommendation(
             return {"error": f"Invalid index {recommendation_index}. {len(recs_data)} recommendations available (0-based)."}
         rec_dict = recs_data[recommendation_index]
 
-    rec = Recommendation(**rec_dict)
+    valid_keys = {f.name for f in Recommendation.__dataclass_fields__.values()}
+    filtered = {k: v for k, v in rec_dict.items() if k in valid_keys}
+    rec = Recommendation(**filtered)
     return create_hevy_routine(rec, hevy_api_key)
 
 

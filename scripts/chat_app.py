@@ -499,7 +499,9 @@ def _execute_tool(
                 return fn(user_slug, **arguments)
         else:
             return fn(**arguments)
-    except (ValueError, Exception) as exc:
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
         return {"error": str(exc)}
 
 

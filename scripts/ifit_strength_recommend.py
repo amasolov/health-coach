@@ -923,6 +923,8 @@ def _find_existing_routine(
     # 1) Check R2 mapping for this iFit workout ID
     mapping = _load_routine_map()
     for routine_id, entry in mapping.items():
+        if not isinstance(entry, dict):
+            continue
         if entry.get("ifit_workout_id") == ifit_workout_id:
             try:
                 r = httpx.get(
