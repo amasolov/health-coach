@@ -27,7 +27,7 @@ if _PROJECT_ROOT not in sys.path:
 
 import chainlit as cl
 from chainlit.oauth_providers import providers
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIStatusError
 
 from scripts import health_tools
 from scripts import garmin_auth
@@ -100,6 +100,29 @@ MAX_TOOL_ROUNDS = 10
 CHAINLIT_DB_URL = os.environ.get("CHAINLIT_DB_URL", "")
 
 _client: AsyncOpenAI | None = None
+_credit_warning_sent = False
+
+
+def _notify_admin(title: str, message: str, notification_id: str = "") -> None:
+    """Send a persistent notification to Home Assistant (best-effort)."""
+    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    if not token:
+        print(f"  [ADMIN] {title}: {message}")
+        return
+    try:
+        import httpx
+        body: dict = {"title": title, "message": message}
+        if notification_id:
+            body["notification_id"] = notification_id
+        httpx.post(
+            "http://supervisor/core/api/services/persistent_notification/create",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body,
+            timeout=10,
+        )
+    except Exception as exc:
+        print(f"  [ADMIN] Notification failed ({exc}): {title}: {message}")
+
 
 # ---------------------------------------------------------------------------
 # Persistent data layer (SQLAlchemy + PostgreSQL)
@@ -747,6 +770,55 @@ async def on_chat_resume(thread: dict) -> None:
     cl.user_session.set("messages", messages)
 
 
+async def _handle_api_error(exc: APIStatusError, user_id: int | None = None) -> None:
+    """Handle OpenRouter / OpenAI API errors with user-friendly messages."""
+    global _credit_warning_sent
+    code = exc.status_code
+    body = getattr(exc, "body", {}) or {}
+    error_detail = ""
+    if isinstance(body, dict):
+        err = body.get("error", {})
+        error_detail = err.get("message", "") if isinstance(err, dict) else str(err)
+
+    if code == 402:
+        ops_emit.emit("chat", "llm_credits_exhausted", user_id=user_id, status="error",
+                       error=error_detail[:300])
+        await cl.Message(
+            content="I'm temporarily unable to respond -- the AI service credits have "
+            "run out. The administrator has been notified and will top up soon. "
+            "Please try again later."
+        ).send()
+        if not _credit_warning_sent:
+            _credit_warning_sent = True
+            _notify_admin(
+                "Health Coach: OpenRouter credits low",
+                f"The chatbot can no longer respond -- credits are exhausted.\n\n"
+                f"Top up at https://openrouter.ai/settings/credits\n\n"
+                f"Detail: {error_detail[:500]}",
+                notification_id="healthcoach_credits",
+            )
+    elif code == 429:
+        ops_emit.emit("chat", "llm_rate_limited", user_id=user_id, status="error",
+                       error=error_detail[:300])
+        await cl.Message(
+            content="I'm being rate-limited by the AI service. "
+            "Please wait a moment and try again."
+        ).send()
+    elif code >= 500:
+        ops_emit.emit("chat", "llm_server_error", user_id=user_id, status="error",
+                       error=f"HTTP {code}: {error_detail[:300]}")
+        await cl.Message(
+            content="The AI service is experiencing issues right now. "
+            "Please try again in a few minutes."
+        ).send()
+    else:
+        ops_emit.emit("chat", "llm_error", user_id=user_id, status="error",
+                       error_type=f"HTTP {code}", error=error_detail[:300])
+        await cl.Message(
+            content=f"Sorry, I ran into an issue (error {code}). Please try again."
+        ).send()
+
+
 @cl.on_message
 async def on_message(message: cl.Message):
     messages: list[dict] = cl.user_session.get("messages", [])
@@ -764,12 +836,24 @@ async def on_message(message: cl.Message):
     charts: list = []
 
     for _round in range(MAX_TOOL_ROUNDS):
-        response = await client.chat.completions.create(
-            model=CHAT_MODEL,
-            messages=messages,
-            tools=TOOL_SCHEMAS,
-            stream=False,
-        )
+        try:
+            response = await client.chat.completions.create(
+                model=CHAT_MODEL,
+                messages=messages,
+                tools=TOOL_SCHEMAS,
+                stream=False,
+            )
+        except APIStatusError as exc:
+            await _handle_api_error(exc, user_id)
+            return
+        except Exception as exc:
+            ops_emit.emit("chat", "llm_error", user_id=user_id, status="error",
+                          error_type=type(exc).__name__, error=str(exc)[:300])
+            await cl.Message(
+                content="Sorry, I'm having trouble connecting to the AI service right now. "
+                "Please try again in a moment."
+            ).send()
+            return
 
         usage = getattr(response, "usage", None)
         if usage:

@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.28.2
+**OpenRouter credit exhaustion handling and admin notifications**
+
+- Catch HTTP 402 (Payment Required) from OpenRouter and show users a clear message instead of a traceback
+- Send a Home Assistant persistent notification to the admin when credits run out (uses Supervisor API)
+- Handle HTTP 429 (rate limit) and 5xx (server errors) with appropriate user-facing messages
+- All API errors logged to `ops_log` for operational visibility
+- Admin notification is sent once per process lifetime to avoid spam
+
 ## v0.28.1
 **Fix Hevy routine creation failures**
 
