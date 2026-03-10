@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.47.0
+**Alembic migration framework (issue #16)**
+
+- **Alembic replaces hand-rolled migration runner** — `run_migrate.py` now drives migrations via Alembic's `command.upgrade("head")` instead of manually iterating `.sql` files and tracking them in a `_migrations` table
+- **Baseline migration** — all 11 existing SQL migrations consolidated into a single idempotent Alembic revision (`0001_baseline`); uses `IF NOT EXISTS` guards throughout so it's safe to run on both fresh and existing databases
+- **Automatic transition** — on first run, `run_migrate.py` detects the legacy `_migrations` table and stamps the baseline revision without re-executing SQL; subsequent runs use Alembic natively
+- **Down migrations** — future revisions can include `downgrade()` for rollback; the baseline itself raises an error (restore from backup instead)
+- **Raw SQL workflow** — no ORM models required; new migrations use `op.execute()` with plain SQL, matching the existing codebase style
+- **Taskfile targets** — `db:revision`, `db:downgrade`, `db:current`, `db:history` for creating and managing migrations from the CLI
+- **Old `db/migrations/` preserved** — the original `.sql` files remain as a reference; they are no longer executed at runtime
+
 ## v0.46.0
 **Automatic zone recalculation and dev tooling cleanup**
 

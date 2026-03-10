@@ -115,9 +115,33 @@ tasks:
   # Database
   # ---------------------------------------------------------------------------
   db:migrate:
-    desc: Run all pending database migrations
+    desc: Run all pending database migrations (Alembic upgrade head)
     cmds:
       - "{{.PYTHON}} scripts/run_migrate.py"
+
+  db:revision:
+    desc: "Create a new Alembic migration (usage: task db:revision MSG='add foo column')"
+    cmds:
+      - '{{.VENV}}/bin/alembic -c db/alembic.ini revision -m "{{.MSG}}"'
+    requires:
+      vars: [MSG]
+
+  db:downgrade:
+    desc: "Downgrade one migration (usage: task db:downgrade or task db:downgrade REV=-2)"
+    cmds:
+      - "{{.VENV}}/bin/alembic -c db/alembic.ini downgrade {{.REV}}"
+    vars:
+      REV: '{{.REV | default "-1"}}'
+
+  db:current:
+    desc: Show current Alembic revision
+    cmds:
+      - "{{.VENV}}/bin/alembic -c db/alembic.ini current"
+
+  db:history:
+    desc: Show Alembic migration history
+    cmds:
+      - "{{.VENV}}/bin/alembic -c db/alembic.ini history --verbose"
 
   # ---------------------------------------------------------------------------
   # Sync
