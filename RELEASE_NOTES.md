@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.32.2
+**Resilient Hevy routine creation with title search and stale-cache retry**
+
+- Title-based fallback: when `ifit_workout_id` is missing or 404s, the tool searches the iFit library by `workout_title`
+- Auto-retry on stale exercise IDs: if Hevy rejects a routine with "invalid exercise template id", the resolution cache is cleared and exercises are re-resolved from scratch
+- LLM instructed to never guess workout IDs — always pass `workout_title` as fallback
+
 ## v0.32.1
 **Fix Hevy routine creating the wrong workout from stale cache**
 
