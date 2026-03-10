@@ -93,6 +93,7 @@ TOOL_DISPLAY_NAMES = {
     "compare_hevy_workout":      "Hevy ↔ iFit Comparison",
     "apply_exercise_feedback":   "Exercise Feedback Update",
     "get_routine_weight_recommendations": "Routine Weight Recommendations",
+    "generate_telegram_link_code":   "Telegram Link Code",
 }
 ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "").lower() in ("true", "1", "yes")
 SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))
@@ -371,6 +372,25 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         "USE these tools to look it up. For program/series questions, try "
         "search_ifit_programs first, then search_ifit_library.\n"
     )
+
+    try:
+        from scripts.knowledge_store import document_count
+        doc_count = document_count(
+            health_tools.resolve_user_id(user_slug)
+        )
+        if doc_count:
+            parts.append(
+                f"\nKnowledge Base ({doc_count} document{'s' if doc_count != 1 else ''}):\n"
+                "You have access to a knowledge base of uploaded fitness books and documents. "
+                "Use search_knowledge_base to find relevant passages when:\n"
+                "- The user asks about training methodologies, periodisation, or exercise science\n"
+                "- The user references a specific book or author\n"
+                "- You need evidence-based backing for a recommendation\n"
+                "- The user asks 'what does the book say about ...'\n"
+                "Cite the source (book title and page) when using knowledge base passages.\n"
+            )
+    except Exception:
+        pass
 
     parts.append(
         "\nGuidelines:\n"
@@ -829,6 +849,41 @@ async def on_message(message: cl.Message):
     if user_id is None:
         await cl.Message(content="Session not initialized. Please refresh.").send()
         return
+
+    # Handle PDF file uploads → ingest into knowledge base
+    pdf_elements = [
+        el for el in (message.elements or [])
+        if getattr(el, "path", None) and el.path.lower().endswith(".pdf")
+    ]
+    if pdf_elements:
+        from scripts.knowledge_store import ingest_pdf
+
+        ingest_results = []
+        for el in pdf_elements:
+            async with cl.Step(name="Indexing PDF", type="run") as step:
+                step.input = el.name or os.path.basename(el.path)
+                result = await asyncio.to_thread(ingest_pdf, el.path, user_id=user_id)
+                step.output = json.dumps(result, default=str)
+                ingest_results.append(result)
+
+        summaries = []
+        for r in ingest_results:
+            fname = r.get("filename", "file")
+            if r.get("status") == "indexed":
+                summaries.append(
+                    f"**{fname}** indexed ({r['page_count']} pages, {r['chunk_count']} chunks)"
+                )
+            elif r.get("status") == "already_indexed":
+                summaries.append(f"**{fname}** was already in your knowledge base")
+            else:
+                summaries.append(f"**{fname}** failed: {r.get('error', 'unknown error')}")
+
+        await cl.Message(
+            content="Knowledge base updated:\n" + "\n".join(f"- {s}" for s in summaries)
+        ).send()
+
+        if not message.content.strip():
+            return
 
     messages.append({"role": "user", "content": message.content})
 

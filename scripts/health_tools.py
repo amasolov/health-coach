@@ -2647,3 +2647,85 @@ def get_routine_weight_recommendations(
             "the user to start light and track it."
         ),
     }
+
+
+# =========================================================================
+# Telegram linking
+# =========================================================================
+
+def generate_telegram_link_code(user_id: int) -> dict:
+    """Generate a one-time code for linking a Telegram account.
+
+    The user sends ``/start <CODE>`` to the Telegram bot within 10 minutes
+    to complete the link.
+    """
+    from scripts.telegram_link import generate_link_code
+
+    bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "")
+    code = generate_link_code(user_id)
+    result: dict = {"code": code, "expires_in_minutes": 10}
+    if bot_username:
+        result["bot_username"] = bot_username
+        result["instructions"] = (
+            f"Send /start {code} to @{bot_username} on Telegram within 10 minutes."
+        )
+    else:
+        result["instructions"] = (
+            f"Send /start {code} to the Health Coach Telegram bot within 10 minutes."
+        )
+    return result
+
+
+# =========================================================================
+# Knowledge base (RAG)
+# =========================================================================
+
+def search_knowledge_base(user_id: int, query: str, top_k: int = 5) -> dict:
+    """Search uploaded fitness books and documents for relevant passages."""
+    from scripts.knowledge_store import search_knowledge
+
+    results = search_knowledge(query, user_id=user_id, top_k=top_k)
+    if not results:
+        return {"results": [], "message": "No matching passages found in the knowledge base."}
+
+    passages = []
+    for r in results:
+        passages.append({
+            "content": r["content"],
+            "source": r["title"] or r["filename"],
+            "page": r["page_number"],
+            "similarity": round(r["similarity"], 3),
+        })
+
+    return {"results": passages}
+
+
+def list_knowledge_documents(user_id: int) -> dict:
+    """List all fitness books and documents in the knowledge base."""
+    from scripts.knowledge_store import list_documents
+
+    docs = list_documents(user_id=user_id)
+    if not docs:
+        return {"documents": [], "message": "No documents in the knowledge base yet."}
+
+    return {
+        "documents": [
+            {
+                "id": d["id"],
+                "filename": d["filename"],
+                "title": d["title"],
+                "page_count": d["page_count"],
+                "chunk_count": d["chunk_count"],
+                "scope": "global" if d["user_id"] is None else "personal",
+                "created_at": str(d["created_at"]),
+            }
+            for d in docs
+        ]
+    }
+
+
+def delete_knowledge_document(user_id: int, document_id: int) -> dict:
+    """Remove a document from the knowledge base."""
+    from scripts.knowledge_store import delete_document
+
+    return delete_document(document_id)

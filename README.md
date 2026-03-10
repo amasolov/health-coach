@@ -19,6 +19,7 @@ Syncs data from **Garmin Connect** and **Hevy**, calculates performance metrics 
 ### AI Coaching (Chainlit Chat UI)
 - Conversational fitness coach backed by OpenRouter LLMs
 - 40+ specialized tools for querying training data, recommending workouts, and managing goals
+- **RAG knowledge base** — upload fitness PDFs (books, guides, research) and the coach references them in recommendations
 - Scope-limited to health and fitness topics only
 - iFit workout recommendations with two-stage scoring (metadata + LLM exercise analysis)
 - iFit-to-Hevy routine conversion with exercise matching and custom exercise creation
@@ -56,6 +57,7 @@ Syncs data from **Garmin Connect** and **Hevy**, calculates performance metrics 
 │  │            TimescaleDB (PostgreSQL)           │  │
 │  │  activities · vitals · body_comp · strength   │  │
 │  │  training_load · users · ops_log              │  │
+│  │  documents · knowledge_chunks (pgvector)      │  │
 │  └──────────────────────────────────────────────┘  │
 │                │                                    │
 │                ▼                                    │
@@ -165,6 +167,7 @@ The test suite mocks all external API calls (Hevy, iFit, GitHub, OpenRouter, Gar
 │   ├── mcp_server.py        # FastMCP server
 │   ├── health_tools.py      # 40+ coaching tool implementations
 │   ├── chat_tools_schema.py # OpenAI function-calling schemas
+│   ├── knowledge_store.py   # RAG: PDF ingestion, embedding, retrieval
 │   ├── run_sync.py          # Sync orchestrator
 │   ├── sync_garmin.py       # Garmin Connect data sync
 │   ├── sync_hevy.py         # Hevy data sync

@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.29.0
+**RAG knowledge base for fitness books and documents**
+
+- Upload fitness PDFs (books, guides, research) and the coach will reference them when making recommendations
+- Two upload paths: drop PDFs in `/config/healthcoach/knowledge/` (global, indexed on startup) or upload via chat (per-user)
+- Local ONNX-based embeddings (all-MiniLM-L6-v2 via fastembed) — no external API calls for embedding
+- Vector storage and retrieval via pgvector on the existing TimescaleDB instance
+- Three new tools: `search_knowledge_base`, `list_knowledge_documents`, `delete_knowledge_document`
+- System prompt dynamically includes knowledge base availability when documents are present
+- SHA-256 deduplication prevents re-indexing the same file
+- New migration `007_knowledge_base.sql` adds pgvector extension, `documents` and `knowledge_chunks` tables
+
 ## v0.28.2
 **OpenRouter credit exhaustion handling and admin notifications**
 

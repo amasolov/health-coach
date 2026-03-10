@@ -5,7 +5,8 @@ RUN apk add --no-cache \
     bash \
     python3 \
     py3-psycopg2 \
-    py3-yaml
+    py3-yaml \
+    gcompat
 
 COPY requirements.txt /tmp/
 RUN apk add --no-cache --virtual .build-deps py3-pip \

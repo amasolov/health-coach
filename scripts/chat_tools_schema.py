@@ -793,6 +793,72 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    # ===== TELEGRAM LINKING =====
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_telegram_link_code",
+            "description": (
+                "Generate a one-time code for linking the user's Telegram account "
+                "to Health Coach. The user sends /start <CODE> to the Telegram bot "
+                "within 10 minutes to complete the link. Use when the user asks to "
+                "connect or link their Telegram."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    # ===== KNOWLEDGE BASE (RAG) =====
+    {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge_base",
+            "description": (
+                "Search uploaded fitness books and documents for relevant passages. "
+                "Use when the user asks about training methodologies, periodisation, "
+                "exercise science, nutrition principles, or references a specific book. "
+                "Returns the most relevant text passages with source and page number."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query — describe what information you need.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of passages to return (default 5, max 10).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_knowledge_documents",
+            "description": "List all fitness books and documents in the knowledge base.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_knowledge_document",
+            "description": "Remove a document from the knowledge base by its ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "document_id": {
+                        "type": "integer",
+                        "description": "The document ID to delete (from list_knowledge_documents).",
+                    },
+                },
+                "required": ["document_id"],
+            },
+        },
+    },
 ]
 
 
@@ -853,4 +919,10 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "apply_exercise_feedback":      (health_tools.apply_exercise_feedback, "slug"),
     # Weight recommendations
     "get_routine_weight_recommendations": (health_tools.get_routine_weight_recommendations, "creds"),
+    # Telegram linking
+    "generate_telegram_link_code": (health_tools.generate_telegram_link_code, "uid"),
+    # Knowledge base (RAG)
+    "search_knowledge_base":       (health_tools.search_knowledge_base, "uid"),
+    "list_knowledge_documents":    (health_tools.list_knowledge_documents, "uid"),
+    "delete_knowledge_document":   (health_tools.delete_knowledge_document, "uid"),
 }

@@ -16,7 +16,8 @@ opts = json.load(open('$OPTIONS_FILE'))
 for k in ('db_host','db_port','db_name','db_user','db_password',
           'grafana_host','grafana_port','grafana_api_key',
           'openrouter_api_key','chat_model','github_token',
-          'r2_account_id','r2_access_key_id','r2_secret_access_key','r2_bucket_name'):
+          'r2_account_id','r2_access_key_id','r2_secret_access_key','r2_bucket_name',
+          'telegram_bot_token','telegram_bot_username'):
     print(f'export {k.upper()}={shlex.quote(str(opts.get(k, \"\")))}')
 
 print(f'export MCP_PORT={int(opts.get(\"mcp_port\", 8765))}')
@@ -161,6 +162,23 @@ python3 /app/scripts/run_migrate.py
 echo "Setting up Chainlit chat database..."
 python3 /app/scripts/setup_chainlit_db.py || echo "WARN: Chainlit DB setup failed (chat history will be in-memory)"
 
+KNOWLEDGE_DIR="/config/healthcoach/knowledge"
+if [ -d "$KNOWLEDGE_DIR" ] && ls "$KNOWLEDGE_DIR"/*.pdf 1>/dev/null 2>&1; then
+    echo "Indexing knowledge base documents from ${KNOWLEDGE_DIR}..."
+    python3 -c "
+import sys
+sys.path.insert(0, '/app')
+from scripts.knowledge_store import ingest_directory
+results = ingest_directory('${KNOWLEDGE_DIR}')
+for r in results:
+    fname = r.get('filename', '?')
+    status = r.get('status', r.get('error', 'unknown'))
+    print(f'  {fname}: {status}')
+" || echo "WARN: Knowledge base indexing failed (RAG will be unavailable)"
+else
+    echo "No knowledge base PDFs found in ${KNOWLEDGE_DIR} (optional)."
+fi
+
 echo "Checking Garmin authentication for all users..."
 python3 -c "
 import json, os, sys
@@ -207,6 +225,16 @@ else
     echo "WARN: OPENROUTER_API_KEY not set -- chat UI disabled"
 fi
 
+# Start Telegram bot in the background (only if token is set)
+TG_PID=""
+if [[ -n "${TELEGRAM_BOT_TOKEN}" && -n "${OPENROUTER_API_KEY}" ]]; then
+    echo "Starting Telegram bot..."
+    python3 /app/scripts/telegram_bot.py &
+    TG_PID=$!
+else
+    echo "INFO: Telegram bot disabled (set telegram_bot_token to enable)"
+fi
+
 # Trap signals to cleanly shut down background processes
 cleanup() {
     echo "Shutting down MCP server (PID ${MCP_PID})..."
@@ -215,6 +243,11 @@ cleanup() {
         echo "Shutting down Chainlit chat (PID ${CHAT_PID})..."
         kill "$CHAT_PID" 2>/dev/null || true
         wait "$CHAT_PID" 2>/dev/null || true
+    fi
+    if [[ -n "$TG_PID" ]]; then
+        echo "Shutting down Telegram bot (PID ${TG_PID})..."
+        kill "$TG_PID" 2>/dev/null || true
+        wait "$TG_PID" 2>/dev/null || true
     fi
     wait "$MCP_PID" 2>/dev/null || true
     exit 0

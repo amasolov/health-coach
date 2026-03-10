@@ -1,5 +1,5 @@
 name: Health Coach
-version: "0.28.2"
+version: "0.29.0"
 slug: healthcoach
 description: >-
   AI-powered personal health and fitness coach.
@@ -52,6 +52,8 @@ options:
   r2_access_key_id: ""
   r2_secret_access_key: ""
   r2_bucket_name: "health-coach-ifit"
+  telegram_bot_token: ""
+  telegram_bot_username: ""
 schema:
   sync_interval_minutes: "int(5,1440)"
   mcp_port: "int(1024,65535)"
@@ -79,3 +81,5 @@ schema:
   r2_access_key_id: "str?"
   r2_secret_access_key: "str?"
   r2_bucket_name: "str?"
+  telegram_bot_token: password
+  telegram_bot_username: "str?"
