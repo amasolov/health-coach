@@ -32,6 +32,7 @@ from openai import AsyncOpenAI
 from scripts import health_tools
 from scripts import garmin_auth
 from scripts import user_manager
+from scripts import ops_emit
 from scripts.sync_garmin import sync_user as sync_garmin_user
 from scripts.sync_hevy import sync_user as sync_hevy_user
 from scripts.run_sync import sync_garmin_profile
@@ -747,6 +748,19 @@ async def on_message(message: cl.Message):
             tools=TOOL_SCHEMAS,
             stream=False,
         )
+
+        usage = getattr(response, "usage", None)
+        if usage:
+            prompt_tok = getattr(usage, "prompt_tokens", 0) or 0
+            completion_tok = getattr(usage, "completion_tokens", 0) or 0
+            ops_emit.emit(
+                "chat", "llm_request",
+                user_id=user_id,
+                model=CHAT_MODEL,
+                prompt_tokens=prompt_tok,
+                completion_tokens=completion_tok,
+                total_tokens=prompt_tok + completion_tok,
+            )
 
         choice = response.choices[0]
 

@@ -24,6 +24,8 @@ load_dotenv()
 
 import httpx
 
+from scripts import ops_emit
+
 ROOT = Path(__file__).resolve().parent.parent
 DASHBOARDS_DIR = ROOT / "grafana" / "dashboards"
 
@@ -236,9 +238,20 @@ def main() -> int:
             return 0
 
         print(f"Pushing {len(dashboards)} dashboard(s) to folder '{FOLDER_TITLE}'...")
+        pushed = 0
+        failed = 0
         for path in dashboards:
-            if not push_dashboard(client, path, folder_uid):
+            if push_dashboard(client, path, folder_uid):
+                pushed += 1
+            else:
                 ok = False
+                failed += 1
+
+        ops_emit.emit(
+            "grafana", "push_dashboards",
+            status="ok" if ok else "error",
+            pushed=pushed, failed=failed, total=len(dashboards),
+        )
 
     return 0 if ok else 1
 

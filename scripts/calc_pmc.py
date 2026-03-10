@@ -27,6 +27,7 @@ load_dotenv()
 import psycopg2
 
 from scripts.tz import load_user_tz, tz_date_cast, user_today
+from scripts import ops_emit
 
 CTL_TIME_CONSTANT = 42
 ATL_TIME_CONSTANT = 7
@@ -180,17 +181,20 @@ def main() -> int:
         today = user_today(tz)
         tz_name = str(tz)
 
-        daily_tss = get_daily_tss(cur, user_id, tz_name)
-        if not daily_tss:
-            print(f"  No activities with TSS found for {slug}")
-            continue
+        with ops_emit.timed("sync", "pmc_calc", user_id=user_id) as ctx:
+            daily_tss = get_daily_tss(cur, user_id, tz_name)
+            if not daily_tss:
+                print(f"  No activities with TSS found for {slug}")
+                ctx["rows"] = 0
+                continue
 
-        results = compute_pmc(daily_tss, today)
-        compute_ramp(results)
-        projections = project_future(results)
+            results = compute_pmc(daily_tss, today)
+            compute_ramp(results)
+            projections = project_future(results)
 
-        all_rows = results + projections
-        write_results(cur, user_id, all_rows)
+            all_rows = results + projections
+            write_results(cur, user_id, all_rows)
+            ctx["rows"] = len(all_rows)
 
         latest = results[-1] if results else None
         if latest:

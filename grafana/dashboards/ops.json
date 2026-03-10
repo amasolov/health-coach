@@ -1,0 +1,640 @@
+{
+  "dashboard": {
+    "title": "Health Coach Ops",
+    "uid": "healthcoach-ops",
+    "tags": ["healthcoach", "ops"],
+    "timezone": "browser",
+    "editable": true,
+    "time": {
+      "from": "now-7d",
+      "to": "now"
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "postgres",
+          "current": {
+            "text": "TimescaleDB",
+            "value": "TimescaleDB"
+          },
+          "label": "Data Source"
+        },
+        {
+          "name": "tz",
+          "label": "Timezone",
+          "type": "custom",
+          "query": "Australia/Sydney",
+          "current": {
+            "text": "Australia/Sydney",
+            "value": "Australia/Sydney",
+            "selected": true
+          },
+          "options": [
+            {
+              "text": "Australia/Sydney",
+              "value": "Australia/Sydney",
+              "selected": true
+            }
+          ],
+          "hide": 2
+        }
+      ]
+    },
+    "links": [],
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "Last Sync",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "rawSql": "SELECT time AS \"time\", CASE WHEN status = 'ok' THEN 1 ELSE 0 END AS \"value\" FROM ops_log WHERE event = 'sync_cycle' ORDER BY time DESC LIMIT 1",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              { "type": "value", "options": { "0": { "text": "FAILED", "color": "red" }, "1": { "text": "OK", "color": "green" } } }
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "red" },
+                { "value": 1, "color": "green" }
+              ]
+            },
+            "color": { "mode": "thresholds" }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/value/" },
+          "colorMode": "background",
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 2,
+        "type": "stat",
+        "title": "Database Size",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "rawSql": "SELECT pg_database_size(current_database()) AS \"bytes\"",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decbytes",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 536870912, "color": "yellow" },
+                { "value": 1073741824, "color": "red" }
+              ]
+            },
+            "color": { "mode": "thresholds" }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "" },
+          "colorMode": "background",
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 3,
+        "type": "stat",
+        "title": "Errors (24h)",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "rawSql": "SELECT COUNT(*) AS \"errors\" FROM ops_log WHERE status = 'error' AND time > NOW() - INTERVAL '24 hours'",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 1, "color": "orange" },
+                { "value": 5, "color": "red" }
+              ]
+            },
+            "color": { "mode": "thresholds" }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "" },
+          "colorMode": "background",
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 4,
+        "type": "stat",
+        "title": "Active Users (7d)",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+        "targets": [
+          {
+            "rawSql": "SELECT COUNT(DISTINCT user_id) AS \"users\" FROM ops_log WHERE user_id IS NOT NULL AND time > NOW() - INTERVAL '7 days'",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "blue" }
+              ]
+            },
+            "color": { "mode": "thresholds" }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "" },
+          "colorMode": "background",
+          "textMode": "auto"
+        }
+      },
+
+      {
+        "id": 10,
+        "type": "row",
+        "title": "Sync Monitoring",
+        "gridPos": { "x": 0, "y": 4, "w": 24, "h": 1 },
+        "collapsed": false
+      },
+      {
+        "id": 11,
+        "type": "timeseries",
+        "title": "Sync Duration",
+        "description": "Duration of each sync operation by source",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 0, "y": 5, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "rawSql": "SELECT time, event AS \"metric\", duration_ms / 1000.0 AS \"seconds\" FROM ops_log WHERE category = 'sync' AND event != 'sync_cycle' AND duration_ms IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "custom": {
+              "drawStyle": "line",
+              "pointSize": 5,
+              "showPoints": "always"
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": { "mode": "multi" },
+          "legend": { "displayMode": "table", "placement": "bottom" }
+        },
+        "transformations": [
+          {
+            "id": "prepareTimeSeries",
+            "options": { "format": "multi" }
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "type": "barchart",
+        "title": "New Records per Sync",
+        "description": "New rows inserted during each sync cycle",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 12, "y": 5, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "rawSql": "SELECT time_bucket('1 day', time) AS \"time\", SUM(COALESCE((detail->>'new_activities')::int, 0)) AS \"Activities\", SUM(COALESCE((detail->>'new_vitals')::int, 0)) AS \"Vitals\", SUM(COALESCE((detail->>'new_workouts')::int, 0)) AS \"Workouts\", SUM(COALESCE((detail->>'new_sets')::int, 0)) AS \"Sets\" FROM ops_log WHERE category = 'sync' AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "stacking": { "mode": "normal" }
+            }
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": { "mode": "multi" },
+          "legend": { "displayMode": "list", "placement": "bottom" },
+          "barWidth": 0.8,
+          "stacking": "normal"
+        }
+      },
+      {
+        "id": 13,
+        "type": "table",
+        "title": "Recent Sync Errors",
+        "description": "Last 20 errors from sync operations",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 0, "y": 13, "w": 24, "h": 6 },
+        "targets": [
+          {
+            "rawSql": "SELECT TO_CHAR(time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI') AS \"Time\", event AS \"Event\", COALESCE(detail->>'error', detail->>'skip_reason', status) AS \"Detail\", duration_ms AS \"Duration (ms)\" FROM ops_log WHERE category = 'sync' AND status IN ('error', 'warning') AND $__timeFilter(time) ORDER BY time DESC LIMIT 20",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": { "defaults": {}, "overrides": [] },
+        "options": {
+          "showHeader": true,
+          "footer": { "show": false }
+        }
+      },
+
+      {
+        "id": 20,
+        "type": "row",
+        "title": "LLM / OpenRouter Usage",
+        "gridPos": { "x": 0, "y": 19, "w": 24, "h": 1 },
+        "collapsed": false
+      },
+      {
+        "id": 21,
+        "type": "timeseries",
+        "title": "Daily Token Usage",
+        "description": "Prompt vs completion tokens per day",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "rawSql": "SELECT time_bucket('1 day', time) AS \"time\", SUM(COALESCE((detail->>'prompt_tokens')::int, 0)) AS \"Prompt Tokens\", SUM(COALESCE((detail->>'completion_tokens')::int, 0)) AS \"Completion Tokens\" FROM ops_log WHERE category = 'chat' AND event = 'llm_request' AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "bars",
+              "stacking": { "mode": "normal" },
+              "fillOpacity": 80
+            }
+          },
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Prompt Tokens" },
+              "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }]
+            },
+            {
+              "matcher": { "id": "byName", "options": "Completion Tokens" },
+              "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }]
+            }
+          ]
+        },
+        "options": {
+          "tooltip": { "mode": "multi" },
+          "legend": { "displayMode": "list", "placement": "bottom" }
+        }
+      },
+      {
+        "id": 22,
+        "type": "timeseries",
+        "title": "Daily LLM Requests",
+        "description": "Number of LLM API calls per day",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "rawSql": "SELECT time_bucket('1 day', time) AS \"time\", COUNT(*) AS \"Requests\" FROM ops_log WHERE category = 'chat' AND event = 'llm_request' AND $__timeFilter(time) GROUP BY 1 ORDER BY 1",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 60
+            },
+            "color": { "fixedColor": "purple", "mode": "fixed" }
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": { "mode": "single" },
+          "legend": { "displayMode": "list", "placement": "bottom" }
+        }
+      },
+      {
+        "id": 23,
+        "type": "barchart",
+        "title": "Messages per User",
+        "description": "Chat messages by user over selected period",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 0, "y": 28, "w": 12, "h": 7 },
+        "targets": [
+          {
+            "rawSql": "SELECT u.display_name AS \"User\", COUNT(*) AS \"Messages\" FROM ops_log o JOIN users u ON u.id = o.user_id WHERE o.category = 'chat' AND o.event = 'llm_request' AND $__timeFilter(o.time) GROUP BY 1 ORDER BY 2 DESC LIMIT 20",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": { "defaults": {}, "overrides": [] },
+        "options": {
+          "tooltip": { "mode": "single" },
+          "legend": { "displayMode": "hidden" }
+        }
+      },
+      {
+        "id": 24,
+        "type": "piechart",
+        "title": "Model Distribution",
+        "description": "Which LLM models are being used",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 12, "y": 28, "w": 12, "h": 7 },
+        "targets": [
+          {
+            "rawSql": "SELECT COALESCE(detail->>'model', 'unknown') AS \"Model\", COUNT(*) AS \"Requests\" FROM ops_log WHERE category = 'chat' AND event = 'llm_request' AND $__timeFilter(time) GROUP BY 1 ORDER BY 2 DESC",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": { "defaults": {}, "overrides": [] },
+        "options": {
+          "tooltip": { "mode": "single" },
+          "legend": { "displayMode": "list", "placement": "right" },
+          "pieType": "donut"
+        }
+      },
+
+      {
+        "id": 30,
+        "type": "row",
+        "title": "R2 / Storage",
+        "gridPos": { "x": 0, "y": 35, "w": 24, "h": 1 },
+        "collapsed": false
+      },
+      {
+        "id": 31,
+        "type": "timeseries",
+        "title": "R2 Operations",
+        "description": "R2 upload/sync operations over time",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 0, "y": 36, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "rawSql": "SELECT time_bucket('1 day', time) AS \"time\", event AS \"metric\", COUNT(*) AS \"count\" FROM ops_log WHERE category = 'r2' AND $__timeFilter(time) GROUP BY 1, 2 ORDER BY 1",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "bars",
+              "fillOpacity": 60,
+              "stacking": { "mode": "normal" }
+            }
+          },
+          "overrides": []
+        },
+        "transformations": [
+          {
+            "id": "prepareTimeSeries",
+            "options": { "format": "multi" }
+          }
+        ],
+        "options": {
+          "tooltip": { "mode": "multi" },
+          "legend": { "displayMode": "list", "placement": "bottom" }
+        }
+      },
+      {
+        "id": 32,
+        "type": "bargauge",
+        "title": "DB Table Sizes",
+        "description": "Size of each hypertable in the database",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 12, "y": 36, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "rawSql": "SELECT hypertable_name AS \"Table\", hypertable_size(format('%I.%I', hypertable_schema, hypertable_name)::regclass) AS \"bytes\" FROM timescaledb_information.hypertables WHERE hypertable_schema = 'public' ORDER BY 2 DESC",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decbytes",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": null, "color": "green" },
+                { "value": 104857600, "color": "yellow" },
+                { "value": 524288000, "color": "red" }
+              ]
+            },
+            "color": { "mode": "thresholds" }
+          },
+          "overrides": []
+        },
+        "options": {
+          "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/bytes/" },
+          "displayMode": "gradient",
+          "orientation": "horizontal",
+          "showUnfilled": true,
+          "namePlacement": "auto"
+        },
+        "transformations": [
+          {
+            "id": "rowsToFields",
+            "options": {
+              "mappings": [
+                { "fieldName": "Table", "handlerKey": "field.name" },
+                { "fieldName": "bytes", "handlerKey": "field.value" }
+              ]
+            }
+          }
+        ]
+      },
+
+      {
+        "id": 40,
+        "type": "row",
+        "title": "System Resources",
+        "gridPos": { "x": 0, "y": 44, "w": 24, "h": 1 },
+        "collapsed": false
+      },
+      {
+        "id": 41,
+        "type": "timeseries",
+        "title": "Process Memory (RSS)",
+        "description": "Resident set size of the sync process over time",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 0, "y": 45, "w": 8, "h": 8 },
+        "targets": [
+          {
+            "rawSql": "SELECT time, (detail->>'rss_mb')::float AS \"RSS (MB)\" FROM ops_log WHERE category = 'system' AND event = 'resource_snapshot' AND detail->>'rss_mb' IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decmbytes",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 20
+            },
+            "color": { "fixedColor": "orange", "mode": "fixed" }
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": { "mode": "single" },
+          "legend": { "displayMode": "hidden" }
+        }
+      },
+      {
+        "id": 42,
+        "type": "timeseries",
+        "title": "Sync Cycle Time",
+        "description": "Total time for each full sync cycle",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 8, "y": 45, "w": 8, "h": 8 },
+        "targets": [
+          {
+            "rawSql": "SELECT time, duration_ms / 1000.0 AS \"Cycle Time (s)\" FROM ops_log WHERE event = 'sync_cycle' AND duration_ms IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "custom": {
+              "drawStyle": "line",
+              "pointSize": 5,
+              "showPoints": "always",
+              "fillOpacity": 15
+            },
+            "color": { "fixedColor": "green", "mode": "fixed" }
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": { "mode": "single" },
+          "legend": { "displayMode": "hidden" }
+        }
+      },
+      {
+        "id": 43,
+        "type": "timeseries",
+        "title": "DB Size Growth",
+        "description": "Database size tracked via system resource snapshots",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 16, "y": 45, "w": 8, "h": 8 },
+        "targets": [
+          {
+            "rawSql": "SELECT time, (detail->>'db_size_mb')::float AS \"DB Size (MB)\" FROM ops_log WHERE category = 'system' AND event = 'resource_snapshot' AND detail->>'db_size_mb' IS NOT NULL AND $__timeFilter(time) ORDER BY time",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "decmbytes",
+            "custom": {
+              "drawStyle": "line",
+              "fillOpacity": 20
+            },
+            "color": { "fixedColor": "blue", "mode": "fixed" }
+          },
+          "overrides": []
+        },
+        "options": {
+          "tooltip": { "mode": "single" },
+          "legend": { "displayMode": "hidden" }
+        }
+      },
+
+      {
+        "id": 50,
+        "type": "row",
+        "title": "Audit Log",
+        "gridPos": { "x": 0, "y": 53, "w": 24, "h": 1 },
+        "collapsed": false
+      },
+      {
+        "id": 51,
+        "type": "table",
+        "title": "Recent Events",
+        "description": "Last 50 events from the ops_log table",
+        "datasource": "${datasource}",
+        "gridPos": { "x": 0, "y": 54, "w": 24, "h": 10 },
+        "targets": [
+          {
+            "rawSql": "SELECT TO_CHAR(time AT TIME ZONE '$tz', 'YYYY-MM-DD HH24:MI:SS') AS \"Time\", category AS \"Category\", event AS \"Event\", COALESCE(u.display_name, '—') AS \"User\", status AS \"Status\", COALESCE(duration_ms::text || ' ms', '—') AS \"Duration\", detail::text AS \"Detail\" FROM ops_log o LEFT JOIN users u ON u.id = o.user_id WHERE $__timeFilter(o.time) ORDER BY o.time DESC LIMIT 50",
+            "format": "table",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {},
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Status" },
+              "properties": [
+                {
+                  "id": "custom.cellOptions",
+                  "value": {
+                    "type": "color-text"
+                  }
+                },
+                {
+                  "id": "mappings",
+                  "value": [
+                    { "type": "value", "options": { "ok": { "color": "green", "text": "OK" }, "error": { "color": "red", "text": "ERROR" }, "warning": { "color": "orange", "text": "WARN" } } }
+                  ]
+                }
+              ]
+            },
+            {
+              "matcher": { "id": "byName", "options": "Detail" },
+              "properties": [
+                { "id": "custom.width", "value": 400 }
+              ]
+            }
+          ]
+        },
+        "options": {
+          "showHeader": true,
+          "footer": { "show": false },
+          "sortBy": [{ "displayName": "Time", "desc": true }]
+        }
+      }
+    ],
+    "schemaVersion": 39
+  },
+  "overwrite": true
+}
