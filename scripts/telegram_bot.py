@@ -31,6 +31,8 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from openai import AsyncOpenAI
+import telegram
+import telegram.error
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -659,6 +661,14 @@ def main() -> None:
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
+    async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        err = context.error
+        if isinstance(err, telegram.error.NetworkError):
+            log.warning("Transient network error (will retry): %s", err)
+            return
+        log.error("Unhandled exception in telegram bot", exc_info=context.error)
+
+    app.add_error_handler(_error_handler)
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("unlink", cmd_unlink))
     app.add_handler(CommandHandler("reset", cmd_reset))
