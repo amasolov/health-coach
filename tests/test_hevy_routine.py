@@ -630,6 +630,7 @@ class TestCreateHevyRoutine:
              patch("scripts.ifit_strength_recommend.httpx.post", side_effect=mock_post), \
              patch("scripts.ifit_strength_recommend._clear_resolution_cache") as mock_clear, \
              patch("scripts.ifit_strength_recommend._save_routine_mapping"), \
+             patch("scripts.ifit_strength_recommend._ensure_routine_folder", return_value=None), \
              patch("scripts.ifit_strength_recommend._resolve_and_build_payload", side_effect=tracking_resolve_and_build):
 
             result = create_hevy_routine(rec, "test-key")

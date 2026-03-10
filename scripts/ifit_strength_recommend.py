@@ -841,8 +841,66 @@ def stage2_analyse(
 # ---------------------------------------------------------------------------
 
 R2_ROUTINE_MAP_KEY = "hevy/routine_map.json"
+ROUTINE_FOLDER_NAME = "Health Coach"
 
 _routine_map_cache: dict | None = None
+_folder_id_cache: dict[str, str] = {}  # api_key -> folder_id
+
+
+def _ensure_routine_folder(hevy_api_key: str) -> str | None:
+    """Return the Hevy folder ID for 'Health Coach', creating it if needed.
+
+    Caches the result per API key for the lifetime of the process.
+    Returns None on failure (routine will be created without a folder).
+    """
+    if hevy_api_key in _folder_id_cache:
+        return _folder_id_cache[hevy_api_key]
+
+    headers = {"api-key": hevy_api_key, "accept": "application/json"}
+    try:
+        page = 1
+        while True:
+            r = httpx.get(
+                f"{HEVY_BASE}/v1/routine_folders",
+                headers=headers,
+                params={"page": page, "pageSize": 10},
+                timeout=15,
+            )
+            if r.status_code != 200:
+                break
+            data = r.json()
+            for f in data.get("routine_folders", []):
+                if f.get("title", "").strip() == ROUTINE_FOLDER_NAME:
+                    fid = str(f["id"])
+                    _folder_id_cache[hevy_api_key] = fid
+                    _perf_log.info("Found existing Hevy folder '%s': %s", ROUTINE_FOLDER_NAME, fid)
+                    return fid
+            if page >= data.get("page_count", 1):
+                break
+            page += 1
+    except Exception as e:
+        print(f"  Warning: failed to list routine folders: {e}")
+
+    try:
+        r = httpx.post(
+            f"{HEVY_BASE}/v1/routine_folders",
+            headers={**headers, "Content-Type": "application/json"},
+            json={"routine_folder": {"title": ROUTINE_FOLDER_NAME}},
+            timeout=15,
+        )
+        if r.status_code in (200, 201):
+            data = r.json()
+            folder = data.get("routine_folder", data)
+            if isinstance(folder, dict) and folder.get("id"):
+                fid = str(folder["id"])
+                _folder_id_cache[hevy_api_key] = fid
+                print(f"  Created Hevy folder '{ROUTINE_FOLDER_NAME}': {fid}")
+                return fid
+        print(f"  Warning: folder creation returned {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        print(f"  Warning: failed to create routine folder: {e}")
+
+    return None
 
 
 def _load_routine_map() -> dict:
@@ -1150,10 +1208,12 @@ def _create_hevy_routine_locked(rec: Recommendation, hevy_api_key: str) -> dict:
             "resolution": resolution_summary,
         }
 
+    folder_id = _ensure_routine_folder(hevy_api_key)
+
     body = {
         "routine": {
             "title": f"iFit: {rec.title}",
-            "folder_id": None,
+            "folder_id": folder_id,
             "notes": f"From iFit workout. Trainer: {rec.trainer_name}",
             "exercises": exercises_payload,
         }
