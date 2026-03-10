@@ -11,6 +11,8 @@ import os
 import secrets
 import string
 
+import psycopg2
+
 def _get_conn():
     from scripts.db_pool import get_conn
     return get_conn()

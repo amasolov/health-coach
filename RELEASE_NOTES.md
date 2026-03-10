@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.43.0
+**Async MCP tools — non-blocking event loop (issue #11)**
+
+- **All 40 MCP tools are now `async def`** — each tool dispatches its sync `health_tools` call to a worker thread via `anyio.to_thread.run_sync`, preventing psycopg2 queries from blocking the Starlette/FastMCP event loop
+- **Unified `_wrap` helper** — the existing error-handling wrapper now also handles thread dispatch; tools that previously called `health_tools.*` directly now go through `_wrap` for consistent threading and `ValueError` → `ToolError` conversion
+- **Auth middleware threaded** — `resolve_user_id` in `BearerAuthMiddleware` is also dispatched to a worker thread
+- **`telegram_link.py` bug fix** — added missing `import psycopg2` that would have caused a `NameError` on `IntegrityError` during Telegram account linking conflicts
+
 ## v0.42.0
 **Migrate users.json to the database**
 
