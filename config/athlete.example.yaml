@@ -1,9 +1,7 @@
-# Athlete configuration template.
-# Copy this file to /config/healthcoach/athlete.yaml on your Home Assistant host
-# and fill in your details. The addon will pick it up automatically on next start.
-#
-# Multiple users are supported -- add additional slugs under "users:".
-# The slug must match the "slug" field in the addon's user configuration.
+# Athlete configuration reference template.
+# This file documents the schema stored in the athlete_config DB table.
+# Athlete profiles are managed via the chat onboarding flow and Garmin sync --
+# manual YAML files are no longer used at runtime.
 
 users:
   yourname:                          # replace with your addon user slug

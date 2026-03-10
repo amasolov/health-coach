@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Calculate training zones from threshold values in config/athlete.yaml
+Calculate training zones from threshold values in the athlete_config DB
 and write computed absolute values into config/zones.yaml.
 
-Supports multi-user: iterates over all user slugs in athlete.yaml.
+Supports multi-user: iterates over all user slugs in athlete_config.
 When USER_SLUG env var is set, only processes that user.
 
 Usage:
@@ -138,12 +138,6 @@ def _list_slugs() -> list[str]:
                 return slugs
     except Exception:
         pass
-    # Fallback to YAML
-    yaml_path = ROOT / "config" / "athlete.yaml"
-    if yaml_path.exists():
-        with open(yaml_path) as f:
-            data = yaml.safe_load(f) or {}
-        return list(data.get("users", {}).keys())
     return []
 
 

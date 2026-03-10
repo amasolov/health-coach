@@ -29,7 +29,6 @@ from scripts.garmin_fetch import (
     FIELD_HINTS,
     _safe_call,
     fetch_garmin_profile,
-    merge_into_athlete_yaml,
 )
 
 logger = logging.getLogger(__name__)
@@ -799,7 +798,7 @@ def generate_action_items(
     goals: dict | None = None,
 ) -> list[dict]:
     """Generate suggested action items based on assessment findings.
-    Returns a list of action item dicts ready to be merged into athlete.yaml."""
+    Returns a list of action item dicts ready to be merged into athlete config."""
     today = user_today().isoformat()
     items: list[dict] = []
     goals = goals or {}

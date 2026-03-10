@@ -3,7 +3,7 @@ Fetch athlete profile data from Garmin Connect.
 
 Pulls user profile, body composition, heart rate, VO2max, lactate
 threshold, cycling FTP, and max HR from recent activities. Returns a
-structured dict that maps directly to config/athlete.yaml fields, plus
+structured dict that maps directly to athlete config fields, plus
 metadata about where each value came from and hints for missing fields.
 """
 
@@ -354,7 +354,7 @@ def fetch_garmin_profile(slug: str, client: Garmin) -> dict:
     Fetch all available athlete profile data from Garmin Connect.
 
     Returns a dict with:
-      - "fetched": values organized by athlete.yaml section
+      - "fetched": values organized by athlete config section
       - "sources": where each value came from
       - "missing": fields still null with hints for how to obtain them
     """
@@ -441,16 +441,11 @@ def fetch_garmin_profile(slug: str, client: Garmin) -> dict:
     }
 
 
-def merge_into_athlete_yaml(
-    athlete_path: str, slug: str, fetched: dict
-) -> dict:
-    """Merge fetched values into athlete config.
+def merge_into_athlete_profile(slug: str, fetched: dict) -> dict:
+    """Merge fetched values into the athlete config stored in the DB.
 
     Only fills null fields -- never overwrites existing values.
     Returns a dict of what was actually written.
-
-    The ``athlete_path`` parameter is kept for backward compatibility but
-    is no longer used directly; all I/O goes through athlete_store.
     """
     from scripts import athlete_store
 

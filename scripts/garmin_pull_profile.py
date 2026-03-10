@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pull Garmin profile data locally and merge into athlete.yaml.
+Pull Garmin profile data and merge into the athlete config (DB).
 
 Requires a valid cached token (run `make garmin-login` first).
 
@@ -36,16 +36,13 @@ if not os.environ.get("USER_SLUG"):
 
 from scripts.garmin_auth import try_cached_login
 from scripts.garmin_fetch import fetch_garmin_profile, refresh_thresholds
-from scripts.athlete_store import ensure_seeded
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Pull Garmin profile into athlete.yaml")
+    parser = argparse.ArgumentParser(description="Pull Garmin profile into athlete config")
     parser.add_argument("--slug", default=os.environ.get("USER_SLUG", "alexeym"))
     parser.add_argument("--dry-run", action="store_true", help="Show data without writing")
     args = parser.parse_args()
-
-    ensure_seeded(args.slug)
 
     client = try_cached_login(args.slug)
     if not client:
@@ -77,7 +74,7 @@ def main() -> int:
     )
 
     if refresh["updated"]:
-        print(f"\n=== Updated in athlete.yaml ===")
+        print(f"\n=== Updated in athlete config ===")
         for field, value in refresh["updated"].items():
             print(f"  {field}: {value}")
     else:

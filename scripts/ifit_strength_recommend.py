@@ -86,7 +86,6 @@ from r2_store import (
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / ".ifit_capture"
-ATHLETE_PATH = ROOT / "config" / "athlete.yaml"
 EXERCISE_CACHE_PATH = CACHE_DIR / "exercise_cache.json"
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"

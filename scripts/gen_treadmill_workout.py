@@ -21,7 +21,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES_PATH = ROOT / "config" / "treadmill_templates.yaml"
-ATHLETE_PATH = ROOT / "config" / "athlete.yaml"
 ZONES_PATH = ROOT / "config" / "zones.yaml"
 
 
@@ -175,7 +174,7 @@ def main() -> int:
 
     if missing_zones:
         print(f"WARN: No treadmill speed mapping for: {', '.join(sorted(missing_zones))}")
-        print("      Using 0.0 km/h. Update treadmill section in config/athlete.yaml.")
+        print("      Using 0.0 km/h. Update treadmill section in athlete config.")
         print()
 
     generate_workout(template, user_data, zones)

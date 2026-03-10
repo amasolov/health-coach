@@ -103,7 +103,7 @@
 - **Duplicate routine prevention** — `create_hevy_routine` checks the R2 mapping and Hevy routine list before creating; returns `already_exists` if found
 - **Incomplete routine reporting** — when exercises fail to resolve, status is `created_incomplete` with a warning naming the missing exercises
 - **System prompt for Hevy** — chatbot no longer shows "Manual Hevy Setup" instructions when routines are created automatically
-- **Athlete config moved to PostgreSQL** — new `athlete_config` table (JSONB) replaces `athlete.yaml` as the source of truth; `athlete_store.py` module provides load/save/update with YAML fallback and dual-write during transition
+- **Athlete config moved to PostgreSQL** — new `athlete_config` table (JSONB) replaces `athlete.yaml` as the source of truth; `athlete_store.py` module provides load/save/update; the legacy YAML file has been removed
 - **DB migration 009** — `athlete_config` table with slug primary key and JSONB config column
 - **Garmin threshold auto-sync** — `refresh_garmin_thresholds` fetches Garmin profile, compares with source-priority (lab values never overwritten), auto-updates non-lab fields, logs advisories
 - **Running HR zones tool** — `setup_running_hr_zones` selects best estimation method from available data and provides Garmin watch configuration instructions

@@ -78,19 +78,17 @@ export CHAINLIT_DB_URL="postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@${DB_HOST
 echo "=== Health Coach Addon ==="
 
 # ------------------------------------------------------------------
-# Personal config files (athlete.yaml, equipment.yaml, zones.yaml)
-# are NOT shipped in the image. They live in /config/healthcoach/
-# (HA persistent config dir) and are symlinked into /app/config/ so
-# all scripts can find them at their expected paths.
+# Persistent config directory (HA addon survives restarts).
+# Athlete profiles now live in the DB; only equipment/zones still
+# use YAML files symlinked into /app/config/.
 # ------------------------------------------------------------------
 HA_CFG=/config/healthcoach
 mkdir -p "$HA_CFG"
 
-for cfg in athlete.yaml equipment.yaml zones.yaml; do
+for cfg in equipment.yaml zones.yaml; do
     target="$HA_CFG/$cfg"
     link="/app/config/$cfg"
 
-    # Seed from example template on first run
     if [[ ! -f "$target" ]]; then
         example="/app/config/${cfg%.yaml}.example.yaml"
         if [[ -f "$example" ]]; then
@@ -99,7 +97,6 @@ for cfg in athlete.yaml equipment.yaml zones.yaml; do
         fi
     fi
 
-    # Create or refresh the symlink
     ln -sf "$target" "$link"
 done
 echo "Config files linked from $HA_CFG"
@@ -205,17 +202,6 @@ echo "Sync interval: ${SYNC_INTERVAL} minutes"
 
 echo "Running database migrations..."
 python3 /app/scripts/run_migrate.py
-
-echo "Seeding athlete config into DB from YAML..."
-python3 -c "
-import sys; sys.path.insert(0, '/app')
-from scripts.athlete_store import seed_from_yaml
-seeded = seed_from_yaml('/app/config/athlete.yaml')
-if seeded:
-    print(f'  Seeded {len(seeded)} user(s): {\", \".join(seeded)}')
-else:
-    print('  All users already in DB (no seeding needed)')
-" || echo "WARN: Athlete config seeding failed"
 
 echo "Setting up Chainlit chat database..."
 python3 /app/scripts/setup_chainlit_db.py || echo "WARN: Chainlit DB setup failed (chat history will be in-memory)"

@@ -29,13 +29,11 @@ from scripts.garmin_auth import try_cached_login, get_auth_status
 from scripts.garmin_fetch import (
     FIELD_HINTS,
     fetch_garmin_profile,
-    merge_into_athlete_yaml,
+    merge_into_athlete_profile,
     update_athlete_field,
 )
 from scripts.fitness_assessment import assess_fitness
 from scripts import athlete_store
-
-ATHLETE_PATH = ROOT / "config" / "athlete.yaml"
 
 
 def _prompt(label: str, hint: str, default: str | None = None) -> str | None:
@@ -228,9 +226,7 @@ def run_full_assessment(slug: str, client, hevy_key: str | None, days: int) -> l
 
     profile_data = result.get("auto_profile", {})
     if profile_data.get("fetched"):
-        written = merge_into_athlete_yaml(
-            str(ATHLETE_PATH), slug, profile_data["fetched"]
-        )
+        written = merge_into_athlete_profile(slug, profile_data["fetched"])
         result["written_to_config"] = written
 
     _print_assessment(result)
@@ -250,7 +246,7 @@ def run_profile_only(slug: str, client) -> list[dict]:
     sources = result["sources"]
     missing = result["missing"]
 
-    written = merge_into_athlete_yaml(str(ATHLETE_PATH), slug, fetched)
+    written = merge_into_athlete_profile(slug, fetched)
 
     if written:
         print("\nAuto-populated from Garmin:")
@@ -322,7 +318,7 @@ def main() -> int:
             val = _prompt(display, hint)
             if val is not None:
                 typed_val = _coerce(val, field)
-                update_athlete_field(str(ATHLETE_PATH), slug, field, typed_val)
+                update_athlete_field("", slug, field, typed_val)
                 print(f"  -> Saved {field} = {typed_val}")
 
     if optional:
@@ -334,13 +330,13 @@ def main() -> int:
             val = _prompt(display, hint)
             if val is not None:
                 typed_val = _coerce(val, field)
-                update_athlete_field(str(ATHLETE_PATH), slug, field, typed_val)
+                update_athlete_field("", slug, field, typed_val)
                 print(f"  -> Saved {field} = {typed_val}")
 
     if not important and not optional:
         print("\nAll fields populated!")
 
-    print("\nProfile setup complete. Review config/athlete.yaml for details.")
+    print("\nProfile setup complete. Review athlete config in the DB for details.")
     print("Run 'task zones:calculate' to compute training zones from your thresholds.")
     return 0
 

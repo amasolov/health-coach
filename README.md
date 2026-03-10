@@ -177,8 +177,7 @@ The test suite mocks all external API calls (Hevy, iFit, GitHub, OpenRouter, Gar
 │   └── ...
 ├── db/migrations/           # SQL migrations (auto-applied)
 ├── grafana/dashboards/      # Dashboard JSON (auto-provisioned)
-├── config/athlete.yaml      # Per-user athlete profiles
-├── tests/                   # pytest suite (132 tests)
+├── tests/                   # pytest suite
 └── .github/workflows/       # CI/CD build pipeline
 ```
 

@@ -100,13 +100,13 @@ tasks:
       - "{{.PYTHON}} scripts/garmin_login.py --status"
 
   garmin:profile:
-    desc: Pull Garmin profile (LTHR, VO2max, CP, resting HR) into athlete.yaml
+    desc: Pull Garmin profile (LTHR, VO2max, CP, resting HR) into athlete config
     deps: [setup:deps]
     cmds:
       - "{{.PYTHON}} scripts/garmin_pull_profile.py"
 
   garmin:profile:dry:
-    desc: Preview Garmin profile data without writing to athlete.yaml
+    desc: Preview Garmin profile data without writing to athlete config
     deps: [setup:deps]
     cmds:
       - "{{.PYTHON}} scripts/garmin_pull_profile.py --dry-run"

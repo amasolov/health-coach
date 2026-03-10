@@ -39,7 +39,6 @@ def _timed(label: str):
 # ---------------------------------------------------------------------------
 
 ROOT = Path(__file__).resolve().parent.parent
-ATHLETE_PATH = ROOT / "config" / "athlete.yaml"
 ZONES_PATH = ROOT / "config" / "zones.yaml"
 
 # In-memory caches (survive across tool calls within the same process)
@@ -1176,7 +1175,7 @@ def generate_fitness_assessment(
     """Generate a comprehensive fitness assessment by pulling 6 months of
     historical data from Garmin Connect (and optionally Hevy)."""
     from scripts.garmin_auth import try_cached_login
-    from scripts.garmin_fetch import merge_into_athlete_yaml
+    from scripts.garmin_fetch import merge_into_athlete_profile
     from scripts.fitness_assessment import assess_fitness
 
     client = try_cached_login(user_slug)
@@ -1194,9 +1193,7 @@ def generate_fitness_assessment(
 
     profile_data = result.get("auto_profile", {})
     if profile_data.get("fetched"):
-        written = merge_into_athlete_yaml(
-            str(ATHLETE_PATH), user_slug, profile_data["fetched"]
-        )
+        written = merge_into_athlete_profile(user_slug, profile_data["fetched"])
         result["written_to_config"] = written
 
     suggested = result.get("suggested_action_items", [])

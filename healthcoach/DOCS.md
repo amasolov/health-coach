@@ -11,8 +11,6 @@ for AI-powered coaching.
 2. Create a database called `health` in TimescaleDB
 3. Configure this addon with your database credentials and API keys
 4. (Optional) Generate a Grafana service account API key for dashboard provisioning
-5. Place your `athlete.yaml` in `/config/healthcoach/athlete.yaml` — copy from
-   the example at `config/athlete.example.yaml` in the repository
 
 ## Multi-User
 

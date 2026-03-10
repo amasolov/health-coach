@@ -46,7 +46,7 @@ secrets.dec.yaml
 # Books / PDFs for RAG knowledge base (large binaries, ingest locally)
 books/*.pdf
 
-# Personal athlete data -- lives in /config/health-tracker/ at runtime, not in repo
+# Personal data -- lives in /config/health-tracker/ at runtime, not in repo
 config/athlete.yaml
 config/equipment.yaml
 config/zones.yaml

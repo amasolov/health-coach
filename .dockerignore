@@ -1,4 +1,4 @@
-# Personal athlete data -- provided at runtime via /config/health-tracker/
+# Personal data -- provided at runtime via /config/health-tracker/
 config/athlete.yaml
 config/equipment.yaml
 config/zones.yaml

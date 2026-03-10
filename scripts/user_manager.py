@@ -3,7 +3,7 @@ User registration and management.
 
 Handles creating new users in:
   - PostgreSQL (users table — primary store for all user metadata)
-  - /config/healthcoach/athlete.yaml (athlete profile stub)
+  - athlete_config table (athlete profile via athlete_store)
 
 Used by the onboarding flow in chat_app.py.
 """

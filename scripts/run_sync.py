@@ -109,7 +109,7 @@ def _load_athlete_thresholds(slug: str) -> dict:
 
 
 def _load_user_thresholds(cur, user_id: int, slug: str = "") -> tuple[float | None, float | None]:
-    """Load resting_hr and LTHR from vitals + athlete.yaml."""
+    """Load resting_hr and LTHR from vitals + athlete config."""
     cur.execute("""
         SELECT resting_hr FROM vitals
         WHERE user_id = %s AND resting_hr IS NOT NULL
@@ -130,7 +130,7 @@ def _load_user_thresholds(cur, user_id: int, slug: str = "") -> tuple[float | No
 
 
 def _thresholds_incomplete(slug: str) -> bool:
-    """Return True if any key threshold is still null in athlete.yaml."""
+    """Return True if any key threshold is still null in athlete config."""
     data = _load_athlete_thresholds(slug)
     for keys in _THRESHOLD_GATE_FIELDS:
         leaf = keys[-1]
@@ -357,11 +357,11 @@ def backfill_missing_tss(user_id: int, slug: str = "") -> dict:
     Retroactively estimate TSS for activities that are missing it.
 
     Pass 1 – Power-based: activities with avg_power or normalized_power but no TSS.
-              Uses FTP from athlete.yaml. Covers Zwift/cycling rides synced before
+              Uses FTP from athlete config. Covers Zwift/cycling rides synced before
               FTP was configured.
 
     Pass 2 – HR-based: activities with avg_hr but no TSS (non-strength).
-              Uses LTHR and resting_hr from athlete.yaml / vitals.
+              Uses LTHR and resting_hr from athlete config / vitals.
 
     Pass 3 – Duration-based fallback: any remaining activity with no TSS and no
               useful physiological data, using activity-type-specific MET estimates
@@ -729,14 +729,6 @@ def main() -> int:
     _t0 = _time.monotonic()
     users = get_users()
     errors = 0
-
-    # Ensure athlete configs are seeded into DB from YAML
-    try:
-        from scripts.athlete_store import ensure_seeded
-        for u in users:
-            ensure_seeded(u["slug"])
-    except Exception:
-        pass
 
     for user in users:
         slug = user["slug"]

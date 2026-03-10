@@ -8,7 +8,7 @@ New-user onboarding flow (when ALLOW_REGISTRATION=true):
   - OAuth users whose email is unknown land in a guided setup chat
   - Password-auth users whose slug is unknown do the same
   - Collects: name, username, timezone, Garmin credentials, Hevy API key
-  - Creates the DB record, options.json entry, and athlete.yaml stub
+  - Creates the DB record, options.json entry, and athlete config
 """
 
 from __future__ import annotations

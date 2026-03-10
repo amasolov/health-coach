@@ -1,28 +1,21 @@
 """Tests for action items CRUD.
 
-These tests write to athlete.yaml so they use a cleanup fixture
-to restore state after each test.
+These tests use the DB-backed athlete_store. The fixture saves and
+restores the athlete config around each test.
 """
 
 import copy
 import pytest
-import yaml
-from scripts import health_tools
+from scripts import health_tools, athlete_store
 
 
 @pytest.fixture(autouse=True)
-def _backup_athlete_yaml():
-    """Back up and restore athlete.yaml around each test."""
-    path = health_tools.ATHLETE_PATH
-    if path.exists():
-        original = path.read_text()
-    else:
-        original = None
+def _backup_athlete_config(user_slug):
+    """Back up and restore athlete config around each test."""
+    original = athlete_store.load(user_slug)
     yield
     if original is not None:
-        path.write_text(original)
-    elif path.exists():
-        path.unlink()
+        athlete_store.save(user_slug, original)
 
 
 class TestActionItems:

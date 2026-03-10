@@ -27,7 +27,7 @@ from scripts.tz import load_user_tz, ts_to_utc, user_today
 # HR_IF = (avgHR - restHR) / (ltHR - restHR)
 # Fallback when no power/LTHR: use training effect as rough proxy
 
-DEFAULT_LTHR = 155  # typical recreational runner LTHR; override via athlete.yaml lthr_run
+DEFAULT_LTHR = 155  # typical recreational runner LTHR; override via athlete config
 
 
 _CYCLING_TYPES = frozenset({
@@ -427,7 +427,7 @@ def _upsert_vitals(cur, user_id: int, data: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# User thresholds from athlete.yaml
+# User thresholds from athlete config (DB)
 # ---------------------------------------------------------------------------
 
 def _load_user_thresholds(slug: str) -> dict:
