@@ -101,8 +101,8 @@ default_theme = "dark"
 layout = "wide"
 
 # Force a specific language for all users (e.g., "en-US", "he-IL", "fr-FR")
-# If not set, the browser's language will be used
-language = "en-US"
+# If not set, the browser's language will be used.
+# Omitted to avoid "Translated markdown file for en-US not found" warnings.
 
 # layout = "wide"
 
