@@ -260,6 +260,77 @@ class TestHevyExerciseResolver:
             assert len(result) == 1
             assert result[0]["hevy_id"] == "ABC123"
 
+    def test_force_revalidate_fixes_stale_custom_id(self, _setup_hevy_exercises):
+        """force_revalidate=True verifies custom_cached IDs against the live Hevy API."""
+        from scripts.hevy_exercise_resolver import resolve_hevy_exercises
+
+        stale_custom_map = {"dumbbell bicep hold": "STALE-ID-000"}
+        fake_r2 = FakeR2Store({"hevy/custom_exercise_map.json": stale_custom_map})
+
+        live_api_resp = MockResponse(200, {
+            "exercise_templates": [
+                {"id": "LIVE-ID-999", "title": "Dumbbell Bicep Hold", "is_custom": True},
+            ],
+            "page_count": 1,
+        })
+
+        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", self._exercises_path), \
+             patch("scripts.hevy_exercise_resolver._r2_available", return_value=True), \
+             patch("scripts.hevy_exercise_resolver._r2_download_json", fake_r2.download_json), \
+             patch("scripts.hevy_exercise_resolver._r2_upload_json", fake_r2.upload_json), \
+             patch("scripts.hevy_exercise_resolver.httpx.get", return_value=live_api_resp):
+
+            exercises = [{"hevy_name": "Dumbbell Bicep Hold", "hevy_id": "",
+                          "muscle_group": "biceps", "sets": 3, "reps": "45s", "weight": "dumbbell", "notes": ""}]
+            result = resolve_hevy_exercises(
+                exercises, hevy_api_key="test-key", force_revalidate=True,
+            )
+            assert result[0]["resolution"] == "custom_revalidated"
+            assert result[0]["hevy_id"] == "LIVE-ID-999"
+
+            updated_map = fake_r2.download_json("hevy/custom_exercise_map.json")
+            assert updated_map["dumbbell bicep hold"] == "LIVE-ID-999"
+
+    def test_force_revalidate_removes_missing_custom(self, _setup_hevy_exercises, tmp_path):
+        """force_revalidate=True removes stale entries when the exercise is gone from Hevy."""
+        from scripts.hevy_exercise_resolver import resolve_hevy_exercises
+
+        stale_custom_map = {"ghost exercise": "GONE-ID-000"}
+        fake_r2 = FakeR2Store({"hevy/custom_exercise_map.json": stale_custom_map})
+
+        no_custom = MockResponse(200, {"exercise_templates": [], "page_count": 1})
+
+        classify_response = json.dumps({
+            "exercise_type": "weight_reps",
+            "equipment_category": "dumbbell",
+            "muscle_group": "biceps",
+            "other_muscles": [],
+        })
+
+        empty_custom_map = tmp_path / "hevy_custom_map.json"
+        empty_custom_map.write_text("{}")
+
+        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", self._exercises_path), \
+             patch("scripts.hevy_exercise_resolver.CUSTOM_MAP_PATH", empty_custom_map), \
+             patch("scripts.hevy_exercise_resolver._r2_available", return_value=True), \
+             patch("scripts.hevy_exercise_resolver._r2_download_json", fake_r2.download_json), \
+             patch("scripts.hevy_exercise_resolver._r2_upload_json", fake_r2.upload_json), \
+             patch("scripts.hevy_exercise_resolver.httpx.get", return_value=no_custom), \
+             patch("scripts.hevy_exercise_resolver.httpx.post") as mock_post:
+
+            mock_post.side_effect = [
+                MockResponse(200, {"choices": [{"message": {"content": classify_response}}]}),
+                make_hevy_exercise_template_response("NEW-CREATED-001", "Ghost Exercise"),
+            ]
+
+            exercises = [{"hevy_name": "Ghost Exercise", "hevy_id": "",
+                          "muscle_group": "biceps", "sets": 3, "reps": 12, "weight": "dumbbell", "notes": ""}]
+            result = resolve_hevy_exercises(
+                exercises, hevy_api_key="test-key", force_revalidate=True,
+            )
+            assert result[0]["resolution"] == "custom_created"
+            assert result[0]["hevy_id"] == "NEW-CREATED-001"
+
 
 # ---------------------------------------------------------------------------
 # Duplicate detection
@@ -512,7 +583,7 @@ class TestCreateHevyRoutine:
             assert result["exercises_total"] == 2
 
     def test_retry_on_invalid_template_id(self, tmp_path):
-        """Hevy 400 'invalid exercise template id' triggers cache clear and retry."""
+        """Hevy 400 'invalid exercise template id' triggers cache clear, revalidation, and retry."""
         from scripts.ifit_strength_recommend import create_hevy_routine, Recommendation
 
         all_resolved = [
@@ -540,17 +611,30 @@ class TestCreateHevyRoutine:
                 return stale_response
             return success_response
 
+        resolve_calls = []
+        original_resolve_and_build = __import__(
+            "scripts.ifit_strength_recommend", fromlist=["_resolve_and_build_payload"],
+        )._resolve_and_build_payload
+
+        def tracking_resolve_and_build(*args, **kwargs):
+            resolve_calls.append(kwargs)
+            return original_resolve_and_build(*args, **kwargs)
+
         with patch("scripts.ifit_strength_recommend._find_existing_routine", return_value=None), \
              patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
              patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
              patch("scripts.ifit_strength_recommend.httpx.post", side_effect=mock_post), \
              patch("scripts.ifit_strength_recommend._clear_resolution_cache") as mock_clear, \
-             patch("scripts.ifit_strength_recommend._save_routine_mapping"):
+             patch("scripts.ifit_strength_recommend._save_routine_mapping"), \
+             patch("scripts.ifit_strength_recommend._resolve_and_build_payload", side_effect=tracking_resolve_and_build):
 
             result = create_hevy_routine(rec, "test-key")
             assert result["status"] == "created"
             assert result["routine_id"] == "retried-001"
             mock_clear.assert_called_once_with("ifit_stale")
+            assert len(resolve_calls) == 2
+            assert resolve_calls[0].get("force_revalidate", False) is False
+            assert resolve_calls[1].get("force_revalidate") is True
 
     def test_create_routine_from_recommendation_index(self, tmp_path):
         rec = make_recommendation()

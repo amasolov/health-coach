@@ -404,6 +404,7 @@ def resolve_hevy_exercises(
     exercises: list[dict],
     hevy_api_key: str,
     workout_id: str = "",
+    force_revalidate: bool = False,
 ) -> list[dict]:
     """Resolve a list of LLM-extracted exercises to Hevy template IDs.
 
@@ -413,10 +414,13 @@ def resolve_hevy_exercises(
     If workout_id is provided, checks R2 for previously resolved results
     and caches new resolutions there.
 
+    When force_revalidate is True, custom_cached IDs are verified against
+    the live Hevy API before being trusted (used after a stale-ID retry).
+
     Returns a new list of exercise dicts with guaranteed 'hevy_id' and
     'resolution' field indicating how it was matched.
     """
-    if workout_id:
+    if workout_id and not force_revalidate:
         cached = _load_resolved(workout_id)
         if cached:
             print(f"    Using cached Hevy resolution ({len(cached)} exercises)")
@@ -445,10 +449,27 @@ def resolve_hevy_exercises(
         # Stage 1b: Check custom exercise mapping cache
         name_key = hevy_name.lower().strip()
         if name_key in custom_map:
-            result["hevy_id"] = custom_map[name_key]
-            result["resolution"] = "custom_cached"
-            resolved.append(result)
-            continue
+            if force_revalidate and hevy_api_key:
+                live_id = _find_custom_exercise_by_title(hevy_name, hevy_api_key)
+                if live_id:
+                    if live_id != custom_map[name_key]:
+                        print(f"    Revalidated '{hevy_name}': {custom_map[name_key]} -> {live_id}")
+                        custom_map[name_key] = live_id
+                        custom_map_changed = True
+                    result["hevy_id"] = live_id
+                    result["resolution"] = "custom_revalidated"
+                    resolved.append(result)
+                    continue
+                else:
+                    print(f"    Stale custom entry '{hevy_name}' — not found in Hevy, removing from map")
+                    del custom_map[name_key]
+                    custom_map_changed = True
+                    # Fall through to Stage 2/3
+            else:
+                result["hevy_id"] = custom_map[name_key]
+                result["resolution"] = "custom_cached"
+                resolved.append(result)
+                continue
 
         # Stage 2: Fuzzy name match
         match = _fuzzy_match(hevy_name, library)

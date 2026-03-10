@@ -961,6 +961,8 @@ def _find_existing_routine(
                         "exercise_count": len(rt.get("exercises", [])),
                         "source": "title_match",
                     }
+        else:
+            print(f"  Warning: Hevy routines list returned {r.status_code} — skipping duplicate check")
     except Exception:
         pass
 
@@ -982,6 +984,7 @@ def _clear_resolution_cache(workout_id: str) -> None:
 
 def _resolve_and_build_payload(
     rec: Recommendation, hevy_api_key: str,
+    *, force_revalidate: bool = False,
 ) -> tuple[list[dict], list[str], list[dict], dict]:
     """Resolve exercises and build the Hevy routine payload.
 
@@ -990,7 +993,10 @@ def _resolve_and_build_payload(
     from scripts.hevy_exercise_resolver import resolve_hevy_exercises
 
     print(f"  Resolving {len(rec.exercises)} exercises for Hevy...")
-    resolved = resolve_hevy_exercises(rec.exercises, hevy_api_key, workout_id=rec.workout_id)
+    resolved = resolve_hevy_exercises(
+        rec.exercises, hevy_api_key,
+        workout_id=rec.workout_id, force_revalidate=force_revalidate,
+    )
 
     resolution_summary = {}
     for ex in resolved:
@@ -1085,7 +1091,9 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
     if r.status_code == 400 and "invalid exercise template id" in r.text.lower():
         print(f"  Hevy rejected routine — stale exercise IDs. Clearing cache and retrying...")
         _clear_resolution_cache(rec.workout_id)
-        exercises_payload, skipped, resolved, resolution_summary = _resolve_and_build_payload(rec, hevy_api_key)
+        exercises_payload, skipped, resolved, resolution_summary = _resolve_and_build_payload(
+            rec, hevy_api_key, force_revalidate=True,
+        )
         if not exercises_payload:
             return {
                 "error": "No exercises could be resolved after cache refresh",
