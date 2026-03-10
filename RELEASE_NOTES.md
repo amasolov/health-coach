@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.32.1
+**Fix Hevy routine creating the wrong workout from stale cache**
+
+- Routine creation now identifies workouts by `ifit_workout_id` instead of a fragile positional index into a shared cache file
+- If the workout isn't in the cached recommendations, exercises are fetched on-the-fly from the iFit API
+- Tool schema and system prompt updated to guide the LLM to always pass the workout ID
+
 ## v0.32.0
 **Hevy routine reliability, athlete config in DB, Garmin threshold tracking, Renovate**
 
