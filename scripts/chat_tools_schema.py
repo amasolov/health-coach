@@ -335,6 +335,32 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    # ===== HEVY =====
+    {
+        "type": "function",
+        "function": {
+            "name": "hevy_auth_status",
+            "description": "Check whether the user's Hevy API key is configured and valid.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "hevy_connect",
+            "description": "Connect or reconnect the user's Hevy account. If the API key is already stored, validates it. Otherwise, ask the user for their Hevy API key (found in Hevy app > Settings > Integrations > API) and pass it here.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hevy_api_key": {
+                        "type": "string",
+                        "description": "User's Hevy API key (ask the user if not already configured)"
+                    }
+                },
+                "required": []
+            },
+        },
+    },
     # ===== PROFILE SETUP =====
     {
         "type": "function",
@@ -989,6 +1015,8 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "garmin_auth_status":           (health_tools.garmin_auth_status, "creds"),
     "garmin_authenticate":          (health_tools.garmin_authenticate, "creds"),
     "garmin_submit_mfa":            (health_tools.garmin_submit_mfa, "slug"),
+    "hevy_auth_status":             (health_tools.hevy_auth_status, "creds"),
+    "hevy_connect":                 (health_tools.hevy_connect, "creds"),
     "garmin_fetch_profile":         (health_tools.garmin_fetch_profile, "slug"),
     "generate_fitness_assessment":  (health_tools.generate_fitness_assessment, "creds"),
     "update_athlete_profile":       (health_tools.update_athlete_profile, "slug"),

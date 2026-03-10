@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.40.0
+**Self-service Hevy Connect via chat**
+
+- **`hevy_connect` tool** — users can connect or reconnect their Hevy account by providing their API key through the chatbot; the key is validated against the Hevy API before being persisted
+- **`hevy_auth_status` tool** — check whether a Hevy API key is configured and valid, available in both Chainlit and Telegram
+- **Credential persistence** — on successful validation the API key is saved to `users.json` and updated in the in-memory registry, same pattern as Garmin credentials
+
 ## v0.39.0
 **Self-service Garmin Connect via chat**
 

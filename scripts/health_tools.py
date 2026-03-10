@@ -1082,6 +1082,75 @@ def garmin_submit_mfa(user_slug: str, mfa_code: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Hevy authentication
+# ---------------------------------------------------------------------------
+
+
+def hevy_auth_status(user_slug: str, hevy_api_key: str = "") -> dict:
+    """Check whether a Hevy API key is configured and valid."""
+    if not hevy_api_key:
+        return {
+            "status": "not_configured",
+            "message": "No Hevy API key configured. The user can provide one via hevy_connect.",
+        }
+    try:
+        import httpx
+        resp = httpx.get(
+            "https://api.hevyapp.com/v1/workouts",
+            headers={"api-key": hevy_api_key, "accept": "application/json"},
+            params={"page": 1, "pageSize": 1},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return {"status": "connected", "message": "Hevy API key is valid."}
+        return {
+            "status": "invalid",
+            "message": f"Hevy API returned {resp.status_code}. The key may be expired or invalid.",
+        }
+    except Exception as exc:
+        return {"status": "error", "message": f"Could not reach Hevy API: {exc}"}
+
+
+def hevy_connect(user_slug: str, hevy_api_key: str = "") -> dict:
+    """Connect or update the user's Hevy account by providing an API key.
+    Validates the key and persists it on success."""
+    if not hevy_api_key:
+        return {
+            "status": "need_api_key",
+            "message": (
+                "Ask the user for their Hevy API key. "
+                "They can find it in the Hevy app under Settings > Integrations > API."
+            ),
+        }
+
+    status = hevy_auth_status(user_slug, hevy_api_key)
+    if status["status"] != "connected":
+        return status
+
+    _persist_hevy_key(user_slug, hevy_api_key)
+    return {
+        "status": "ok",
+        "message": "Hevy API key validated and saved. Workouts will sync on next cycle.",
+    }
+
+
+def _persist_hevy_key(user_slug: str, api_key: str) -> None:
+    """Save Hevy API key to users.json and update in-memory registry."""
+    try:
+        from scripts.user_manager import USERS_FILE
+        if USERS_FILE.exists():
+            import json as _json
+            users = _json.loads(USERS_FILE.read_text())
+            for u in users:
+                if u.get("slug") == user_slug:
+                    u["hevy_api_key"] = api_key
+                    break
+            USERS_FILE.write_text(_json.dumps(users, indent=2))
+    except Exception as exc:
+        print(f"WARN: Failed to persist Hevy API key to users.json: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Athlete profile setup
 # ---------------------------------------------------------------------------
 

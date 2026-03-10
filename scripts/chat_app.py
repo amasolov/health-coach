@@ -81,6 +81,8 @@ TOOL_DISPLAY_NAMES = {
     "garmin_auth_status":        "Garmin Connection Check",
     "garmin_authenticate":       "Garmin Login",
     "garmin_submit_mfa":         "Garmin MFA Verification",
+    "hevy_auth_status":          "Hevy Connection Check",
+    "hevy_connect":              "Hevy Login",
     "garmin_fetch_profile":      "Garmin Profile Fetch",
     "generate_fitness_assessment": "Fitness Assessment",
     "update_athlete_profile":    "Profile Update",
@@ -504,6 +506,15 @@ def _execute_tool(
                 if result.get("status") in ("ok", "needs_mfa") and email:
                     user_data["garmin_email"] = email
                     user_data["garmin_password"] = password
+                return result
+            elif tool_name == "hevy_auth_status":
+                hevy_key = user_data.get("hevy_api_key", "")
+                return fn(user_slug, hevy_key)
+            elif tool_name == "hevy_connect":
+                key = arguments.pop("hevy_api_key", "") or user_data.get("hevy_api_key", "")
+                result = fn(user_slug, key)
+                if result.get("status") == "ok" and key:
+                    user_data["hevy_api_key"] = key
                 return result
             elif tool_name == "generate_fitness_assessment":
                 hevy_key = user_data.get("hevy_api_key") or None

@@ -354,6 +354,15 @@ def _execute_tool(
                     user_data["garmin_email"] = email
                     user_data["garmin_password"] = password
                 return result
+            elif tool_name == "hevy_auth_status":
+                hevy_key = user_data.get("hevy_api_key", "")
+                return fn(user_slug, hevy_key)
+            elif tool_name == "hevy_connect":
+                key = arguments.pop("hevy_api_key", "") or user_data.get("hevy_api_key", "")
+                result = fn(user_slug, key)
+                if result.get("status") == "ok" and key:
+                    user_data["hevy_api_key"] = key
+                return result
             else:
                 return fn(user_slug, **arguments)
         else:
