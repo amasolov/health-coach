@@ -901,23 +901,29 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "manage_hevy_routines",
             "description": (
-                "List, delete, or clean up duplicate Hevy routines. "
-                "Use action='list' to see all routines in the user's Hevy account. "
-                "Use action='delete' with a routine_id to remove a specific routine. "
-                "Use action='delete_duplicates' to automatically find routines with "
-                "identical titles and delete the extras, keeping one of each."
+                "List, rename, or clean up duplicate Hevy routines. "
+                "The public Hevy API does not support deletion, so duplicates "
+                "are marked with a '[DELETE] ' prefix for manual removal. "
+                "Use action='list' to see all routines. "
+                "Use action='rename' with routine_id and new_title to rename one. "
+                "Use action='mark_duplicates' to prefix duplicate routines "
+                "with '[DELETE] ' so the user can easily remove them in the Hevy app."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list", "delete", "delete_duplicates"],
+                        "enum": ["list", "rename", "mark_duplicates"],
                         "description": "The action to perform.",
                     },
                     "routine_id": {
                         "type": "string",
-                        "description": "The routine ID to delete (required for action='delete').",
+                        "description": "The routine ID (required for action='rename').",
+                    },
+                    "new_title": {
+                        "type": "string",
+                        "description": "New title for the routine (required for action='rename').",
                     },
                 },
                 "required": ["action"],

@@ -2444,18 +2444,21 @@ def manage_hevy_routines(
     user_slug: str,
     action: str = "list",
     routine_id: str = "",
+    new_title: str = "",
     hevy_api_key: str = "",
 ) -> dict:
-    """List or delete Hevy routines.
+    """List, rename, or clean up duplicate Hevy routines.
 
     Actions:
       - list: return all routines in the user's Hevy account
-      - delete: delete a specific routine by ID
-      - delete_duplicates: find routines with identical titles and delete extras
+      - rename: rename a routine (the public API has no DELETE)
+      - mark_duplicates: find routines with identical titles and prefix
+        extras with '[DELETE] ' so the user can easily find and remove
+        them in the Hevy app
     """
     from scripts.ifit_strength_recommend import (
         list_hevy_routines,
-        delete_hevy_routine,
+        rename_hevy_routine,
     )
 
     if not hevy_api_key:
@@ -2468,12 +2471,14 @@ def manage_hevy_routines(
             "count": len(routines),
         }
 
-    if action == "delete":
+    if action == "rename":
         if not routine_id:
-            return {"error": "routine_id required for delete action."}
-        return delete_hevy_routine(routine_id, hevy_api_key)
+            return {"error": "routine_id required for rename action."}
+        if not new_title:
+            return {"error": "new_title required for rename action."}
+        return rename_hevy_routine(routine_id, new_title, hevy_api_key)
 
-    if action == "delete_duplicates":
+    if action == "mark_duplicates":
         routines = list_hevy_routines(hevy_api_key)
         seen: dict[str, dict] = {}
         duplicates: list[dict] = []
@@ -2487,12 +2492,16 @@ def manage_hevy_routines(
         if not duplicates:
             return {"status": "no_duplicates", "routine_count": len(routines)}
 
-        deleted = []
+        marked = []
         failed = []
         for dup in duplicates:
-            result = delete_hevy_routine(dup["id"], hevy_api_key)
-            if result.get("status") == "deleted":
-                deleted.append({"id": dup["id"], "title": dup["title"]})
+            if dup["title"].startswith("[DELETE] "):
+                continue
+            result = rename_hevy_routine(
+                dup["id"], f"[DELETE] {dup['title']}", hevy_api_key,
+            )
+            if result.get("status") == "renamed":
+                marked.append({"id": dup["id"], "title": dup["title"]})
             else:
                 failed.append({
                     "id": dup["id"],
@@ -2501,15 +2510,19 @@ def manage_hevy_routines(
                 })
 
         return {
-            "status": "cleaned",
-            "deleted_count": len(deleted),
-            "deleted": deleted,
+            "status": "marked",
+            "marked_count": len(marked),
+            "marked": marked,
             "failed_count": len(failed),
             "failed": failed,
-            "remaining_count": len(routines) - len(deleted),
+            "hint": (
+                "Duplicates have been prefixed with '[DELETE] '. "
+                "Open the Hevy app and delete them manually — "
+                "the public API does not support routine deletion."
+            ),
         }
 
-    return {"error": f"Unknown action: {action}. Use 'list', 'delete', or 'delete_duplicates'."}
+    return {"error": f"Unknown action: {action}. Use 'list', 'rename', or 'mark_duplicates'."}
 
 
 # ---------------------------------------------------------------------------
