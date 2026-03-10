@@ -683,6 +683,7 @@ def main() -> None:
         allowed_updates=Update.ALL_TYPES,
         poll_interval=1.0,
         timeout=30,
+        bootstrap_retries=5,
     )
 
 
