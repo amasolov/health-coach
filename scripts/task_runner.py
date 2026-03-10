@@ -195,8 +195,6 @@ def main() -> None:
         misfire_grace_time=120,
         coalesce=True,
     )
-    scheduler.start()
-
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -208,8 +206,12 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    # Run the first cycle immediately, then let the scheduler take over
-    loop.run_until_complete(sync_cycle())
+    # Start scheduler + first cycle inside the running loop
+    async def _bootstrap():
+        scheduler.start()
+        await sync_cycle()
+
+    loop.run_until_complete(_bootstrap())
 
     try:
         loop.run_forever()
