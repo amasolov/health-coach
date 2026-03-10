@@ -1181,7 +1181,13 @@ def _create_hevy_routine_locked(rec: Recommendation, hevy_api_key: str) -> dict:
             data = r.json()
         except Exception:
             data = {}
-        routine = data.get("routine", data) if data else {}
+        if isinstance(data, list):
+            data = data[0] if data else {}
+        if not isinstance(data, dict):
+            data = {}
+        routine = data.get("routine", data)
+        if not isinstance(routine, dict):
+            routine = {}
         routine_id = str(routine.get("id", ""))
 
         if routine_id:
