@@ -36,6 +36,18 @@ _CYCLING_TYPES = frozenset({
 })
 
 
+_RUNNING_TYPES = frozenset({
+    "running", "trail_running", "treadmill_running", "track_running",
+    "ultra_run", "virtual_run",
+})
+
+
+def _is_running(activity_type: str) -> bool:
+    return activity_type in _RUNNING_TYPES or any(
+        k in activity_type for k in ("running", "trail", "treadmill")
+    )
+
+
 def _estimate_tss(
     duration_s: float,
     avg_hr: float | None,
@@ -46,31 +58,36 @@ def _estimate_tss(
     resting_hr: float | None,
     ae_effect: float | None,
     activity_type: str = "",
+    rftp: float | None = None,
 ) -> float | None:
     """Estimate TSS from available data, preferring power > HR > training effect.
 
-    Power-based TSS is restricted to cycling (FTP is cycling-specific).
-    Running power from HRM Pro is on a different scale and must not be
-    divided by cycling FTP.
+    Power-based TSS:
+      - Cycling: NP (or avg power) / cycling FTP
+      - Running: NP (or avg power) / running FTP (critical_power from Garmin)
+    Running power from HRM Pro must NOT be divided by cycling FTP — they
+    are on completely different scales.
 
-    HR-based TSS uses the Training Peaks hrTSS formula:
+    HR-based TSS (fallback) uses the Training Peaks hrTSS formula:
         IF = avgHR / LTHR
         TSS = hours × IF² × 100
-    This matches Training Peaks exactly when the correct LTHR is configured
-    in athlete.yaml (lthr_run for running, lthr_bike for cycling).
     """
     if not duration_s or duration_s <= 0:
         return None
 
     hours = duration_s / 3600
+    power = norm_power or avg_power
 
-    # Power-based TSS — only valid for cycling where FTP is meaningful
+    # Power-based TSS for cycling (using cycling FTP)
     is_cycling = activity_type in _CYCLING_TYPES
-    if is_cycling and ftp and ftp > 0:
-        power = norm_power or avg_power
-        if power and power > 0:
-            intensity = power / ftp
-            return round(hours * intensity * intensity * 100, 1)
+    if is_cycling and ftp and ftp > 0 and power and power > 0:
+        intensity = power / ftp
+        return round(hours * intensity * intensity * 100, 1)
+
+    # Power-based TSS for running (using running FTP / critical power)
+    if _is_running(activity_type) and rftp and rftp > 0 and power and power > 0:
+        intensity = power / rftp
+        return round(hours * intensity * intensity * 100, 1)
 
     # HR-based TSS (Training Peaks hrTSS formula: IF = avgHR / LTHR)
     if avg_hr and avg_hr > 0:
@@ -137,6 +154,7 @@ def _extract_activity(act: dict, user_thresholds: dict) -> dict:
     if_garmin = act.get("intensityFactor")
 
     ftp = user_thresholds.get("ftp")
+    rftp = user_thresholds.get("rftp")
     lthr = user_thresholds.get("lthr_run") if sport not in _CYCLING_TYPES else user_thresholds.get("lthr_bike")
 
     tss = tss_garmin
@@ -144,9 +162,14 @@ def _extract_activity(act: dict, user_thresholds: dict) -> dict:
     if not tss:
         tss = _estimate_tss(duration, avg_hr, avg_power, norm_power,
                             ftp, lthr, None, ae,
-                            activity_type=sport)
-    if not intensity_factor and norm_power and ftp and ftp > 0 and sport in _CYCLING_TYPES:
-        intensity_factor = round(norm_power / ftp, 3)
+                            activity_type=sport, rftp=rftp)
+    if not intensity_factor:
+        power = norm_power or avg_power
+        if power and power > 0:
+            if sport in _CYCLING_TYPES and ftp and ftp > 0:
+                intensity_factor = round(power / ftp, 3)
+            elif _is_running(sport) and rftp and rftp > 0:
+                intensity_factor = round(power / rftp, 3)
 
     cadence = (act.get("averageRunningCadenceInStepsPerMinute")
                or act.get("averageBikingCadenceInRevPerMinute"))
@@ -376,24 +399,15 @@ def _upsert_vitals(cur, user_id: int, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _load_user_thresholds(slug: str) -> dict:
-    """Load threshold values used for TSS estimation."""
-    from pathlib import Path
-    import yaml
+    """Load threshold values used for TSS estimation.
 
-    path = Path(__file__).resolve().parent.parent / "config" / "athlete.yaml"
-    if not path.exists():
-        return {}
-    with open(path) as f:
-        data = yaml.safe_load(f) or {}
-    user = data.get("users", {}).get(slug, {})
-    thresholds = user.get("thresholds", {})
-    body = user.get("body", {})
-    return {
-        "ftp": thresholds.get("cycling", {}).get("ftp"),
-        "lthr_run": thresholds.get("heart_rate", {}).get("lthr_run"),
-        "resting_hr": thresholds.get("heart_rate", {}).get("resting_hr"),
-        "weight_kg": body.get("weight_kg"),
-    }
+    For running power TSS, prefer rftp_garmin (Garmin HRM Pro scale) over
+    critical_power (Stryd scale). Both activity power and rftp must be on the
+    same scale for IF to be meaningful — Garmin activities report HRM Pro power,
+    so we use Garmin's FTP for running.
+    """
+    from scripts.athlete_store import load_thresholds_flat
+    return load_thresholds_flat(slug)
 
 
 # ---------------------------------------------------------------------------

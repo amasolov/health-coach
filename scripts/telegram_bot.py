@@ -669,7 +669,11 @@ def main() -> None:
         len(_USERS_BY_SLUG),
         CHAT_MODEL,
     )
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        poll_interval=1.0,
+        timeout=30,
+    )
 
 
 if __name__ == "__main__":

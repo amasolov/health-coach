@@ -95,6 +95,10 @@ TOOL_DISPLAY_NAMES = {
     "apply_exercise_feedback":   "Exercise Feedback Update",
     "get_routine_weight_recommendations": "Routine Weight Recommendations",
     "generate_telegram_link_code":   "Telegram Link Code",
+    "setup_running_hr_zones":    "Running HR Zones Setup",
+    "search_knowledge_base":     "Knowledge Base Search",
+    "list_knowledge_documents":  "Knowledge Documents",
+    "delete_knowledge_document": "Knowledge Document Deletion",
 }
 ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "").lower() in ("true", "1", "yes")
 SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))
@@ -372,6 +376,17 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         "When a user asks about any iFit workout, program, series, or trainer, "
         "USE these tools to look it up. For program/series questions, try "
         "search_ifit_programs first, then search_ifit_library.\n"
+        "\nHevy Routine Creation:\n"
+        "create_hevy_routine_from_recommendation AUTOMATICALLY creates the "
+        "routine in the user's Hevy account via the API. When the tool returns "
+        "successfully (status 'created'), tell the user the routine is ready in "
+        "their Hevy app — do NOT provide manual setup instructions. Only show "
+        "manual steps if the tool returns an error. If status is "
+        "'created_incomplete', tell the user which exercises were skipped and "
+        "need to be added manually in Hevy, but make clear the rest of the "
+        "routine was created automatically. If status is 'already_exists', "
+        "tell the user the routine is already in their Hevy app — no "
+        "duplicate was created.\n"
     )
 
     try:

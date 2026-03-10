@@ -171,9 +171,9 @@ def gather_athlete_state(user_slug: str) -> AthleteState:
         get_activities,
         resolve_user_id,
     )
+    from scripts.athlete_store import load as _load_athlete
 
-    athlete = _load_yaml(ATHLETE_PATH)
-    user_cfg = athlete.get("users", {}).get(user_slug, {})
+    user_cfg = _load_athlete(user_slug) or {}
     goals = user_cfg.get("goals", {})
     ifit_prefs = user_cfg.get("ifit", {})
 
@@ -909,13 +909,86 @@ def _parse_reps_for_hevy(reps_val) -> dict:
         return {"reps": 12}
 
 
+def _find_existing_routine(
+    ifit_workout_id: str, title: str, hevy_api_key: str,
+) -> dict | None:
+    """Check if a Hevy routine already exists for this iFit workout.
+
+    Returns the existing routine info dict or None.
+    Checks two sources: the R2 routine map (by iFit workout ID) and
+    the Hevy API (by title prefix match).
+    """
+    expected_title = f"iFit: {title}"
+
+    # 1) Check R2 mapping for this iFit workout ID
+    mapping = _load_routine_map()
+    for routine_id, entry in mapping.items():
+        if entry.get("ifit_workout_id") == ifit_workout_id:
+            try:
+                r = httpx.get(
+                    f"{HEVY_BASE}/v1/routines/{routine_id}",
+                    headers={"api-key": hevy_api_key, "accept": "application/json"},
+                    timeout=15,
+                )
+                if r.status_code == 200:
+                    routine = r.json().get("routine", r.json())
+                    print(f"  Found existing routine by iFit mapping: {routine_id}")
+                    return {
+                        "routine_id": str(routine.get("id", routine_id)),
+                        "title": routine.get("title", entry.get("title", "")),
+                        "exercise_count": len(routine.get("exercises", [])),
+                        "source": "ifit_mapping",
+                    }
+            except Exception:
+                pass
+
+    # 2) Query Hevy routines list for a title match
+    try:
+        r = httpx.get(
+            f"{HEVY_BASE}/v1/routines",
+            headers={"api-key": hevy_api_key, "accept": "application/json"},
+            params={"page": 1, "pageSize": 50},
+            timeout=15,
+        )
+        if r.status_code == 200:
+            for rt in r.json().get("routines", []):
+                if rt.get("title", "").strip().lower() == expected_title.strip().lower():
+                    rid = str(rt["id"])
+                    print(f"  Found existing routine by title match: {rid}")
+                    return {
+                        "routine_id": rid,
+                        "title": rt["title"],
+                        "exercise_count": len(rt.get("exercises", [])),
+                        "source": "title_match",
+                    }
+    except Exception:
+        pass
+
+    return None
+
+
 def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
     """Create a Hevy routine from a recommendation.
 
-    Resolves all exercises to Hevy template IDs (matching existing or creating
-    custom exercises as needed), then creates the routine via POST /v1/routines.
+    Checks for duplicates first (by iFit workout ID mapping and Hevy title),
+    then resolves exercises to Hevy template IDs and creates the routine.
     """
     from scripts.hevy_exercise_resolver import resolve_hevy_exercises
+
+    existing = _find_existing_routine(rec.workout_id, rec.title, hevy_api_key)
+    if existing:
+        return {
+            "status": "already_exists",
+            "routine_id": existing["routine_id"],
+            "title": existing["title"],
+            "exercise_count": existing["exercise_count"],
+            "message": (
+                f"A Hevy routine for this workout already exists: "
+                f"\"{existing['title']}\" ({existing['exercise_count']} exercises). "
+                f"No duplicate was created. Tell the user it's already in their "
+                f"Hevy app and ready to use."
+            ),
+        }
 
     print(f"  Resolving {len(rec.exercises)} exercises for Hevy...")
     resolved = resolve_hevy_exercises(rec.exercises, hevy_api_key, workout_id=rec.workout_id)
@@ -1007,7 +1080,15 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
             "resolution": resolution_summary,
         }
         if skipped:
+            result["status"] = "created_incomplete"
             result["skipped_exercises"] = skipped
+            result["warning"] = (
+                f"{len(skipped)} exercise(s) could not be added to the Hevy routine "
+                f"because they failed to resolve: {', '.join(skipped)}. "
+                f"The routine was created with {len(exercises_payload)} of "
+                f"{len(rec.exercises)} exercises. Tell the user which exercises "
+                f"are missing and suggest they add them manually in the Hevy app."
+            )
         return result
     else:
         print(f"  Hevy routine creation failed: HTTP {r.status_code} - {r.text[:500]}")

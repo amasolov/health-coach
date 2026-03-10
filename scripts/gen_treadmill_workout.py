@@ -161,9 +161,9 @@ def main() -> int:
         print(f"Available: {', '.join(all_templates.keys())}")
         return 1
 
-    athlete = load_yaml(ATHLETE_PATH)
+    from scripts.athlete_store import load as _load_athlete
     zones = load_yaml(ZONES_PATH)
-    user_data = get_user_data(athlete, args.user)
+    user_data = _load_athlete(args.user) or {}
     template = all_templates[args.template]
 
     missing_zones = set()

@@ -21,9 +21,9 @@ from pathlib import Path
 import yaml
 
 from scripts.tz import load_user_tz, user_today
+from scripts import athlete_store
 
 ROOT = Path(__file__).resolve().parent.parent
-ATHLETE_PATH = ROOT / "config" / "athlete.yaml"
 ZONES_PATH = ROOT / "config" / "zones.yaml"
 
 
@@ -125,22 +125,47 @@ def process_user(slug: str, athlete_data: dict, zones_data: dict) -> bool:
     return updated
 
 
+def _list_slugs() -> list[str]:
+    """List all athlete slugs from DB, falling back to YAML."""
+    try:
+        conn = athlete_store._try_conn()
+        if conn:
+            cur = conn.cursor()
+            cur.execute("SELECT slug FROM athlete_config ORDER BY slug")
+            slugs = [r[0] for r in cur.fetchall()]
+            conn.close()
+            if slugs:
+                return slugs
+    except Exception:
+        pass
+    # Fallback to YAML
+    yaml_path = ROOT / "config" / "athlete.yaml"
+    if yaml_path.exists():
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f) or {}
+        return list(data.get("users", {}).keys())
+    return []
+
+
 def main() -> int:
-    athlete = load_yaml(ATHLETE_PATH)
     zones = load_yaml(ZONES_PATH)
 
     target_slug = os.environ.get("USER_SLUG")
-    users_athlete = athlete.get("users", {})
+    slugs = _list_slugs()
     users_zones = zones.get("users", {})
 
-    if not users_athlete:
-        print("No users found in athlete.yaml. Is it in multi-user format?")
+    if not slugs:
+        print("No users found. Ensure athlete configs are seeded in the DB.")
         return 1
 
     any_updated = False
 
-    for slug, adata in users_athlete.items():
+    for slug in slugs:
         if target_slug and slug != target_slug:
+            continue
+
+        adata = athlete_store.load(slug)
+        if not adata:
             continue
 
         print(f"\n--- Zones for {slug} ---")
@@ -156,7 +181,7 @@ def main() -> int:
         save_yaml(ZONES_PATH, zones)
         print(f"\nZones updated in {ZONES_PATH}")
     else:
-        print("\nNo threshold data available. Populate config/athlete.yaml first.")
+        print("\nNo threshold data available.")
         return 1
 
     return 0

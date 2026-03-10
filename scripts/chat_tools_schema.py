@@ -126,6 +126,20 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "setup_running_hr_zones",
+            "description": (
+                "Analyse available data (LTHR, max HR, resting HR, recent hard runs, age) "
+                "and recommend running heart rate zones using the best possible estimation method. "
+                "Returns zone boundaries in BPM, Garmin watch setup instructions, and recommendations "
+                "to improve accuracy. Call this when the user wants to set up, review, or update their "
+                "running HR zones, or asks about configuring their Garmin watch HR zones."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_athlete_profile",
             "description": "Get the athlete's profile: goals, thresholds, body composition, training status, and treadmill zone-to-speed mapping.",
             "parameters": {"type": "object", "properties": {}, "required": []},
@@ -881,6 +895,7 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "get_body_composition":         (health_tools.get_body_composition, "uid"),
     "get_vitals":                   (health_tools.get_vitals, "uid"),
     "get_training_zones":           (health_tools.get_training_zones, "slug"),
+    "setup_running_hr_zones":       (health_tools.setup_running_hr_zones, "slug"),
     "get_athlete_profile":          (health_tools.get_athlete_profile, "slug"),
     "get_strength_sessions":        (health_tools.get_strength_sessions, "uid"),
     "list_treadmill_templates":     (health_tools.list_treadmill_templates, "none"),

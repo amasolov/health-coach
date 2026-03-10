@@ -983,16 +983,10 @@ def _compute_ctl(daily_tss: dict[str, float]) -> float:
 # ---------------------------------------------------------------------------
 
 def _load_user_goals(slug: str) -> dict:
-    """Load goals from athlete.yaml for a user."""
-    import yaml
-    from pathlib import Path
-
-    path = Path(__file__).resolve().parent.parent / "config" / "athlete.yaml"
-    if not path.exists():
-        return {}
-    with open(path) as f:
-        data = yaml.safe_load(f) or {}
-    return data.get("users", {}).get(slug, {}).get("goals", {})
+    """Load goals for a user from the athlete config DB."""
+    from scripts.athlete_store import load as _load_athlete
+    config = _load_athlete(slug)
+    return config.get("goals", {}) if config else {}
 
 
 def assess_fitness(

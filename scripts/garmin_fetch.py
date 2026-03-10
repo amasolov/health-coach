@@ -41,6 +41,12 @@ FIELD_HINTS: dict[str, str] = {
         "Stryd calculates this automatically from your running data -- check "
         "the Stryd app under the Power tab. Skip if you don't use Stryd yet."
     ),
+    "rftp_garmin": (
+        "Garmin auto-detects running FTP from your HRM Pro data. Run "
+        "outdoors at varied intensities with the chest strap for Garmin "
+        "to estimate this. Note: Garmin running power is on a different "
+        "scale than Stryd/TrainingPeaks (~32-38%% higher)."
+    ),
     "threshold_pace": (
         "The pace you could sustain for roughly 60 minutes all-out. Garmin "
         "race predictions can help estimate this."
@@ -203,7 +209,12 @@ def _extract_max_metrics(client: Garmin, today: date | None = None) -> tuple[dic
 
 
 def _extract_lactate_threshold(client: Garmin) -> tuple[dict, dict]:
-    """Pull lactate threshold HR, pace, and power."""
+    """Pull lactate threshold HR, pace, and running power.
+
+    The Garmin API may return a nested structure:
+      {"speed_and_heart_rate": {heartRate, speed, ...}, "power": {functionalThresholdPower, ...}}
+    or a flat dict with the fields at the top level.
+    """
     result = {}
     sources = {}
 
@@ -212,23 +223,43 @@ def _extract_lactate_threshold(client: Garmin) -> tuple[dict, dict]:
         return result, sources
 
     if isinstance(data, dict):
-        lt_hr = data.get("lactateThresholdHeartRate") or data.get("heartRate")
+        # HR and speed may be nested under "speed_and_heart_rate"
+        hr_data = data.get("speed_and_heart_rate", data)
+        if not isinstance(hr_data, dict):
+            hr_data = data
+
+        lt_hr = (
+            hr_data.get("heartRate")
+            or hr_data.get("lactateThresholdHeartRate")
+            or data.get("lactateThresholdHeartRate")
+            or data.get("heartRate")
+        )
         if lt_hr and lt_hr > 0:
             result["lthr_run"] = int(lt_hr)
             sources["lthr_run"] = "garmin_lactate_threshold"
 
-        speed = data.get("runningLactateThresholdSpeed") or data.get("speed")
+        speed = (
+            hr_data.get("speed")
+            or hr_data.get("runningLactateThresholdSpeed")
+            or data.get("runningLactateThresholdSpeed")
+            or data.get("speed")
+        )
         if speed and speed > 0:
             pace_min_km = (1000 / float(speed)) / 60
             result["threshold_pace"] = round(pace_min_km, 2)
             sources["threshold_pace"] = "garmin_lactate_threshold"
 
+        # Running power threshold — Garmin uses "functionalThresholdPower"
         power = data.get("power")
         if isinstance(power, dict):
-            cp = power.get("criticalPower") or power.get("power")
-            if cp and cp > 0:
-                result["critical_power"] = int(cp)
-                sources["critical_power"] = "garmin_lactate_threshold"
+            rftp = (
+                power.get("functionalThresholdPower")
+                or power.get("criticalPower")
+                or power.get("power")
+            )
+            if rftp and rftp > 0:
+                result["rftp_garmin"] = int(rftp)
+                sources["rftp_garmin"] = "garmin_lactate_threshold"
 
     return result, sources
 
@@ -368,7 +399,7 @@ def fetch_garmin_profile(slug: str, client: Garmin) -> dict:
         "profile": profile,
         "thresholds": {
             "heart_rate": {**hr, **max_hr},
-            "running": {**metrics, **{k: v for k, v in lt.items() if k in ("threshold_pace", "critical_power", "vo2max_garmin")}},
+            "running": {**metrics, **{k: v for k, v in lt.items() if k in ("threshold_pace", "critical_power", "rftp_garmin", "vo2max_garmin")}},
             "cycling": ftp,
         },
         "body": body,
@@ -386,7 +417,7 @@ def fetch_garmin_profile(slug: str, client: Garmin) -> dict:
     expected_fields = {
         "profile": ["date_of_birth", "sex", "height_cm"],
         "thresholds.heart_rate": ["max_hr", "resting_hr", "lthr_run", "lthr_bike"],
-        "thresholds.running": ["critical_power", "threshold_pace", "vo2max_garmin"],
+        "thresholds.running": ["critical_power", "rftp_garmin", "threshold_pace", "vo2max_garmin"],
         "thresholds.cycling": ["ftp"],
         "body": ["weight_kg", "body_fat_pct"],
     }
@@ -413,29 +444,25 @@ def fetch_garmin_profile(slug: str, client: Garmin) -> dict:
 def merge_into_athlete_yaml(
     athlete_path: str, slug: str, fetched: dict
 ) -> dict:
-    """
-    Merge fetched values into athlete.yaml for a user.
+    """Merge fetched values into athlete config.
+
     Only fills null fields -- never overwrites existing values.
     Returns a dict of what was actually written.
+
+    The ``athlete_path`` parameter is kept for backward compatibility but
+    is no longer used directly; all I/O goes through athlete_store.
     """
-    import yaml
-    from pathlib import Path
+    from scripts import athlete_store
 
-    path = Path(athlete_path)
-    with open(path) as f:
-        data = yaml.safe_load(f) or {}
-
-    user = data.setdefault("users", {}).setdefault(slug, {})
+    user = athlete_store.load(slug) or {}
     written = {}
 
-    # Profile
     prof = user.setdefault("profile", {})
     for k, v in fetched.get("profile", {}).items():
         if prof.get(k) is None and v is not None:
             prof[k] = v
             written[f"profile.{k}"] = v
 
-    # Thresholds
     thresh = user.setdefault("thresholds", {})
     for sub in ("heart_rate", "running", "cycling"):
         section = thresh.setdefault(sub, {})
@@ -444,41 +471,149 @@ def merge_into_athlete_yaml(
                 section[k] = v
                 written[f"thresholds.{sub}.{k}"] = v
 
-    # Body
     body = user.setdefault("body", {})
     for k, v in fetched.get("body", {}).items():
         if body.get(k) is None and v is not None:
             body[k] = v
             written[f"body.{k}"] = v
 
-    with open(path, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-
+    athlete_store.save(slug, user)
     return written
+
+
+_THRESHOLD_FIELD_MAP = {
+    "lthr_run": ("thresholds", "heart_rate"),
+    "lthr_bike": ("thresholds", "heart_rate"),
+    "max_hr": ("thresholds", "heart_rate"),
+    "resting_hr": ("thresholds", "heart_rate"),
+    "critical_power": ("thresholds", "running"),
+    "rftp_garmin": ("thresholds", "running"),
+    "threshold_pace": ("thresholds", "running"),
+    "vo2max_garmin": ("thresholds", "running"),
+    "ftp": ("thresholds", "cycling"),
+    "ftp_wkg": ("thresholds", "cycling"),
+}
+
+# Significance thresholds for logging advisories when Garmin differs from lab
+_SIGNIFICANCE_THRESHOLDS = {
+    "lthr_run": 5,       # bpm
+    "lthr_bike": 5,      # bpm
+    "max_hr": 3,         # bpm
+    "resting_hr": 5,     # bpm
+    "rftp_garmin": 10,   # watts
+    "critical_power": 10,  # watts
+    "ftp": 10,           # watts
+    "threshold_pace": 0.15,  # min/km
+    "vo2max_garmin": 1.0,
+}
+
+
+def refresh_thresholds(
+    slug: str,
+    fetched: dict,
+    fetched_sources: dict | None = None,
+) -> dict:
+    """Source-aware threshold refresh: always compare, auto-update non-lab fields.
+
+    Returns a dict with:
+      - "updated": dict of field_path -> new_value (fields that were changed)
+      - "advisories": list of dicts describing significant differences from lab values
+      - "garmin_latest": dict of field -> value (latest Garmin values stored in _sources)
+    """
+    from datetime import date as _date
+    from scripts import athlete_store
+
+    user = athlete_store.load(slug) or {}
+    thresh = user.setdefault("thresholds", {})
+    sources = thresh.setdefault("_sources", {})
+    today = str(_date.today())
+
+    updated = {}
+    advisories = []
+    garmin_latest = {}
+
+    fetched_thresholds = fetched.get("thresholds", {})
+    flat_fetched = {}
+    for sub in ("heart_rate", "running", "cycling"):
+        for k, v in fetched_thresholds.get(sub, {}).items():
+            if v is not None:
+                flat_fetched[k] = v
+
+    for field, new_val in flat_fetched.items():
+        field_map = _THRESHOLD_FIELD_MAP.get(field)
+        if not field_map:
+            continue
+
+        section_key = field_map[1]
+        section = thresh.setdefault(section_key, {})
+        current_val = section.get(field)
+
+        src = sources.setdefault(field, {})
+        origin = src.get("origin", "")
+
+        garmin_latest[field] = new_val
+        src["garmin_latest"] = new_val
+        src["garmin_date"] = today
+
+        if current_val is None:
+            section[field] = new_val
+            src.setdefault("origin", "garmin")
+            src["date"] = today
+            if not src.get("origin"):
+                src["origin"] = "garmin"
+            updated[f"thresholds.{section_key}.{field}"] = new_val
+            continue
+
+        if origin == "lab":
+            sig = _SIGNIFICANCE_THRESHOLDS.get(field, 0)
+            if sig and abs(new_val - current_val) > sig:
+                advisories.append({
+                    "field": field,
+                    "current": current_val,
+                    "garmin": new_val,
+                    "source": "lab",
+                    "message": (
+                        f"{field}: lab value {current_val} differs significantly "
+                        f"from Garmin auto-detect {new_val} (Δ{new_val - current_val:+g})"
+                    ),
+                })
+            continue
+
+        if new_val != current_val:
+            section[field] = new_val
+            src["date"] = today
+            if not origin:
+                src["origin"] = "garmin"
+            updated[f"thresholds.{section_key}.{field}"] = new_val
+
+    body = user.setdefault("body", {})
+    for k, v in fetched.get("body", {}).items():
+        if body.get(k) is None and v is not None:
+            body[k] = v
+            updated[f"body.{k}"] = v
+
+    prof = user.setdefault("profile", {})
+    for k, v in fetched.get("profile", {}).items():
+        if prof.get(k) is None and v is not None:
+            prof[k] = v
+            updated[f"profile.{k}"] = v
+
+    athlete_store.save(slug, user)
+
+    return {
+        "updated": updated,
+        "advisories": advisories,
+        "garmin_latest": garmin_latest,
+    }
 
 
 def update_athlete_field(
     athlete_path: str, slug: str, field_path: str, value: Any
 ) -> None:
-    """
-    Set a single field in athlete.yaml for a user.
+    """Set a single nested field in the athlete config.
+
     field_path is dot-separated, e.g. 'thresholds.heart_rate.max_hr'.
+    The ``athlete_path`` parameter is kept for backward compatibility.
     """
-    import yaml
-    from pathlib import Path
-
-    path = Path(athlete_path)
-    with open(path) as f:
-        data = yaml.safe_load(f) or {}
-
-    user = data.setdefault("users", {}).setdefault(slug, {})
-
-    parts = field_path.split(".")
-    target = user
-    for part in parts[:-1]:
-        target = target.setdefault(part, {})
-
-    target[parts[-1]] = value
-
-    with open(path, "w") as f:
-        yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    from scripts import athlete_store
+    athlete_store.update_field(slug, field_path, value)

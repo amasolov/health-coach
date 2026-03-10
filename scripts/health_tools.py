@@ -19,6 +19,7 @@ import psycopg2
 import yaml
 
 from scripts.tz import DEFAULT_TZ_NAME, load_user_tz, user_today
+from scripts import athlete_store
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -332,11 +333,364 @@ def get_training_zones(user_slug: str) -> dict:
     return result
 
 
+def setup_running_hr_zones(user_slug: str) -> dict:
+    """Analyse available data, estimate running HR zones using the best
+    method, and provide Garmin watch setup instructions.
+
+    Method hierarchy (best to worst):
+      1. Lab lactate test LT2 heart rate
+      2. Garmin auto-detected LTHR
+      3. LTHR estimated from recent hard running efforts in the DB
+      4. Heart Rate Reserve (Karvonen) — needs max_hr + resting_hr
+      5. Percentage of observed max HR
+      6. Age-predicted max HR (Tanaka formula)
+    """
+    from datetime import date, timedelta
+
+    user_data = athlete_store.load(user_slug)
+    if not user_data:
+        return {"error": f"No athlete data for user '{user_slug}'"}
+
+    hr = user_data.get("thresholds", {}).get("heart_rate", {})
+    lactate = user_data.get("thresholds", {}).get("lactate", {})
+    profile = user_data.get("profile", {})
+    sources = user_data.get("thresholds", {}).get("_sources", {})
+
+    max_hr = hr.get("max_hr")
+    resting_hr = hr.get("resting_hr")
+    lthr_run = hr.get("lthr_run")
+    lt2_hr = lactate.get("lt2_hr")
+    lt1_hr = lactate.get("lt1_hr")
+    dob = profile.get("date_of_birth")
+
+    # Surface Garmin's latest auto-detected values alongside configured values
+    garmin_vs_configured = {}
+    for field in ("lthr_run", "rftp_garmin", "threshold_pace"):
+        src = sources.get(field, {})
+        garmin_val = src.get("garmin_latest")
+        if garmin_val is not None:
+            section_key = "heart_rate" if field == "lthr_run" else "running"
+            configured_val = user_data.get("thresholds", {}).get(section_key, {}).get(field)
+            garmin_vs_configured[field] = {
+                "configured": configured_val,
+                "garmin_latest": garmin_val,
+                "source": src.get("origin", "unknown"),
+                "garmin_date": src.get("garmin_date"),
+            }
+
+    data_inventory = {
+        "max_hr": max_hr,
+        "resting_hr": resting_hr,
+        "lthr_run": lthr_run,
+        "lt2_hr_lab": lt2_hr,
+        "lt1_hr_lab": lt1_hr,
+        "date_of_birth": dob,
+    }
+    if garmin_vs_configured:
+        data_inventory["garmin_vs_configured"] = garmin_vs_configured
+
+    # --- Try to find LTHR from recent hard running efforts in the DB ---
+    estimated_lthr_from_effort = None
+    effort_detail = None
+    try:
+        user_id = resolve_user_id(user_slug)
+    except Exception:
+        user_id = None
+    if user_id and not lthr_run and not lt2_hr:
+        today = date.today()
+        start = (today - timedelta(days=180)).isoformat()
+        end = (today + timedelta(days=1)).isoformat()
+        hard_runs = query(
+            """SELECT time, title, duration_s, distance_m, avg_hr, max_hr
+               FROM activities
+               WHERE user_id = %s
+                 AND time >= %s AND time < %s
+                 AND LOWER(activity_type) LIKE '%%running%%'
+                 AND avg_hr IS NOT NULL
+                 AND duration_s BETWEEN 1200 AND 5400
+               ORDER BY avg_hr DESC
+               LIMIT 5""",
+            (user_id, start, end),
+        )
+        data_inventory["hard_runs_found"] = len(hard_runs)
+
+        if hard_runs:
+            best = hard_runs[0]
+            dur_min = (best["duration_s"] or 0) / 60
+            avg = best["avg_hr"]
+            if dur_min >= 20 and avg and avg > 140:
+                if dur_min >= 50:
+                    estimated_lthr_from_effort = avg
+                elif dur_min >= 30:
+                    estimated_lthr_from_effort = round(avg * 0.97)
+                else:
+                    estimated_lthr_from_effort = round(avg * 0.95)
+                effort_detail = {
+                    "activity": best.get("title") or "Running",
+                    "date": str(best["time"])[:10],
+                    "duration_min": round(dur_min),
+                    "avg_hr": avg,
+                    "max_hr_activity": best.get("max_hr"),
+                    "scaling_factor": "Direct" if dur_min >= 50 else
+                                      "×0.97 (30-50min)" if dur_min >= 30 else
+                                      "×0.95 (20-30min)",
+                }
+                data_inventory["estimated_lthr_from_effort"] = estimated_lthr_from_effort
+
+    # --- Also update max_hr from DB if not in config ---
+    observed_max = None
+    if user_id:
+        row = query(
+            """SELECT MAX(max_hr) as peak
+               FROM activities
+               WHERE user_id = %s AND max_hr IS NOT NULL
+                 AND LOWER(activity_type) LIKE '%%running%%'""",
+            (user_id,),
+        )
+        if row and row[0].get("peak"):
+            observed_max = int(row[0]["peak"])
+            data_inventory["observed_max_hr_all_time"] = observed_max
+
+    # --- Age-predicted max HR ---
+    age_predicted_max = None
+    age = None
+    if dob:
+        try:
+            birth = date.fromisoformat(str(dob))
+            age = (date.today() - birth).days // 365
+            age_predicted_max = round(208 - 0.7 * age)  # Tanaka formula
+            data_inventory["age"] = age
+            data_inventory["age_predicted_max_hr"] = age_predicted_max
+        except (ValueError, TypeError):
+            pass
+
+    # --- Select best method and compute zones ---
+    method = None
+    anchor = None
+    anchor_type = None
+    confidence = None
+    zones = []
+    notes = []
+
+    effective_max = max_hr or observed_max or age_predicted_max
+
+    if lt2_hr:
+        method = "lab_lactate_test"
+        anchor = int(lt2_hr)
+        anchor_type = "LTHR (lab LT2)"
+        confidence = "high"
+        notes.append("Using lab-tested LT2 heart rate — gold standard.")
+        if lt1_hr:
+            notes.append(f"LT1 (aerobic threshold) HR: {lt1_hr} bpm — your Zone 2 ceiling.")
+
+    elif lthr_run:
+        method = "garmin_lthr"
+        anchor = int(lthr_run)
+        anchor_type = "LTHR (Garmin auto-detect)"
+        confidence = "high"
+        notes.append(
+            "Using Garmin auto-detected lactate threshold HR. "
+            "Validate with a 30-min time trial for higher confidence."
+        )
+
+    elif estimated_lthr_from_effort:
+        method = "race_effort_estimation"
+        anchor = estimated_lthr_from_effort
+        anchor_type = "LTHR (estimated from hard effort)"
+        confidence = "medium"
+        notes.append(
+            f"Estimated LTHR from your hardest recent run: "
+            f"{effort_detail['activity']} on {effort_detail['date']} "
+            f"({effort_detail['duration_min']}min, avg HR {effort_detail['avg_hr']} bpm). "
+            f"Scaling: {effort_detail['scaling_factor']}."
+        )
+        notes.append(
+            "This is a reasonable estimate. For higher confidence, do a "
+            "dedicated 30-min all-out run (avg HR of last 20 min = LTHR)."
+        )
+
+    elif effective_max and resting_hr:
+        method = "heart_rate_reserve_karvonen"
+        anchor_type = "HRR (Karvonen)"
+        confidence = "medium" if max_hr else "low"
+        hrr = effective_max - resting_hr
+        max_source = ("observed" if max_hr else
+                      "DB peak" if observed_max else "age-predicted (Tanaka)")
+        notes.append(
+            f"Using Heart Rate Reserve method. Max HR: {effective_max} bpm "
+            f"({max_source}), Resting HR: {resting_hr} bpm, HRR: {hrr} bpm."
+        )
+        if not max_hr:
+            notes.append(
+                "Max HR is estimated — do a max HR test or hard race effort "
+                "to validate. Age formulas have ±10-12 bpm error."
+            )
+        zones = [
+            {"name": "Zone 1 - Recovery",        "lower": resting_hr + round(hrr * 0.50), "upper": resting_hr + round(hrr * 0.60)},
+            {"name": "Zone 2 - Aerobic",         "lower": resting_hr + round(hrr * 0.60), "upper": resting_hr + round(hrr * 0.70)},
+            {"name": "Zone 3 - Tempo",           "lower": resting_hr + round(hrr * 0.70), "upper": resting_hr + round(hrr * 0.80)},
+            {"name": "Zone 4 - Threshold",       "lower": resting_hr + round(hrr * 0.80), "upper": resting_hr + round(hrr * 0.90)},
+            {"name": "Zone 5 - VO2max/Anaerobic","lower": resting_hr + round(hrr * 0.90), "upper": effective_max},
+        ]
+
+    elif effective_max:
+        method = "percent_max_hr"
+        anchor_type = "%MaxHR"
+        confidence = "low"
+        max_source = ("observed" if max_hr else
+                      "DB peak" if observed_max else "age-predicted (Tanaka)")
+        notes.append(
+            f"Using %Max HR method (least accurate). Max HR: {effective_max} bpm "
+            f"({max_source})."
+        )
+        notes.append(
+            "Without resting HR, we can't use the more accurate Karvonen method. "
+            "Wear your watch overnight for a few nights to get resting HR."
+        )
+        zones = [
+            {"name": "Zone 1 - Recovery",        "lower": round(effective_max * 0.50), "upper": round(effective_max * 0.60)},
+            {"name": "Zone 2 - Aerobic",         "lower": round(effective_max * 0.60), "upper": round(effective_max * 0.70)},
+            {"name": "Zone 3 - Tempo",           "lower": round(effective_max * 0.70), "upper": round(effective_max * 0.80)},
+            {"name": "Zone 4 - Threshold",       "lower": round(effective_max * 0.80), "upper": round(effective_max * 0.90)},
+            {"name": "Zone 5 - VO2max/Anaerobic","lower": round(effective_max * 0.90), "upper": effective_max},
+        ]
+    else:
+        return {
+            "error": "Insufficient data to estimate HR zones",
+            "data_available": data_inventory,
+            "recommendations": [
+                "Run `garmin_fetch_profile` to pull max HR, resting HR, and LTHR from Garmin",
+                "Do a few outdoor runs with your chest strap so Garmin can auto-detect LTHR",
+                "As a last resort, we can use age-predicted values if DOB is set in your profile",
+            ],
+        }
+
+    # LTHR-based zones (Friel 5-zone model) for methods 1-3
+    if anchor and not zones:
+        zones = [
+            {"name": "Zone 1 - Recovery",         "lower": round(anchor * 0.00), "upper": round(anchor * 0.81)},
+            {"name": "Zone 2 - Aerobic",           "lower": round(anchor * 0.81), "upper": round(anchor * 0.89)},
+            {"name": "Zone 3 - Tempo",             "lower": round(anchor * 0.90), "upper": round(anchor * 0.93)},
+            {"name": "Zone 4 - Sub-Threshold",     "lower": round(anchor * 0.94), "upper": round(anchor * 0.99)},
+            {"name": "Zone 5a - Super-Threshold",  "lower": round(anchor * 1.00), "upper": round(anchor * 1.02)},
+            {"name": "Zone 5b - Aerobic Capacity",  "lower": round(anchor * 1.03), "upper": round(anchor * 1.06)},
+            {"name": "Zone 5c - Anaerobic Capacity","lower": round(anchor * 1.06), "upper": effective_max or round(anchor * 1.15)},
+        ]
+
+    # --- Garmin watch setup instructions ---
+    garmin_zones_5 = []
+    if len(zones) > 5:
+        garmin_zones_5 = [
+            {"name": "Zone 1", "lower": zones[0]["lower"], "upper": zones[0]["upper"]},
+            {"name": "Zone 2", "lower": zones[1]["lower"], "upper": zones[1]["upper"]},
+            {"name": "Zone 3", "lower": zones[2]["lower"], "upper": zones[2]["upper"]},
+            {"name": "Zone 4", "lower": zones[3]["lower"], "upper": zones[4].get("upper", zones[3]["upper"])},
+            {"name": "Zone 5", "lower": zones[4].get("upper", zones[3]["upper"]) + 1, "upper": zones[-1]["upper"]},
+        ]
+    else:
+        garmin_zones_5 = zones
+
+    garmin_setup = {
+        "method": "Custom BPM (most accurate — avoids Garmin's internal rounding)",
+        "max_hr_to_set": effective_max or (anchor + 15 if anchor else None),
+        "zones_to_enter": garmin_zones_5,
+        "instructions_watch": [
+            "From the watch face, hold MENU (left middle button)",
+            "Scroll to 'User Profile' > 'Heart Rate and Power Zones' > 'Running'",
+            "Select 'Set Custom'",
+            f"Set Max HR to {effective_max or (anchor + 15 if anchor else '???')}",
+            "Enter each zone's upper boundary as shown above",
+        ],
+        "instructions_garmin_connect": [
+            "Open Garmin Connect app > More (⋯) > Settings > User Settings",
+            "Tap 'Heart Rate and Power Zones' > 'Running'",
+            "Toggle 'Based On' to 'Custom'",
+            f"Set Max HR to {effective_max or (anchor + 15 if anchor else '???')}",
+            "Enter each zone's upper limit matching the values above",
+            "Sync your watch to push the new zones",
+        ],
+        "important_notes": [
+            "Set zones for RUNNING specifically (not the default/all-sport zones)",
+            "Garmin uses 5 zones; our 7-zone Friel model maps to their 5 as shown",
+            "After setting, verify on the watch: Menu > User Profile > HR Zones > Running",
+            "Re-run this tool after any threshold test to keep zones current",
+        ],
+    }
+
+    # --- Recommendations to improve accuracy ---
+    recommendations = []
+    if method in ("heart_rate_reserve_karvonen", "percent_max_hr"):
+        recommendations.append({
+            "priority": "high",
+            "action": "Determine your LTHR",
+            "how": (
+                "Option A: Check your Garmin Fenix 8 — go to Performance Stats > "
+                "Lactate Threshold. If Garmin has detected it, run `garmin_fetch_profile` "
+                "to pull it in.\n"
+                "Option B: Do a 30-minute all-out solo run after a 15-min warm-up. "
+                "Your average HR for the last 20 minutes is your LTHR. Update with:\n"
+                "`update_athlete_profile(field_path='thresholds.heart_rate.lthr_run', value=<HR>)`"
+            ),
+            "impact": "Moves you from low/medium → high confidence zones",
+        })
+    if method == "race_effort_estimation":
+        recommendations.append({
+            "priority": "medium",
+            "action": "Validate estimated LTHR with a dedicated test",
+            "how": (
+                "Do a 30-minute all-out solo run after warm-up. Average HR of "
+                "the last 20 minutes should be close to the estimated "
+                f"{estimated_lthr_from_effort} bpm. Update the profile if it differs."
+            ),
+            "impact": "Confirms or corrects the estimate → high confidence",
+        })
+    if not max_hr or (max_hr and age_predicted_max and abs(max_hr - age_predicted_max) > 12):
+        if not max_hr:
+            recommendations.append({
+                "priority": "medium",
+                "action": "Establish true max HR",
+                "how": (
+                    "Do a max HR test: 3×3-min hard uphill intervals with full recovery, "
+                    "then a final all-out 1-min sprint. Your peak HR on the last rep is "
+                    "your max HR. Alternatively, use the highest HR from a hard 5K race."
+                ),
+                "impact": "Better zone ceilings and more accurate %HRmax zones",
+            })
+    if not resting_hr:
+        recommendations.append({
+            "priority": "medium",
+            "action": "Get resting HR",
+            "how": "Wear your Garmin watch overnight for 3-5 nights. It will auto-detect resting HR.",
+            "impact": "Enables the more accurate Karvonen (HRR) method",
+        })
+    if not lt2_hr and method != "lab_lactate_test":
+        recommendations.append({
+            "priority": "low",
+            "action": "Lab lactate test (gold standard)",
+            "how": (
+                "A sports lab test with blood lactate sampling gives you precise "
+                "LT1 and LT2 values. This is the definitive way to set zones."
+            ),
+            "impact": "Highest possible accuracy — identifies both aerobic and anaerobic thresholds",
+        })
+
+    return {
+        "method_used": method,
+        "anchor_type": anchor_type,
+        "anchor_value_bpm": anchor,
+        "confidence": confidence,
+        "data_available": data_inventory,
+        "zones": zones,
+        "garmin_setup": garmin_setup,
+        "recommendations": recommendations if recommendations else None,
+        "notes": notes,
+    }
+
+
 def get_athlete_profile(user_slug: str) -> dict:
     """Get the athlete's profile: goals, thresholds, body composition,
     training status, and treadmill zone-to-speed mapping."""
-    athlete = load_yaml(ATHLETE_PATH)
-    user_data = athlete.get("users", {}).get(user_slug)
+    user_data = athlete_store.load(user_slug)
     if not user_data:
         return {"error": f"No profile configured for user '{user_slug}'"}
 
@@ -417,8 +771,7 @@ def generate_treadmill_workout(user_slug: str, template_key: str) -> dict:
         available = ", ".join(templates.keys())
         raise ValueError(f"Template '{template_key}' not found. Available: {available}")
 
-    athlete = load_yaml(ATHLETE_PATH)
-    user_data = athlete.get("users", {}).get(user_slug, {})
+    user_data = athlete_store.load(user_slug) or {}
     treadmill = user_data.get("treadmill", {})
     zone_map = {**treadmill.get("zone_speed_map", {}), **treadmill.get("hill_map", {})}
 
@@ -523,15 +876,14 @@ def garmin_submit_mfa(user_slug: str, mfa_code: str) -> dict:
 
 
 def garmin_fetch_profile(user_slug: str) -> dict:
-    """Fetch athlete profile data from Garmin Connect and merge into the
-    config.  Auto-populates user profile, body composition, resting HR,
-    max HR, VO2max, lactate threshold, and cycling FTP.
+    """Fetch athlete profile data from Garmin Connect and refresh thresholds.
 
-    Only fills fields that are currently null -- never overwrites."""
+    Uses source-aware merge: auto-updates Garmin/estimated fields but never
+    overwrites lab-tested values. Logs advisories for significant differences."""
     from scripts.garmin_auth import try_cached_login
     from scripts.garmin_fetch import (
         fetch_garmin_profile,
-        merge_into_athlete_yaml,
+        refresh_thresholds as _refresh_thresholds,
     )
 
     client = try_cached_login(user_slug)
@@ -540,14 +892,17 @@ def garmin_fetch_profile(user_slug: str) -> dict:
 
     result = fetch_garmin_profile(user_slug, client)
 
-    written = merge_into_athlete_yaml(
-        str(ATHLETE_PATH), user_slug, result["fetched"]
+    refresh = _refresh_thresholds(
+        user_slug, result["fetched"],
+        fetched_sources=result.get("sources"),
     )
 
     return {
         "fetched": result["fetched"],
         "sources": result["sources"],
-        "written_to_config": written,
+        "written_to_config": refresh["updated"],
+        "advisories": refresh.get("advisories", []),
+        "garmin_latest": refresh.get("garmin_latest", {}),
         "still_missing": result["missing"],
     }
 
@@ -607,18 +962,15 @@ def update_athlete_profile(
 
     field_path is dot-separated relative to the user, for example:
       thresholds.heart_rate.max_hr, body.weight_kg, profile.date_of_birth"""
-    from scripts.garmin_fetch import update_athlete_field
+    athlete_store.update_field(user_slug, field_path, value)
 
-    update_athlete_field(str(ATHLETE_PATH), user_slug, field_path, value)
-
-    athlete = load_yaml(ATHLETE_PATH)
-    user = athlete.get("users", {}).get(user_slug, {})
+    user = athlete_store.load(user_slug) or {}
     if "ftp" in field_path or "weight" in field_path:
         ftp = (user.get("thresholds", {}).get("cycling", {}).get("ftp"))
         weight = user.get("body", {}).get("weight_kg")
         if ftp and weight and weight > 0:
             wkg = round(ftp / weight, 2)
-            update_athlete_field(str(ATHLETE_PATH), user_slug, "thresholds.cycling.ftp_wkg", wkg)
+            athlete_store.update_field(user_slug, "thresholds.cycling.ftp_wkg", wkg)
             return {
                 "updated": field_path,
                 "value": value,
@@ -713,8 +1065,7 @@ def get_onboarding_questions(user_slug: str) -> dict:
     """Get the list of onboarding questions to ask a new user about their
     goals, preferences, and constraints.  Also returns any goals already
     on file so the AI can skip answered questions."""
-    athlete = load_yaml(ATHLETE_PATH)
-    user_data = athlete.get("users", {}).get(user_slug, {})
+    user_data = athlete_store.load(user_slug) or {}
     existing_goals = user_data.get("goals", {})
 
     answered = []
@@ -752,22 +1103,20 @@ def set_user_goals(user_slug: str, goals: dict) -> dict:
     """Store the user's goals, preferences, and constraints in their
     athlete profile.  Only provided keys are updated; existing values
     are preserved."""
-    athlete = load_yaml(ATHLETE_PATH)
-    user = athlete.setdefault("users", {}).setdefault(user_slug, {})
+    user = athlete_store.load(user_slug) or {}
     existing = user.setdefault("goals", {})
 
     for key, value in goals.items():
         if value is not None:
             existing[key] = value
 
-    _save_yaml(ATHLETE_PATH, athlete)
+    athlete_store.save(user_slug, user)
     return {"updated_goals": existing}
 
 
 def get_user_goals(user_slug: str) -> dict:
     """Get the user's current goals, preferences, and constraints."""
-    athlete = load_yaml(ATHLETE_PATH)
-    user_data = athlete.get("users", {}).get(user_slug, {})
+    user_data = athlete_store.load(user_slug) or {}
     goals = user_data.get("goals", {})
 
     if not goals:
@@ -788,14 +1137,14 @@ def get_user_goals(user_slug: str) -> dict:
 
 
 def load_action_items(user_slug: str) -> list[dict]:
-    athlete = load_yaml(ATHLETE_PATH)
-    return athlete.get("users", {}).get(user_slug, {}).get("action_items", [])
+    user_data = athlete_store.load(user_slug) or {}
+    return user_data.get("action_items", [])
 
 
 def save_action_items(user_slug: str, items: list[dict]) -> None:
-    athlete = load_yaml(ATHLETE_PATH)
-    athlete.setdefault("users", {}).setdefault(user_slug, {})["action_items"] = items
-    _save_yaml(ATHLETE_PATH, athlete)
+    user_data = athlete_store.load(user_slug) or {}
+    user_data["action_items"] = items
+    athlete_store.save(user_slug, user_data)
 
 
 def get_action_items(user_slug: str, status_filter: str = "") -> dict:
@@ -1143,8 +1492,7 @@ def set_user_integrations(
     if unknown:
         raise ValueError(f"Unknown integration IDs: {unknown}. Use get_supported_integrations to see valid IDs.")
 
-    athlete = load_yaml(ATHLETE_PATH)
-    user = athlete.setdefault("users", {}).setdefault(user_slug, {})
+    user = athlete_store.load(user_slug) or {}
 
     user_integrations: list[dict[str, Any]] = []
     for int_id in integrations:
@@ -1158,7 +1506,7 @@ def set_user_integrations(
         user_integrations.append(entry)
 
     user["integrations"] = user_integrations
-    _save_yaml(ATHLETE_PATH, athlete)
+    athlete_store.save(user_slug, user)
 
     cred_needed = []
     for int_id in integrations:
@@ -1180,8 +1528,7 @@ def set_user_integrations(
 
 def get_user_integrations(user_slug: str) -> dict:
     """Get the user's configured integrations and hardware."""
-    athlete = load_yaml(ATHLETE_PATH)
-    user_data = athlete.get("users", {}).get(user_slug, {})
+    user_data = athlete_store.load(user_slug) or {}
     integrations = user_data.get("integrations", [])
 
     if not integrations:

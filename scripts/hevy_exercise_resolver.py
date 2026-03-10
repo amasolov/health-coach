@@ -47,8 +47,8 @@ HEVY_EQUIPMENT = [
 ]
 
 HEVY_EXERCISE_TYPES = [
-    "weight_reps", "reps_only", "bodyweight_reps", "bodyweight_weighted",
-    "duration", "weight_duration", "distance_duration",
+    "weight_reps", "reps_only", "bodyweight_reps", "bodyweight_assisted_reps",
+    "duration", "weight_duration", "distance_duration", "short_distance_weight",
 ]
 
 CLASSIFY_PROMPT = """\
@@ -320,7 +320,17 @@ def _create_custom_exercise(
     """Create a custom exercise in Hevy via POST /v1/exercise_templates.
 
     Returns the new exercise_template_id or None on failure.
+
+    The Hevy API returns the new template ID as a raw UUID string
+    (content-type text/html), not JSON.  We try JSON parsing first
+    for forward-compatibility, then fall back to reading the raw text.
     """
+    # Avoid creating duplicates — check if it already exists
+    existing_id = _find_custom_exercise_by_title(title, hevy_api_key)
+    if existing_id:
+        print(f"    Custom exercise already exists: {title} -> {existing_id}")
+        return existing_id
+
     body = {
         "exercise": {
             "title": title,
@@ -342,32 +352,52 @@ def _create_custom_exercise(
             timeout=30,
         )
         if r.status_code in (200, 201):
-            try:
-                data = r.json()
-            except Exception:
-                data = None
+            new_id = _extract_created_id(r)
+            if new_id:
+                print(f"    Created custom exercise: {title} -> {new_id}")
+                return new_id
 
-            if data:
-                tmpl = data.get("exercise_template", data)
-                new_id = str(tmpl.get("id", "")) if tmpl else ""
-                if new_id:
-                    print(f"    Created custom exercise: {title} -> {new_id}")
-                    return new_id
-
-            # API returned success but no usable ID — look it up
-            print(f"    Custom exercise '{title}': created (HTTP {r.status_code}), looking up ID...")
-            found_id = _find_custom_exercise_by_title(title, hevy_api_key)
-            if found_id:
-                print(f"    Found custom exercise after lookup: {title} -> {found_id}")
-                return found_id
-
-            print(f"    Custom exercise '{title}': created but could not find ID")
+            print(f"    Custom exercise '{title}': HTTP {r.status_code} but could not extract ID")
             return None
         print(f"    Failed to create custom exercise '{title}': HTTP {r.status_code} - {r.text[:200]}")
         return None
     except Exception as e:
         print(f"    Error creating custom exercise '{title}': {e}")
         return None
+
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I,
+)
+
+
+def _extract_created_id(r) -> str:
+    """Extract the exercise template ID from a Hevy creation response.
+
+    The API can return:
+      - A raw UUID string (text/html content-type)
+      - JSON ``{"id": "uuid"}``  or  ``{"exercise_template": {"id": "uuid"}}``
+      - A bare integer ID
+    """
+    # Try JSON first (forward-compatible with potential API changes)
+    try:
+        data = r.json()
+        if isinstance(data, dict):
+            tmpl = data.get("exercise_template", data)
+            eid = str(tmpl.get("id", "")) if isinstance(tmpl, dict) else ""
+            if eid:
+                return eid
+        if isinstance(data, (int, str)) and str(data):
+            return str(data)
+    except Exception:
+        pass
+
+    # The current API returns a raw UUID string as text/html
+    raw = r.text.strip()
+    if raw and _UUID_RE.match(raw):
+        return raw
+
+    return ""
 
 
 def resolve_hevy_exercises(

@@ -33,6 +33,7 @@ from scripts.garmin_fetch import (
     update_athlete_field,
 )
 from scripts.fitness_assessment import assess_fitness
+from scripts import athlete_store
 
 ATHLETE_PATH = ROOT / "config" / "athlete.yaml"
 
@@ -358,10 +359,7 @@ def _build_all_missing(slug: str) -> list[dict]:
         ],
     }
 
-    import yaml
-    with open(ATHLETE_PATH) as f:
-        data = yaml.safe_load(f) or {}
-    user = data.get("users", {}).get(slug, {})
+    user = athlete_store.load(slug) or {}
 
     importance_map = {
         "thresholds.heart_rate.max_hr": "critical",

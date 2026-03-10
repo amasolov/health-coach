@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.32.0
+**Hevy routine reliability, athlete config in DB, Garmin threshold tracking, Renovate**
+
+- **Hevy custom exercise creation fixed** — the Hevy API returns a raw UUID (not JSON); the resolver now correctly parses this, eliminating "empty response body" failures
+- **Pre-creation dedup check** — before creating a custom exercise, the resolver queries Hevy to avoid duplicates
+- **Duplicate routine prevention** — `create_hevy_routine` checks the R2 mapping and Hevy routine list before creating; returns `already_exists` if found
+- **Incomplete routine reporting** — when exercises fail to resolve, status is `created_incomplete` with a warning naming the missing exercises
+- **System prompt for Hevy** — chatbot no longer shows "Manual Hevy Setup" instructions when routines are created automatically
+- **Athlete config moved to PostgreSQL** — new `athlete_config` table (JSONB) replaces `athlete.yaml` as the source of truth; `athlete_store.py` module provides load/save/update with YAML fallback and dual-write during transition
+- **DB migration 009** — `athlete_config` table with slug primary key and JSONB config column
+- **Garmin threshold auto-sync** — `refresh_garmin_thresholds` fetches Garmin profile, compares with source-priority (lab values never overwritten), auto-updates non-lab fields, logs advisories
+- **Running HR zones tool** — `setup_running_hr_zones` selects best estimation method from available data and provides Garmin watch configuration instructions
+- **Pinned dependencies** — `requirements.txt` now has exact versions for reproducible builds
+- **Renovate configured** — weekly dependency update PRs with automerge for patches, grouped minors, Docker digest pinning, GitHub Actions SHA pinning
+- **Exercise type enum fix** — corrected `HEVY_EXERCISE_TYPES` to match official Hevy API (`bodyweight_assisted_reps`, `short_distance_weight`)
+- **Tool display names** — added missing display names for `setup_running_hr_zones`, `search_knowledge_base`, `list_knowledge_documents`, `delete_knowledge_document`
+
 ## v0.31.0
 **Cross-channel conversation context between Telegram and web chat**
 

@@ -164,25 +164,18 @@ def create_athlete_config(
     last_name: str,
     timezone: str = "UTC",
 ) -> None:
+    """Create a new athlete config entry in the DB.
+
+    Won't overwrite an existing entry.
     """
-    Add a new user stub to /config/healthcoach/athlete.yaml.
-    Creates the file if it doesn't exist; won't overwrite an existing entry.
-    """
-    athlete_path = HA_CFG_DIR / "athlete.yaml"
-    HA_CFG_DIR.mkdir(parents=True, exist_ok=True)
+    from scripts import athlete_store
 
-    if athlete_path.exists():
-        data = yaml.safe_load(athlete_path.read_text()) or {}
-    else:
-        data = {}
+    existing = athlete_store.load(slug)
+    if existing:
+        return
 
-    data.setdefault("users", {})
-
-    if slug not in data["users"]:
-        data["users"][slug] = _empty_athlete_entry(first_name, last_name, timezone)
-        athlete_path.write_text(
-            yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        )
+    entry = _empty_athlete_entry(first_name, last_name, timezone)
+    athlete_store.save(slug, entry)
 
 
 # ---------------------------------------------------------------------------

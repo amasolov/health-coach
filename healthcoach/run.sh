@@ -160,6 +160,17 @@ echo "Sync interval: ${SYNC_INTERVAL} minutes"
 echo "Running database migrations..."
 python3 /app/scripts/run_migrate.py
 
+echo "Seeding athlete config into DB from YAML..."
+python3 -c "
+import sys; sys.path.insert(0, '/app')
+from scripts.athlete_store import seed_from_yaml
+seeded = seed_from_yaml('/app/config/athlete.yaml')
+if seeded:
+    print(f'  Seeded {len(seeded)} user(s): {\", \".join(seeded)}')
+else:
+    print('  All users already in DB (no seeding needed)')
+" || echo "WARN: Athlete config seeding failed"
+
 echo "Setting up Chainlit chat database..."
 python3 /app/scripts/setup_chainlit_db.py || echo "WARN: Chainlit DB setup failed (chat history will be in-memory)"
 

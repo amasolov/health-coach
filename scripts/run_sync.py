@@ -34,8 +34,6 @@ from scripts.strength_tss import (
 from scripts.tz import load_user_tz
 from scripts import ops_emit
 
-# Key threshold fields that gate profile auto-population.
-# If ALL of these are set we skip the Garmin profile fetch to save API calls.
 _THRESHOLD_GATE_FIELDS = [
     ("thresholds", "heart_rate", "max_hr"),
     ("thresholds", "heart_rate", "resting_hr"),
@@ -110,25 +108,9 @@ def _load_workout_sets(cur, user_id: int, workout_id: str) -> list[SetData]:
 
 
 def _load_athlete_thresholds(slug: str) -> dict:
-    """Load threshold values from athlete.yaml for a given slug."""
-    from pathlib import Path
-    import yaml
-
-    path = Path(__file__).resolve().parent.parent / "config" / "athlete.yaml"
-    if not path.exists():
-        return {}
-    with open(path) as f:
-        data = yaml.safe_load(f) or {}
-    user = data.get("users", {}).get(slug, {})
-    thresholds = user.get("thresholds", {})
-    hr = thresholds.get("heart_rate", {})
-    return {
-        "ftp": thresholds.get("cycling", {}).get("ftp"),
-        "lthr_run": hr.get("lthr_run"),
-        "lthr_bike": hr.get("lthr_bike"),
-        "resting_hr": hr.get("resting_hr"),
-        "max_hr": hr.get("max_hr"),
-    }
+    """Load threshold values from the athlete config DB."""
+    from scripts.athlete_store import load_thresholds_flat
+    return load_thresholds_flat(slug)
 
 
 def _load_user_thresholds(cur, user_id: int, slug: str = "") -> tuple[float | None, float | None]:
@@ -156,8 +138,6 @@ def _thresholds_incomplete(slug: str) -> bool:
     """Return True if any key threshold is still null in athlete.yaml."""
     data = _load_athlete_thresholds(slug)
     for keys in _THRESHOLD_GATE_FIELDS:
-        # keys is a flat tuple like ("thresholds", "heart_rate", "max_hr")
-        # _load_athlete_thresholds returns a flat dict so we check the leaf key
         leaf = keys[-1]
         if data.get(leaf) is None:
             return True
@@ -165,41 +145,61 @@ def _thresholds_incomplete(slug: str) -> bool:
 
 
 def sync_garmin_profile(slug: str) -> dict:
-    """
-    Fetch athlete profile data from Garmin Connect and merge any null
-    fields into athlete.yaml.
+    """Legacy wrapper — delegates to refresh_garmin_thresholds for backward compat."""
+    return refresh_garmin_thresholds(slug)
 
-    Covers: date_of_birth, sex, height, weight, body_fat, resting_hr,
-    max_hr, VO2max, lactate threshold, cycling FTP, threshold pace.
 
-    Only fills fields that are currently null — never overwrites manually
-    set values.  Skips entirely if all key thresholds are already set.
+def refresh_garmin_thresholds(slug: str, user_id: int | None = None) -> dict:
+    """Always fetch Garmin profile and refresh thresholds with source-priority.
+
+    Unlike the old sync_garmin_profile, this never skips. It:
+      - Fetches the latest Garmin profile data
+      - Compares against configured values using source priority
+      - Auto-updates fields where source is garmin/estimated/null
+      - Logs advisories for lab-sourced fields that differ significantly
+      - Updates _sources.*.garmin_latest so the coach sees what Garmin thinks
 
     Returns a dict with keys:
-      - "skipped": True when all thresholds were already populated
-      - "written": dict of field_path -> value for everything updated
+      - "updated": dict of field_path -> new_value
+      - "advisories": list of significant-difference advisories
+      - "garmin_latest": dict of field -> Garmin's current value
       - "still_missing": list of fields still null with hints
       - "error": str (only present on failure)
     """
-    from pathlib import Path
     from scripts.garmin_auth import try_cached_login
-    from scripts.garmin_fetch import fetch_garmin_profile, merge_into_athlete_yaml
-
-    athlete_path = Path(__file__).resolve().parent.parent / "config" / "athlete.yaml"
-
-    if not _thresholds_incomplete(slug):
-        return {"skipped": True, "written": {}, "still_missing": []}
+    from scripts.garmin_fetch import fetch_garmin_profile, refresh_thresholds
 
     client = try_cached_login(slug)
     if not client:
-        return {"error": "Garmin not authenticated", "written": {}, "still_missing": []}
+        return {"error": "Garmin not authenticated", "updated": {}, "advisories": [], "still_missing": []}
 
     result = fetch_garmin_profile(slug, client)
-    written = merge_into_athlete_yaml(str(athlete_path), slug, result["fetched"])
+    refresh = refresh_thresholds(slug, result["fetched"])
+
+    for adv in refresh.get("advisories", []):
+        print(f"    ADVISORY: {adv['message']}")
+        ops_emit.emit(
+            "threshold", "threshold_advisory",
+            user_id=user_id,
+            status="warning",
+            field=adv["field"],
+            configured=adv["current"],
+            garmin_value=adv["garmin"],
+            source=adv["source"],
+        )
+
+    if refresh["updated"]:
+        ops_emit.emit(
+            "threshold", "threshold_update",
+            user_id=user_id,
+            updated=refresh["updated"],
+            garmin_latest=refresh.get("garmin_latest", {}),
+        )
 
     return {
-        "skipped": False,
-        "written": written,
+        "updated": refresh["updated"],
+        "advisories": refresh.get("advisories", []),
+        "garmin_latest": refresh.get("garmin_latest", {}),
         "still_missing": result.get("missing", []),
     }
 
@@ -717,6 +717,14 @@ def main() -> int:
     users = get_users()
     errors = 0
 
+    # Ensure athlete configs are seeded into DB from YAML
+    try:
+        from scripts.athlete_store import ensure_seeded
+        for u in users:
+            ensure_seeded(u["slug"])
+    except Exception:
+        pass
+
     for user in users:
         slug = user["slug"]
         name = user.get("name", slug)
@@ -791,22 +799,22 @@ def main() -> int:
         else:
             print(f"    SKIP: No Hevy API key configured")
 
-        # --- Garmin profile auto-populate (runs whenever any threshold is null) ---
-        print(f"\n  [Garmin Profile]")
+        # --- Garmin threshold refresh (always fetches, source-aware merge) ---
+        print(f"\n  [Garmin Thresholds]")
         try:
-            result = sync_garmin_profile(slug)
-            if result.get("skipped"):
-                print(f"    SKIP: all key thresholds already set")
-            elif "error" in result:
+            result = refresh_garmin_thresholds(slug, user_id=user_id)
+            if "error" in result:
                 print(f"    SKIP: {result['error']}")
             else:
-                if result["written"]:
-                    print(f"    Populated: {', '.join(f'{k}={v}' for k, v in result['written'].items())}")
+                if result.get("updated"):
+                    print(f"    Updated: {', '.join(f'{k}={v}' for k, v in result['updated'].items())}")
                 else:
-                    print(f"    No new values found in Garmin")
+                    print(f"    All thresholds up to date")
+                if result.get("garmin_latest"):
+                    print(f"    Garmin latest: {', '.join(f'{k}={v}' for k, v in result['garmin_latest'].items())}")
                 missing_count = len(result.get("still_missing", []))
                 if missing_count:
-                    print(f"    Still missing: {missing_count} field(s) (manual entry required)")
+                    print(f"    Still missing: {missing_count} field(s)")
         except Exception as e:
             print(f"    ERROR: Garmin profile sync failed: {e}")
             traceback.print_exc()

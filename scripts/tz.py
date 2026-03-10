@@ -17,28 +17,18 @@ Usage:
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from pathlib import Path
 from zoneinfo import ZoneInfo
-
-import yaml
 
 DEFAULT_TZ_NAME = "Australia/Sydney"
 DEFAULT_TZ = ZoneInfo(DEFAULT_TZ_NAME)
 
-_ATHLETE_CONFIG = Path(__file__).resolve().parent.parent / "config" / "athlete.yaml"
-
 
 def load_user_tz(slug: str) -> ZoneInfo:
-    """Load the timezone for a user from athlete.yaml, falling back to default."""
+    """Load the timezone for a user, falling back to default."""
     try:
-        with open(_ATHLETE_CONFIG) as f:
-            cfg = yaml.safe_load(f) or {}
-        tz_name = (
-            cfg.get("users", {})
-            .get(slug, {})
-            .get("profile", {})
-            .get("timezone", DEFAULT_TZ_NAME)
-        )
+        from scripts.athlete_store import load as _load_athlete
+        cfg = _load_athlete(slug) or {}
+        tz_name = cfg.get("profile", {}).get("timezone", DEFAULT_TZ_NAME)
         return ZoneInfo(tz_name)
     except Exception:
         return DEFAULT_TZ
