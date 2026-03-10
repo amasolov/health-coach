@@ -671,7 +671,7 @@ class TestCreateHevyRoutine:
         bad_details = {"error": "iFit API returned 404"}
         search_result = {
             "results": [
-                {"id": "real_id_001", "title": "Week 2 - Upper Body Pull", "type": "strength"},
+                {"workout_id": "real_id_001", "title": "Week 2 - Upper Body Pull", "type": "strength"},
             ],
             "count": 1,
         }
@@ -719,7 +719,7 @@ class TestCreateHevyRoutine:
 
         search_result = {
             "results": [
-                {"id": "found_123", "title": "Lower Body Blast", "type": "strength"},
+                {"workout_id": "found_123", "title": "Lower Body Blast", "type": "strength"},
             ],
             "count": 1,
         }

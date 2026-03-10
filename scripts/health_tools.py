@@ -2369,10 +2369,10 @@ def create_hevy_routine_from_recommendation(
     if rec_dict is None and workout_title:
         print(f"  Searching iFit library for: {workout_title}")
         search_result = search_ifit_library(workout_title, workout_type="strength", limit=5)
-        matches = search_result.get("results", [])
+        matches = search_result.get("results", []) if isinstance(search_result, dict) else []
         for m in matches:
             if m.get("title", "").lower().strip() == workout_title.lower().strip():
-                found_id = m.get("id", "")
+                found_id = m.get("workout_id", "") or m.get("id", "")
                 if found_id:
                     print(f"  Exact title match: {m['title']} -> {found_id}")
                     details = get_ifit_workout_details(found_id)
@@ -2380,7 +2380,7 @@ def create_hevy_routine_from_recommendation(
                         rec_dict = _build_rec_from_details(found_id, details)
                         break
         if rec_dict is None and matches:
-            found_id = matches[0].get("id", "")
+            found_id = matches[0].get("workout_id", "") or matches[0].get("id", "")
             if found_id:
                 print(f"  Best title match: {matches[0].get('title', '')} -> {found_id}")
                 details = get_ifit_workout_details(found_id)
