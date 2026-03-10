@@ -323,10 +323,16 @@ else:
 # ---------------------------------------------------------------------------
 
 def _build_system_prompt(user_slug: str, first_name: str) -> str:
+    from scripts.tz import load_user_tz, user_now
+    _tz = load_user_tz(user_slug)
+    _now = user_now(_tz)
+
     parts = [
         f"You are a data-driven fitness coach for {first_name}. "
         "You have access to their complete training, health, and body "
         "composition data through specialized tools.\n"
+        f"\nCurrent date/time: {_now.strftime('%A %d %B %Y, %I:%M %p')} "
+        f"({_tz}). All timestamps in tool results use this timezone.\n"
         "\nScope — IMPORTANT:\n"
         "You are EXCLUSIVELY a health and fitness assistant. You may ONLY "
         "discuss topics directly related to:\n"
