@@ -37,16 +37,8 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Build and push multi-arch manifest
-        env:
-          CREDS: "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}"
+      - name: Build multi-arch images
         run: |
-          MANIFEST="${IMAGE}:latest"
-          VERSION_TAG="${IMAGE}:${{ steps.version.outputs.version }}"
-          SHA_TAG="${IMAGE}:${{ github.sha }}"
-
-          podman manifest rm "${MANIFEST}" 2>/dev/null || true
-
           for ARCH in arm64 amd64; do
             echo "=== Building linux/${ARCH} ==="
             podman build \
@@ -58,15 +50,23 @@ jobs:
               .
           done
 
-          echo "=== Creating manifest ==="
-          podman manifest create "${MANIFEST}"
-          podman manifest add "${MANIFEST}" "${IMAGE}:arm64"
-          podman manifest add "${MANIFEST}" "${IMAGE}:amd64"
+      - name: Push images and manifest
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
 
-          echo "=== Pushing ==="
-          podman manifest push --all --creds "${CREDS}" "${MANIFEST}" "docker://${MANIFEST}"
-          podman manifest push --all --creds "${CREDS}" "${MANIFEST}" "docker://${VERSION_TAG}"
-          podman manifest push --all --creds "${CREDS}" "${MANIFEST}" "docker://${SHA_TAG}"
+          for ARCH in arm64 amd64; do
+            echo "=== Pushing ${IMAGE}:${ARCH} ==="
+            podman push "${IMAGE}:${ARCH}" "docker://${IMAGE}:${ARCH}"
+          done
+
+          for TAG in latest "${VERSION}" "${{ github.sha }}"; do
+            echo "=== Creating manifest ${IMAGE}:${TAG} ==="
+            podman manifest rm "${IMAGE}:${TAG}" 2>/dev/null || true
+            podman manifest create "${IMAGE}:${TAG}" \
+              "${IMAGE}:arm64" \
+              "${IMAGE}:amd64"
+            podman manifest push "${IMAGE}:${TAG}" "docker://${IMAGE}:${TAG}"
+          done
 
       - name: Logout
         if: always()
