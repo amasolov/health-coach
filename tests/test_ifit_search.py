@@ -1,8 +1,14 @@
-"""Tests for iFit search and program tools."""
+"""Tests for iFit search and program tools.
+
+Marked slow — these scan the full 12K+ workout library on every call.
+Run explicitly with:  pytest -m slow tests/test_ifit_search.py
+"""
 
 import json
 import pytest
 from scripts import health_tools
+
+pytestmark = pytest.mark.slow
 
 
 class TestSearchIfitLibrary:
