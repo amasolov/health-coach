@@ -92,7 +92,7 @@ def _load_library_by_id() -> dict[str, dict]:
 
 def _r2_available() -> bool:
     try:
-        from r2_store import is_configured
+        from scripts.r2_store import is_configured
         return is_configured()
     except ImportError:
         return False
@@ -100,7 +100,7 @@ def _r2_available() -> bool:
 
 def _r2_download_json(key: str):
     try:
-        from r2_store import download_json
+        from scripts.r2_store import download_json
         return download_json(key)
     except Exception:
         return None
@@ -108,7 +108,7 @@ def _r2_download_json(key: str):
 
 def _r2_upload_json(key: str, data) -> bool:
     try:
-        from r2_store import upload_json
+        from scripts.r2_store import upload_json
         return upload_json(key, data)
     except Exception:
         return False
@@ -304,13 +304,19 @@ def _create_custom_exercise(
             timeout=30,
         )
         if r.status_code in (200, 201):
-            data = r.json()
-            tmpl = data.get("exercise_template", data)
-            new_id = tmpl.get("id", "")
+            try:
+                data = r.json()
+            except Exception:
+                print(f"    Custom exercise '{title}': created (HTTP {r.status_code}) but empty response body")
+                return None
+            tmpl = data.get("exercise_template", data) if data else {}
+            new_id = str(tmpl.get("id", "")) if tmpl else ""
             if new_id:
                 print(f"    Created custom exercise: {title} -> {new_id}")
                 return new_id
-        print(f"    Failed to create custom exercise '{title}': HTTP {r.status_code}")
+            print(f"    Custom exercise '{title}': unexpected response: {data}")
+            return None
+        print(f"    Failed to create custom exercise '{title}': HTTP {r.status_code} - {r.text[:200]}")
         return None
     except Exception as e:
         print(f"    Error creating custom exercise '{title}': {e}")
@@ -342,6 +348,7 @@ def resolve_hevy_exercises(
     library = _load_library()
     library_by_id = _load_library_by_id()
     custom_map = _load_custom_map()
+    print(f"    Library: {len(library)} templates, {len(library_by_id)} by-id, {len(custom_map)} custom cached")
     resolved: list[dict] = []
     custom_map_changed = False
 
@@ -411,9 +418,9 @@ def resolve_hevy_exercises(
         )
 
         if new_id:
-            result["hevy_id"] = new_id
+            result["hevy_id"] = str(new_id)
             result["resolution"] = "custom_created"
-            custom_map[name_key] = new_id
+            custom_map[name_key] = str(new_id)
             custom_map_changed = True
         else:
             result["hevy_id"] = ""

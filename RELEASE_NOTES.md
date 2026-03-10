@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.28.1
+**Fix Hevy routine creation failures**
+
+- Fixed broken R2 imports in `hevy_exercise_resolver.py` (`from r2_store` → `from scripts.r2_store`) — resolved exercises and custom exercise mappings were never being cached in R2, causing repeated LLM calls and duplicate custom exercise creation attempts
+- Added JSON error handling in `create_hevy_routine` for cases where Hevy API returns 200/201 with an empty response body
+- Added JSON error handling in `_create_custom_exercise` for empty response bodies
+- Ensured exercise template IDs are always stored as strings (Hevy API may return integer IDs)
+- Added diagnostic logging throughout the Hevy resolution and routine creation flow
+- 4 new tests: empty API response handling, integer ID conversion, API error propagation
+
 ## v0.28.0
 **Routine weight recommendations**
 

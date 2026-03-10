@@ -980,16 +980,20 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
     )
 
     if r.status_code in (200, 201):
-        data = r.json()
-        routine = data.get("routine", data)
-        routine_id = routine.get("id", "")
+        try:
+            data = r.json()
+        except Exception:
+            data = {}
+        routine = data.get("routine", data) if data else {}
+        routine_id = str(routine.get("id", ""))
 
-        _save_routine_mapping(
-            routine_id=routine_id,
-            ifit_workout_id=rec.workout_id,
-            title=body["routine"]["title"],
-            predicted_exercises=resolved,
-        )
+        if routine_id:
+            _save_routine_mapping(
+                routine_id=routine_id,
+                ifit_workout_id=rec.workout_id,
+                title=body["routine"]["title"],
+                predicted_exercises=resolved,
+            )
 
         result = {
             "status": "created",
@@ -1003,6 +1007,7 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
             result["skipped_exercises"] = skipped
         return result
     else:
+        print(f"  Hevy routine creation failed: HTTP {r.status_code} - {r.text[:500]}")
         return {"error": f"Hevy API {r.status_code}: {r.text[:300]}"}
 
 

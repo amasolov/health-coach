@@ -79,6 +79,72 @@ class TestHevyExerciseResolver:
             assert result[0]["resolution"] == "custom_created"
             assert result[0]["hevy_id"] == "CUSTOM001"
 
+    def test_custom_creation_integer_id(self, _setup_hevy_exercises, tmp_path):
+        """Hevy API returns integer ID for custom exercise -- should convert to string."""
+        from scripts.hevy_exercise_resolver import resolve_hevy_exercises
+
+        classify_response = json.dumps({
+            "exercise_type": "bodyweight_reps",
+            "equipment_category": "none",
+            "muscle_group": "abdominals",
+            "other_muscles": [],
+        })
+
+        empty_custom_map = tmp_path / "hevy_custom_map.json"
+        empty_custom_map.write_text("{}")
+
+        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", self._exercises_path), \
+             patch("scripts.hevy_exercise_resolver.CUSTOM_MAP_PATH", empty_custom_map), \
+             patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
+             patch("scripts.hevy_exercise_resolver.httpx.post") as mock_post:
+
+            mock_post.side_effect = [
+                MockResponse(200, {"choices": [{"message": {"content": classify_response}}]}),
+                MockResponse(200, {"id": 12345}),
+            ]
+
+            exercises = [{"hevy_name": "Plank Hold", "hevy_id": "",
+                          "muscle_group": "abdominals", "sets": 3, "reps": "30s", "weight": "bodyweight", "notes": ""}]
+            result = resolve_hevy_exercises(exercises, hevy_api_key="test-key")
+            assert result[0]["resolution"] == "custom_created"
+            assert result[0]["hevy_id"] == "12345"
+            assert isinstance(result[0]["hevy_id"], str)
+
+    def test_custom_creation_empty_response(self, _setup_hevy_exercises, tmp_path):
+        """Hevy API returns 200 but empty body for custom exercise -- should handle gracefully."""
+        from scripts.hevy_exercise_resolver import resolve_hevy_exercises
+
+        classify_response = json.dumps({
+            "exercise_type": "bodyweight_reps",
+            "equipment_category": "none",
+            "muscle_group": "abdominals",
+            "other_muscles": [],
+        })
+
+        empty_custom_map = tmp_path / "hevy_custom_map.json"
+        empty_custom_map.write_text("{}")
+
+        empty_resp = MagicMock()
+        empty_resp.status_code = 200
+        empty_resp.json.side_effect = Exception("empty body")
+        empty_resp.text = ""
+
+        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", self._exercises_path), \
+             patch("scripts.hevy_exercise_resolver.CUSTOM_MAP_PATH", empty_custom_map), \
+             patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
+             patch("scripts.hevy_exercise_resolver.httpx.post") as mock_post:
+
+            mock_post.side_effect = [
+                MockResponse(200, {"choices": [{"message": {"content": classify_response}}]}),
+                empty_resp,
+            ]
+
+            exercises = [{"hevy_name": "Plank Hold", "hevy_id": "",
+                          "muscle_group": "abdominals", "sets": 3, "reps": "30s", "weight": "bodyweight", "notes": ""}]
+            result = resolve_hevy_exercises(exercises, hevy_api_key="test-key")
+            assert result[0]["resolution"] == "creation_failed"
+            assert result[0]["hevy_id"] == ""
+
     def test_cached_custom_map(self, _setup_hevy_exercises):
         from scripts.hevy_exercise_resolver import resolve_hevy_exercises
 
@@ -151,6 +217,69 @@ class TestCreateHevyRoutine:
             result = create_hevy_routine(rec, "test-hevy-key")
             assert result["status"] == "created"
             assert result["routine_id"] == "routine-abc"
+
+    def test_create_routine_hevy_empty_response(self, recommendations_file, tmp_path):
+        """Hevy API returns 201 but empty body -- should still return 'created'."""
+        from scripts.ifit_strength_recommend import create_hevy_routine, Recommendation
+
+        rec_data = json.loads(recommendations_file.read_text())[0]
+        rec = Recommendation(**rec_data)
+
+        hevy_exercises_path = tmp_path / "hevy_exercises.json"
+        hevy_exercises_path.write_text(json.dumps(SAMPLE_HEVY_EXERCISES_JSON))
+
+        empty_resp = MagicMock()
+        empty_resp.status_code = 201
+        empty_resp.json.side_effect = Exception("empty body")
+        empty_resp.text = ""
+
+        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
+             patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
+             patch("scripts.hevy_exercise_resolver.httpx.post") as mock_classify, \
+             patch("scripts.ifit_strength_recommend.httpx.post") as mock_hevy, \
+             patch("scripts.ifit_strength_recommend._save_routine_mapping"):
+
+            classify_json = json.dumps({
+                "exercise_type": "duration", "equipment_category": "none",
+                "muscle_group": "abdominals", "other_muscles": [],
+            })
+            mock_classify.side_effect = [
+                MockResponse(200, {"choices": [{"message": {"content": classify_json}}]}),
+                make_hevy_exercise_template_response("CUSTOM_PLANK", "Plank"),
+            ]
+            mock_hevy.return_value = empty_resp
+
+            result = create_hevy_routine(rec, "test-hevy-key")
+            assert result["status"] == "created"
+            assert result["routine_id"] == ""
+
+    def test_create_routine_hevy_api_error(self, recommendations_file, tmp_path):
+        """Hevy API returns 400 error -- should return error dict."""
+        from scripts.ifit_strength_recommend import create_hevy_routine, Recommendation
+
+        rec_data = json.loads(recommendations_file.read_text())[0]
+        rec = Recommendation(**rec_data)
+
+        hevy_exercises_path = tmp_path / "hevy_exercises.json"
+        hevy_exercises_path.write_text(json.dumps(SAMPLE_HEVY_EXERCISES_JSON))
+
+        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
+             patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
+             patch("scripts.hevy_exercise_resolver.httpx.post") as mock_classify, \
+             patch("scripts.ifit_strength_recommend.httpx.post") as mock_hevy:
+
+            classify_json = json.dumps({
+                "exercise_type": "duration", "equipment_category": "none",
+                "muscle_group": "abdominals", "other_muscles": [],
+            })
+            mock_classify.side_effect = [
+                MockResponse(200, {"choices": [{"message": {"content": classify_json}}]}),
+                make_hevy_exercise_template_response("CUSTOM_PLANK", "Plank"),
+            ]
+            mock_hevy.return_value = MockResponse(400, {"error": "Invalid request body"}, text='{"error":"Invalid request body"}')
+
+            result = create_hevy_routine(rec, "test-hevy-key")
+            assert "error" in result
 
     def test_create_routine_from_recommendation_index(self, recommendations_file, tmp_path):
         hevy_exercises_path = tmp_path / "hevy_exercises.json"
