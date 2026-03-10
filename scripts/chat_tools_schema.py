@@ -646,20 +646,33 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "create_hevy_routine_from_recommendation",
             "description": (
-                "Create a Hevy routine from a previously generated iFit "
-                "strength recommendation. Run recommend_strength_workout "
-                "first, then use the recommendation_index (0-based) to "
-                "pick which one to create as a Hevy routine."
+                "Create a Hevy routine from an iFit workout. ALWAYS pass "
+                "ifit_workout_id when you know the workout ID — this is the "
+                "reliable way to identify the workout. The tool can fetch "
+                "exercises on-the-fly if the workout wasn't in the last "
+                "recommendation batch. Only fall back to recommendation_index "
+                "if the workout ID is unavailable."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "ifit_workout_id": {
+                        "type": "string",
+                        "description": (
+                            "The iFit workout ID to create a routine for. "
+                            "Preferred over recommendation_index — always "
+                            "pass this when available."
+                        ),
+                    },
                     "recommendation_index": {
                         "type": "integer",
-                        "description": "0-based index of the recommendation to use (0, 1, or 2).",
+                        "description": (
+                            "0-based index into the last recommend_strength_workout "
+                            "results. Only use if ifit_workout_id is unavailable."
+                        ),
                     },
                 },
-                "required": ["recommendation_index"],
+                "required": [],
             },
         },
     },

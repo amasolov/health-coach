@@ -2295,35 +2295,79 @@ def sync_data(user_slug: str, user_id: int, hevy_api_key: str = "", full_sync: b
 def create_hevy_routine_from_recommendation(
     user_slug: str,
     recommendation_index: int = 0,
+    ifit_workout_id: str = "",
     hevy_api_key: str = "",
 ) -> dict:
-    """Create a Hevy routine from a previously generated recommendation.
+    """Create a Hevy routine from an iFit workout.
 
-    recommendation_index: 0-based index into the last recommendations
-    (saved in .ifit_capture/recommendations.json).
-    hevy_api_key: the user's Hevy API key."""
+    Lookup priority:
+      1. ifit_workout_id — find the workout in cached recommendations by ID,
+         or fetch exercises on-the-fly if not cached.
+      2. recommendation_index — positional fallback into recommendations.json.
+
+    Always prefer passing ifit_workout_id for reliable identification."""
     import json as _json
     from scripts.ifit_strength_recommend import (
         create_hevy_routine,
+        fetch_workout_exercises,
         Recommendation,
     )
-
-    cache_path = ROOT / ".ifit_capture" / "recommendations.json"
-    if not cache_path.exists():
-        return {"error": "No recommendations cached. Run recommend_strength_workout first."}
-
-    with open(cache_path) as f:
-        recs_data = _json.load(f)
-
-    if recommendation_index < 0 or recommendation_index >= len(recs_data):
-        return {"error": f"Invalid index {recommendation_index}. {len(recs_data)} recommendations available."}
-
-    rec_dict = recs_data[recommendation_index]
-    rec = Recommendation(**rec_dict)
 
     if not hevy_api_key:
         return {"error": "hevy_api_key required to create a routine."}
 
+    cache_path = ROOT / ".ifit_capture" / "recommendations.json"
+    recs_data: list[dict] = []
+    if cache_path.exists():
+        with open(cache_path) as f:
+            recs_data = _json.load(f)
+
+    rec_dict: dict | None = None
+
+    # Primary: look up by workout ID (stable across conversations)
+    if ifit_workout_id:
+        for rd in recs_data:
+            if rd.get("workout_id") == ifit_workout_id:
+                rec_dict = rd
+                break
+
+        if rec_dict is None:
+            # Not in cached recommendations — build on-the-fly
+            print(f"  Workout {ifit_workout_id} not in cached recs, fetching on-the-fly")
+            details = get_ifit_workout_details(ifit_workout_id)
+            if "error" in details:
+                return {"error": f"Could not fetch workout: {details['error']}"}
+
+            exercises = details.get("exercises", [])
+            if not exercises:
+                return {"error": f"No exercises found for workout {ifit_workout_id}. Cannot create routine."}
+
+            rec_dict = {
+                "rank": 0,
+                "workout_id": ifit_workout_id,
+                "title": details.get("title", "iFit Workout"),
+                "trainer_name": (details.get("trainer") or {}).get("name", ""),
+                "duration_min": details.get("duration_min") or 0,
+                "difficulty": details.get("difficulty", ""),
+                "rating": details.get("rating_avg", 0),
+                "focus": "",
+                "subcategories": details.get("subcategories", []),
+                "required_equipment": details.get("required_equipment", []),
+                "stage1_score": 0,
+                "stage2_score": 0,
+                "exercises": exercises,
+                "reasoning": "User-selected workout",
+            }
+
+    # Fallback: positional index
+    if rec_dict is None:
+        if not recs_data:
+            return {"error": "No recommendations cached and no ifit_workout_id provided. Run recommend_strength_workout first."}
+        if recommendation_index < 0 or recommendation_index >= len(recs_data):
+            return {"error": f"Invalid index {recommendation_index}. {len(recs_data)} recommendations available (0-based)."}
+        rec_dict = recs_data[recommendation_index]
+
+    rec = Recommendation(**rec_dict)
     return create_hevy_routine(rec, hevy_api_key)
 
 
