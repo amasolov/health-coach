@@ -215,29 +215,6 @@ tasks:
       TEMPLATE: '{{.TEMPLATE | default "easy_run_45"}}'
 
   # ---------------------------------------------------------------------------
-  # MCP Server (local dev)
-  # ---------------------------------------------------------------------------
-  mcp:serve:
-    desc: Run the MCP server locally for development
-    cmds:
-      - "{{.PYTHON}} scripts/mcp_server.py"
-    env:
-      MCP_API_KEY: dev
-      MCP_HOST: "127.0.0.1"
-
-  # ---------------------------------------------------------------------------
-  # Chat UI (local dev)
-  # ---------------------------------------------------------------------------
-  chat:serve:
-    desc: Run the Chainlit chat UI locally (password auth; set OAUTH_* in .env for OAuth)
-    cmds:
-      - "{{.VENV}}/bin/chainlit run scripts/chat_app.py --port 8080 --host 127.0.0.1"
-    env:
-      CHAINLIT_AUTH_SECRET: '{{.CHAINLIT_AUTH_SECRET | default "dev-secret-change-me-in-production"}}'
-      CHAT_MODEL: '{{.CHAT_MODEL | default "anthropic/claude-sonnet-4"}}'
-      MCP_API_KEY: dev
-
-  # ---------------------------------------------------------------------------
   # iFit
   # ---------------------------------------------------------------------------
   ifit:auth:
@@ -263,26 +240,10 @@ tasks:
     cmds:
       - >-
         podman build
-        --build-arg BUILD_FROM=python:3.12-alpine
+        --build-arg BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.21
         -f healthcoach/Dockerfile
         -t healthcoach:local
         .
-
-  # ---------------------------------------------------------------------------
-  # Ollama (local embedding model)
-  # ---------------------------------------------------------------------------
-  ollama:setup:
-    desc: Install Ollama and pull the embedding model
-    cmds:
-      - command -v ollama >/dev/null 2>&1 && echo "Ollama already installed" || brew install ollama
-      - ollama pull {{.OLLAMA_MODEL}}
-    vars:
-      OLLAMA_MODEL: '{{.OLLAMA_MODEL | default "nomic-embed-text"}}'
-
-  ollama:start:
-    desc: Start Ollama server (foreground)
-    cmds:
-      - ollama serve
 
   # ---------------------------------------------------------------------------
   # Knowledge base ingestion

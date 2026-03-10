@@ -19,6 +19,7 @@ secrets.enc.yaml
 # Local dev artifacts
 .venv/
 .env
+.env.example
 __pycache__/
 *.pyc
 *.pyo
@@ -27,3 +28,24 @@ __pycache__/
 .cursor/
 .sops.yaml
 Taskfile.yml
+pyproject.toml
+books/
+.hevy_capture/
+.mitm_captures/
+
+# Dev-only scripts (not used by the addon at runtime)
+scripts/ingest_books.py
+scripts/garmin_login.py
+scripts/garmin_pull_profile.py
+scripts/athlete_setup.py
+scripts/hevy_mitm_capture.py
+scripts/ifit_mitm_capture.py
+scripts/ifit_browser_login.py
+scripts/ifit_probe.py
+scripts/ifit_extract_exercises.py
+scripts/ifit_llm_extract.py
+scripts/gen_treadmill_workout.py
+scripts/gen_bodymap.py
+
+# Dead config template
+config/athlete.example.yaml

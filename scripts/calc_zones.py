@@ -125,6 +125,32 @@ def process_user(slug: str, athlete_data: dict, zones_data: dict) -> bool:
     return updated
 
 
+def recalculate_zones(slug: str) -> dict:
+    """Recalculate zones for a single user and persist to zones.yaml.
+
+    Called by the sync pipeline after threshold refresh.
+    Returns ``{"updated": True/False, "fields": [...]}`` or ``{"error": "..."}``
+    """
+    adata = athlete_store.load(slug)
+    if not adata:
+        return {"error": f"no athlete config for {slug}"}
+
+    if not ZONES_PATH.exists():
+        return {"error": f"{ZONES_PATH} not found"}
+
+    zones = load_yaml(ZONES_PATH)
+    users_zones = zones.get("users", {})
+
+    if slug not in users_zones:
+        return {"error": f"no zone template for {slug} in zones.yaml"}
+
+    if process_user(slug, adata, users_zones[slug]):
+        save_yaml(ZONES_PATH, zones)
+        return {"updated": True}
+
+    return {"updated": False}
+
+
 def _list_slugs() -> list[str]:
     """List all athlete slugs from DB, falling back to YAML."""
     try:

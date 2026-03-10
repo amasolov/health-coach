@@ -825,6 +825,21 @@ def sync_one_user(user: dict) -> dict:
         print(f"    ERROR: Garmin profile sync failed: {e}")
         traceback.print_exc()
 
+    # --- Zone recalculation (from updated thresholds) ---
+    print(f"\n  [Training Zones]")
+    try:
+        from scripts.calc_zones import recalculate_zones
+        zr = recalculate_zones(slug)
+        if zr.get("error"):
+            print(f"    SKIP: {zr['error']}")
+        elif zr.get("updated"):
+            print(f"    Zones recalculated from current thresholds")
+        else:
+            print(f"    No threshold data changed")
+    except Exception as e:
+        print(f"    ERROR: Zone recalculation failed: {e}")
+        traceback.print_exc()
+
     # --- Strength TSS backfill ---
     print(f"\n  [Strength TSS]")
     try:

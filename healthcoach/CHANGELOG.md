@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.46.0
+**Automatic zone recalculation and dev tooling cleanup**
+
+- **Auto zone recalc** — training zone boundaries (HR, power, pace) are now recalculated automatically during each sync cycle after Garmin thresholds are refreshed; new `recalculate_zones(slug)` function in `calc_zones.py` replaces the manual `task zones:calculate` workflow
+- **Slimmer Docker image** — 13 dev-only scripts (MITM captures, interactive CLI tools, build-time generators) excluded from the production image via `.dockerignore`
+- **Taskfile cleanup** — removed `mcp:serve`, `chat:serve`, and `ollama:*` targets that duplicated addon functionality; `addon:build` now uses the HA base image instead of `python:3.12-alpine`
+- **Dead file removal** — deleted `config/athlete.example.yaml` (athlete config lives in DB since v0.32.0); simplified `.env.example` to DB + API keys only
+
 ## v0.45.0
 **s6-overlay process supervisor — replaces run.sh (issue #7)**
 
