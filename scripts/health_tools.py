@@ -3124,7 +3124,14 @@ def get_routine_weight_recommendations(
                             for rt in routines
                         ],
                     }
-                routine = matched[0]
+                matched_rt = matched[0]
+                rid = matched_rt.get("id", "")
+                r = httpx.get(
+                    f"https://api.hevyapp.com/v1/routines/{rid}",
+                    headers=headers, timeout=15,
+                )
+                r.raise_for_status()
+                routine = r.json().get("routine", r.json())
             else:
                 return {
                     "available_routines": [
