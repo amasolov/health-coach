@@ -26,9 +26,7 @@ COPY grafana/ /app/grafana/
 COPY .chainlit/ /app/.chainlit/
 COPY public/ /app/public/
 COPY chainlit.md /app/chainlit.md
-COPY healthcoach/run.sh /app/run.sh
+
+COPY healthcoach/rootfs/ /
 
 WORKDIR /app
-RUN chmod +x /app/run.sh
-
-CMD ["/app/run.sh"]

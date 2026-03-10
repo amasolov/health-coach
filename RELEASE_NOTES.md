@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.45.0
+**s6-overlay process supervisor — replaces run.sh (issue #7)**
+
+- **s6-overlay as PID 1** — the 327-line `run.sh` bash entrypoint is replaced by s6-overlay's process supervisor; all four long-running services (MCP, Chainlit, Telegram, sync) are now individually supervised with automatic restart on crash and 5-second backoff
+- **`rootfs/etc/services.d/`** — each service has its own `run` and `finish` script; conditional services (Chainlit, Telegram) sleep indefinitely when their required env vars are absent, keeping s6 happy without consuming resources
+- **`rootfs/etc/cont-init.d/init.sh`** — single init script delegates to `scripts/init_addon.py`, which performs all one-shot setup: config export, file linking, DB migrations, user migration, Garmin auth warm-up, knowledge-base indexing, and Grafana provisioning
+- **Pydantic Settings config** — `scripts/addon_config.py` provides a typed `AddonConfig` model loaded from `/data/options.json` (HA runtime) or environment variables (local dev); eliminates the fragile `eval "$(python3 -c ...)"` config hack
+- **s6 container environment** — `write_s6_env()` exports all settings as individual files under `/run/s6/container_environment/` so that `with-contenv` bash scripts inherit them
+- **CI aligned to HA base images** — GitHub Actions workflow now uses arch-specific `ghcr.io/home-assistant/*-base-python:3.12-alpine3.21` images (matching `build.yaml`) instead of `python:3.12-alpine`, ensuring CI and production use the same s6-overlay-enabled base
+- **Separated log streams** — each service's stdout/stderr is managed independently by s6, enabling per-service log filtering
+- **Dependency ordering** — init scripts complete before any service starts, guaranteeing migrations run before MCP/Chainlit/Telegram come up
+
 ## v0.44.0
 **Async task runner with per-user parallelism and retry (issue #14)**
 

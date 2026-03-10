@@ -1,0 +1,8 @@
+#!/command/with-contenv bash
+# Telegram bot — only runs when both token and LLM key are set.
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${OPENROUTER_API_KEY:-}" ]; then
+    echo "Telegram bot disabled (set telegram_bot_token and openrouter_api_key)"
+    sleep infinity
+fi
+
+exec python3 /app/scripts/telegram_bot.py

@@ -16,3 +16,4 @@ pypdf==6.8.0
 pgvector==0.4.2
 python-telegram-bot==22.6
 APScheduler==3.11.2
+pydantic-settings==2.13.1

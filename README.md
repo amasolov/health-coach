@@ -161,14 +161,20 @@ The test suite mocks all external API calls (Hevy, iFit, GitHub, OpenRouter, Gar
 ├── healthcoach/
 │   ├── config.yaml          # HA add-on manifest
 │   ├── Dockerfile           # Container build
-│   └── run.sh               # Entrypoint (migrations, sync, servers)
+│   └── rootfs/              # s6-overlay filesystem
+│       └── etc/
+│           ├── cont-init.d/ # One-shot init (→ scripts/init_addon.py)
+│           └── services.d/  # Supervised services (mcp, chainlit, telegram, sync)
 ├── scripts/
+│   ├── addon_config.py      # Pydantic Settings config model
+│   ├── init_addon.py        # Addon init (migrations, setup, Garmin auth)
 │   ├── chat_app.py          # Chainlit chat UI
 │   ├── mcp_server.py        # FastMCP server
 │   ├── health_tools.py      # 40+ coaching tool implementations
 │   ├── chat_tools_schema.py # OpenAI function-calling schemas
 │   ├── knowledge_store.py   # RAG: PDF ingestion, embedding, retrieval
 │   ├── run_sync.py          # Sync orchestrator
+│   ├── task_runner.py       # APScheduler async task runner
 │   ├── sync_garmin.py       # Garmin Connect data sync
 │   ├── sync_hevy.py         # Hevy data sync
 │   ├── calc_pmc.py          # PMC / TSS calculation

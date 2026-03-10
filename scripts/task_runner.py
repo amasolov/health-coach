@@ -13,14 +13,14 @@ Features
 
 Environment variables
 ---------------------
-SYNC_INTERVAL        Sync interval in minutes (default 30, set by run.sh)
+SYNC_INTERVAL        Sync interval in minutes (default 30, set by init_addon.py)
 SYNC_MAX_RETRIES     Per-user retry attempts (default 2)
 SYNC_RETRY_BASE      Base delay in seconds for exponential back-off (default 10)
 SYNC_USER_TIMEOUT    Per-user timeout in seconds (default 600)
 
 Usage::
 
-    python scripts/task_runner.py     # started by run.sh
+    python scripts/task_runner.py     # supervised by s6-overlay (services.d/sync)
 """
 
 from __future__ import annotations

@@ -12,7 +12,7 @@ that adds MCP transport, auth middleware, and Context extraction.
 
 Usage (standalone):
     python scripts/mcp_server.py          # reads MCP_PORT from env, users from DB
-    # or via addon run.sh (background)
+    # or supervised by s6-overlay (services.d/mcp)
 """
 
 from __future__ import annotations

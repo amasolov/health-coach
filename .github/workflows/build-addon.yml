@@ -18,7 +18,8 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/amasolov/health-coach/healthcoach
-  BUILD_FROM: python:3.12-alpine
+  HA_BASE_ARM64: ghcr.io/home-assistant/aarch64-base-python:3.12-alpine3.21
+  HA_BASE_AMD64: ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.21
 
 jobs:
   build:
@@ -40,7 +41,12 @@ jobs:
       - name: Build multi-arch images
         run: |
           for ARCH in arm64 amd64; do
-            echo "=== Building linux/${ARCH} ==="
+            if [ "$ARCH" = "arm64" ]; then
+              BUILD_FROM="${HA_BASE_ARM64}"
+            else
+              BUILD_FROM="${HA_BASE_AMD64}"
+            fi
+            echo "=== Building linux/${ARCH} (base: ${BUILD_FROM}) ==="
             podman build \
               --platform "linux/${ARCH}" \
               --build-arg "BUILD_FROM=${BUILD_FROM}" \

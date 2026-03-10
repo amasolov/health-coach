@@ -1,0 +1,9 @@
+#!/command/with-contenv bash
+# Chainlit chat UI — only runs when an LLM key is configured.
+if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+    echo "Chainlit disabled (OPENROUTER_API_KEY not set)"
+    sleep infinity
+fi
+
+exec chainlit run /app/scripts/chat_app.py \
+    --port "${CHAT_PORT}" --host 0.0.0.0

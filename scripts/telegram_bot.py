@@ -11,7 +11,7 @@ responses are sanitized to prevent API token / password leakage.
 
 Usage (standalone):
     python scripts/telegram_bot.py   # reads TELEGRAM_BOT_TOKEN from env
-    # or via addon run.sh (background)
+    # or supervised by s6-overlay (services.d/telegram)
 """
 
 from __future__ import annotations
