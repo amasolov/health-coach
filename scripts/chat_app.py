@@ -15,11 +15,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 import sys
 from pathlib import Path
 from typing import Any
+
+logging.basicConfig(
+    format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+    level=logging.INFO,
+)
 
 _PROJECT_ROOT = str(Path(__file__).resolve().parent.parent)
 if _PROJECT_ROOT not in sys.path:

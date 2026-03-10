@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.34.0
+**Performance tracing and bottleneck fixes for iFit/Hevy operations**
+
+- Added `perf` logger with wall-clock timing for key operations: `search_ifit_library`, `get_ifit_workout_details`, `create_hevy_routine_from_recommendation`, `_find_existing_routine`, and `resolve_hevy_exercises`
+- **Parallelized** trainer fetch and exercise extraction in `get_ifit_workout_details` using `ThreadPoolExecutor` — these two independent HTTP chains now run concurrently instead of sequentially
+- **Eliminated serial HTTP calls** in `search_ifit_library` — removed per-result `fetch_workout_series` enrichment that made up to 10 sequential HTTP requests for program metadata
+- **Cached program index** in memory (`_program_index_cache`) so `load_program_index` R2 downloads happen once per process, not per search/detail call
+- **Cached Hevy routine map** in memory (`_routine_map_cache`) to avoid repeated R2 downloads during duplicate checks
+- Set up `logging.basicConfig` in Chainlit entrypoint for consistent log output
+
 ## v0.33.0
 **Hevy routine management — list, rename, and duplicate cleanup**
 

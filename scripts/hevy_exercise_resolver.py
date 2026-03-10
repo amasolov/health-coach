@@ -14,12 +14,16 @@ only triggers one API call across all workouts.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import time
 from difflib import SequenceMatcher
 from pathlib import Path
 
 import httpx
+
+_perf_log = logging.getLogger("perf")
 
 HEVY_BASE = "https://api.hevyapp.com/v1"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -420,10 +424,12 @@ def resolve_hevy_exercises(
     Returns a new list of exercise dicts with guaranteed 'hevy_id' and
     'resolution' field indicating how it was matched.
     """
+    t0 = time.monotonic()
     if workout_id and not force_revalidate:
         cached = _load_resolved(workout_id)
         if cached:
             print(f"    Using cached Hevy resolution ({len(cached)} exercises)")
+            _perf_log.info("resolve_hevy_exercises: cache hit in %.2fs", time.monotonic() - t0)
             return cached
 
     library = _load_library()
@@ -532,4 +538,5 @@ def resolve_hevy_exercises(
     if workout_id and resolved:
         _save_resolved(workout_id, resolved)
 
+    _perf_log.info("resolve_hevy_exercises: resolved %d exercises in %.2fs", len(resolved), time.monotonic() - t0)
     return resolved

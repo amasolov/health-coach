@@ -28,8 +28,12 @@ from dataclasses import dataclass, field, asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import logging
+
 import httpx
 from dotenv import load_dotenv
+
+_perf_log = logging.getLogger("perf")
 
 load_dotenv()
 
@@ -838,18 +842,25 @@ def stage2_analyse(
 
 R2_ROUTINE_MAP_KEY = "hevy/routine_map.json"
 
+_routine_map_cache: dict | None = None
+
 
 def _load_routine_map() -> dict:
-    """Load the hevy_routine_id -> ifit mapping from R2."""
+    """Load the hevy_routine_id -> ifit mapping from R2 (cached in-process)."""
+    global _routine_map_cache
+    if _routine_map_cache is not None:
+        return _routine_map_cache
     try:
         from scripts.r2_store import is_configured, download_json
         if is_configured():
             data = download_json(R2_ROUTINE_MAP_KEY)
             if isinstance(data, dict):
-                return data
+                _routine_map_cache = data
+                return _routine_map_cache
     except Exception:
         pass
-    return {}
+    _routine_map_cache = {}
+    return _routine_map_cache
 
 
 def _save_routine_mapping(
@@ -859,6 +870,7 @@ def _save_routine_mapping(
     predicted_exercises: list[dict],
 ) -> None:
     """Persist the Hevy routine -> iFit workout mapping to R2."""
+    global _routine_map_cache
     if not routine_id:
         return
     try:
@@ -927,6 +939,7 @@ def _find_existing_routine(
     returns errors that prevent a reliable check.  The caller must treat
     this as "unknown" and refuse to create — fail-closed.
     """
+    t0 = time.monotonic()
     expected_title = f"iFit: {title}"
 
     # 1) Check R2 mapping for this iFit workout ID
@@ -1008,6 +1021,7 @@ def _find_existing_routine(
             "Cannot verify duplicates: Hevy API title check did not complete"
         )
 
+    _perf_log.info("_find_existing_routine: %.2fs (no match, %d pages)", time.monotonic() - t0, page)
     return None
 
 
@@ -1096,6 +1110,7 @@ def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
 
 
 def _create_hevy_routine_locked(rec: Recommendation, hevy_api_key: str) -> dict:
+    t0_total = time.monotonic()
     try:
         existing = _find_existing_routine(rec.workout_id, rec.title, hevy_api_key)
     except _DuplicateCheckFailed as e:
@@ -1122,7 +1137,11 @@ def _create_hevy_routine_locked(rec: Recommendation, hevy_api_key: str) -> dict:
             ),
         }
 
+    t1 = time.monotonic()
+    _perf_log.info("create_hevy_routine: duplicate check took %.2fs", t1 - t0_total)
+
     exercises_payload, skipped, resolved, resolution_summary = _resolve_and_build_payload(rec, hevy_api_key)
+    _perf_log.info("create_hevy_routine: exercise resolution took %.2fs", time.monotonic() - t1)
 
     if not exercises_payload:
         return {
@@ -1216,8 +1235,10 @@ def _create_hevy_routine_locked(rec: Recommendation, hevy_api_key: str) -> dict:
                 f"{len(rec.exercises)} exercises. Tell the user which exercises "
                 f"are missing and suggest they add them manually in the Hevy app."
             )
+        _perf_log.info("create_hevy_routine: total %.2fs", time.monotonic() - t0_total)
         return result
     else:
+        _perf_log.info("create_hevy_routine: total %.2fs (failed)", time.monotonic() - t0_total)
         print(f"  Hevy routine creation failed: HTTP {r.status_code} - {r.text[:500]}")
         return {"error": f"Hevy API {r.status_code}: {r.text[:300]}"}
 

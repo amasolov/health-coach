@@ -9,7 +9,10 @@ exactly one place.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -20,6 +23,17 @@ import yaml
 
 from scripts.tz import DEFAULT_TZ_NAME, load_user_tz, user_today
 from scripts import athlete_store
+
+_perf_log = logging.getLogger("perf")
+
+
+@contextmanager
+def _timed(label: str):
+    """Log wall-clock time for a block to the ``perf`` logger."""
+    t0 = time.monotonic()
+    yield
+    elapsed = time.monotonic() - t0
+    _perf_log.info("%s: %.2fs", label, elapsed)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -32,6 +46,7 @@ ZONES_PATH = ROOT / "config" / "zones.yaml"
 # In-memory caches (survive across tool calls within the same process)
 _ifit_library_cache: dict[str, Any] = {}  # {"workouts": [...], "trainers": {...}}
 _workout_details_cache: dict[str, dict] = {}  # workout_id -> details dict
+_program_index_cache: dict[str, list[dict]] | None = None
 TEMPLATES_PATH = ROOT / "config" / "treadmill_templates.yaml"
 EQUIPMENT_PATH = ROOT / "config" / "equipment.yaml"
 
@@ -1669,17 +1684,23 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
     (title match > trainer match > description match > category match) and rating.
     Also enriches results with program/series info from R2 when available."""
 
+    with _timed("search_ifit_library"):
+        return _search_ifit_library_inner(query, workout_type, limit)
+
+
+def _search_ifit_library_inner(query: str, workout_type: str, limit: int) -> dict:
     workouts, trainers = _load_ifit_library()
     if not workouts:
         return {"error": "iFit library cache not available."}
 
-    # Load program index for enrichment (one-to-many)
-    program_index: dict[str, list[dict]] = {}
-    try:
-        from scripts.ifit_r2_sync import load_program_index
-        program_index = load_program_index()
-    except Exception:
-        pass
+    global _program_index_cache
+    if _program_index_cache is None:
+        try:
+            from scripts.ifit_r2_sync import load_program_index
+            _program_index_cache = load_program_index()
+        except Exception:
+            _program_index_cache = {}
+    program_index = _program_index_cache
 
     q_lower = query.lower()
     terms = q_lower.split()
@@ -1758,17 +1779,6 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
             entry["description"] = desc[:200] + ("..." if len(desc) > 200 else "")
 
         progs = program_index.get(wid, [])
-        if not progs:
-            try:
-                from scripts.ifit_r2_sync import fetch_workout_series
-                series = fetch_workout_series(wid)
-                if series:
-                    progs = [
-                        {"title": e.get("title", ""), "series_id": e.get("seriesId", "")}
-                        for e in series
-                    ]
-            except Exception:
-                pass
         if progs:
             entry["programs"] = [
                 {"title": p.get("title", ""), "series_id": p.get("series_id", p.get("seriesId", ""))}
@@ -1964,8 +1974,14 @@ def get_ifit_workout_details(workout_id: str) -> dict:
     within the same process are instant."""
 
     if workout_id in _workout_details_cache:
+        _perf_log.info("get_ifit_workout_details(%s): cache hit", workout_id)
         return _workout_details_cache[workout_id]
 
+    with _timed(f"get_ifit_workout_details({workout_id})"):
+        return _get_ifit_workout_details_inner(workout_id)
+
+
+def _get_ifit_workout_details_inner(workout_id: str) -> dict:
     import httpx as _httpx
     from scripts.ifit_auth import get_auth_headers
 
@@ -2011,7 +2027,12 @@ def get_ifit_workout_details(workout_id: str) -> dict:
         "workout_group_id": meta.get("workout_group_id"),
     }
 
-    if trainer_meta.get("trainer"):
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from scripts.ifit_strength_recommend import fetch_workout_exercises
+
+    def _fetch_trainer():
+        if not trainer_meta.get("trainer"):
+            return None
         try:
             tr = _httpx.get(
                 f"https://api.ifit.com/v1/trainers/{trainer_meta['trainer']}",
@@ -2020,18 +2041,28 @@ def get_ifit_workout_details(workout_id: str) -> dict:
             )
             if tr.status_code == 200:
                 td = tr.json()
-                result["trainer"] = {
+                return {
                     "name": f"{td.get('first_name', '')} {td.get('last_name', '')}".strip(),
                     "bio": td.get("short_bio", ""),
                 }
         except Exception:
             pass
+        return None
 
-    # Fetch exercises on-demand (cache → R2 → live VTT → LLM extraction)
-    from scripts.ifit_strength_recommend import fetch_workout_exercises
-    exercise_info = fetch_workout_exercises(
-        workout_id, result["title"], ifit_headers=headers,
-    )
+    def _fetch_exercises():
+        return fetch_workout_exercises(
+            workout_id, result["title"], ifit_headers=headers,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        ft_trainer = pool.submit(_fetch_trainer)
+        ft_exercises = pool.submit(_fetch_exercises)
+
+    trainer_info = ft_trainer.result()
+    if trainer_info:
+        result["trainer"] = trainer_info
+
+    exercise_info = ft_exercises.result()
     if exercise_info["exercises"]:
         result["exercises"] = exercise_info["exercises"]
         result["exercises_source"] = exercise_info["source"]
@@ -2039,32 +2070,16 @@ def get_ifit_workout_details(workout_id: str) -> dict:
 
     _workout_details_cache[workout_id] = result
 
-    # Enrich with program/series info (one-to-many: workout can belong to multiple series)
-    programs_list = []
-    try:
-        from scripts.ifit_r2_sync import load_program_index, fetch_workout_series
-        program_index = load_program_index()
-        progs = program_index.get(workout_id)
-        if progs:
-            programs_list = progs
-        else:
-            series_entries = fetch_workout_series(workout_id, headers)
-            if series_entries:
-                programs_list = [
-                    {
-                        "series_id": e.get("seriesId", ""),
-                        "title": e.get("title", ""),
-                        "position": e.get("position"),
-                        "week": e.get("week"),
-                        "is_challenge": e.get("isChallenge", False),
-                    }
-                    for e in series_entries
-                ]
-    except Exception:
-        pass
-
-    if programs_list:
-        result["programs"] = programs_list
+    global _program_index_cache
+    if _program_index_cache is None:
+        try:
+            from scripts.ifit_r2_sync import load_program_index
+            _program_index_cache = load_program_index()
+        except Exception:
+            _program_index_cache = {}
+    progs = _program_index_cache.get(workout_id, [])
+    if progs:
+        result["programs"] = progs
 
     return result
 
@@ -2364,13 +2379,26 @@ def create_hevy_routine_from_recommendation(
     Always prefer passing ifit_workout_id when you have a confirmed ID from
     a previous tool call in the same conversation. Pass workout_title as a
     fallback for title-based search."""
+
+    if not hevy_api_key:
+        return {"error": "hevy_api_key required to create a routine."}
+
+    with _timed("create_hevy_routine_from_recommendation"):
+        return _create_hevy_routine_from_rec_inner(
+            user_slug, ifit_workout_id, workout_title, hevy_api_key,
+        )
+
+
+def _create_hevy_routine_from_rec_inner(
+    user_slug: str,
+    ifit_workout_id: str,
+    workout_title: str,
+    hevy_api_key: str,
+) -> dict:
     from scripts.ifit_strength_recommend import (
         create_hevy_routine,
         Recommendation,
     )
-
-    if not hevy_api_key:
-        return {"error": "hevy_api_key required to create a routine."}
 
     rec_dict: dict | None = None
 
