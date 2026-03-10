@@ -673,13 +673,6 @@ TOOL_SCHEMAS: list[dict] = [
                             "ID is missing or invalid."
                         ),
                     },
-                    "recommendation_index": {
-                        "type": "integer",
-                        "description": (
-                            "0-based index into recommend_strength_workout "
-                            "results. Last resort only."
-                        ),
-                    },
                 },
                 "required": ["workout_title"],
             },

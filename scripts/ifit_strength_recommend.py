@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field, asdict
@@ -909,6 +910,10 @@ def _parse_reps_for_hevy(reps_val) -> dict:
         return {"reps": 12}
 
 
+class _DuplicateCheckFailed(Exception):
+    """Raised when we cannot reliably determine whether a duplicate exists."""
+
+
 def _find_existing_routine(
     ifit_workout_id: str, title: str, hevy_api_key: str,
 ) -> dict | None:
@@ -917,6 +922,10 @@ def _find_existing_routine(
     Returns the existing routine info dict or None.
     Checks two sources: the R2 routine map (by iFit workout ID) and
     the Hevy API (by title prefix match).
+
+    Raises ``_DuplicateCheckFailed`` when the Hevy API is unreachable or
+    returns errors that prevent a reliable check.  The caller must treat
+    this as "unknown" and refuse to create — fail-closed.
     """
     expected_title = f"iFit: {title}"
 
@@ -945,8 +954,8 @@ def _find_existing_routine(
                 if r.status_code in (404, 410):
                     print(f"  Routine {routine_id} was deleted from Hevy — removing stale mapping")
                     stale_ids.append(routine_id)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  Warning: R2 mapping check for {routine_id} failed: {e}")
 
     if stale_ids:
         for rid in stale_ids:
@@ -959,6 +968,7 @@ def _find_existing_routine(
             pass
 
     # 2) Query Hevy routines list for a title match (paginated)
+    title_check_succeeded = False
     try:
         page = 1
         while True:
@@ -970,7 +980,9 @@ def _find_existing_routine(
             )
             if r.status_code != 200:
                 print(f"  Warning: Hevy routines list returned {r.status_code} — {r.text[:200]}")
-                break
+                raise _DuplicateCheckFailed(
+                    f"Cannot verify duplicates: GET /v1/routines returned {r.status_code}"
+                )
             data = r.json()
             for rt in data.get("routines", []):
                 if rt.get("title", "").strip().lower() == expected_title.strip().lower():
@@ -985,8 +997,16 @@ def _find_existing_routine(
             if page >= data.get("page_count", 1):
                 break
             page += 1
-    except Exception:
-        pass
+        title_check_succeeded = True
+    except _DuplicateCheckFailed:
+        raise
+    except Exception as e:
+        print(f"  Warning: title-based duplicate check failed: {e}")
+
+    if not title_check_succeeded:
+        raise _DuplicateCheckFailed(
+            "Cannot verify duplicates: Hevy API title check did not complete"
+        )
 
     return None
 
@@ -1058,14 +1078,36 @@ def _resolve_and_build_payload(
     return exercises_payload, skipped, resolved, resolution_summary
 
 
+_routine_creation_lock = threading.Lock()
+
+
 def create_hevy_routine(rec: Recommendation, hevy_api_key: str) -> dict:
     """Create a Hevy routine from a recommendation.
 
     Checks for duplicates first (by iFit workout ID mapping and Hevy title),
     then resolves exercises to Hevy template IDs and creates the routine.
     On "invalid exercise template id" errors, clears the stale cache and retries once.
+
+    Uses a process-wide lock to prevent concurrent creation of the same routine
+    (e.g. if the LLM retries after a slow first call).
     """
-    existing = _find_existing_routine(rec.workout_id, rec.title, hevy_api_key)
+    with _routine_creation_lock:
+        return _create_hevy_routine_locked(rec, hevy_api_key)
+
+
+def _create_hevy_routine_locked(rec: Recommendation, hevy_api_key: str) -> dict:
+    try:
+        existing = _find_existing_routine(rec.workout_id, rec.title, hevy_api_key)
+    except _DuplicateCheckFailed as e:
+        return {
+            "error": str(e),
+            "hint": (
+                "The Hevy API could not be reached to check for duplicates. "
+                "Refusing to create a routine to avoid duplicates. "
+                "Ask the user to try again in a moment."
+            ),
+        }
+
     if existing:
         return {
             "status": "already_exists",

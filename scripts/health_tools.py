@@ -2351,7 +2351,6 @@ def _build_rec_from_details(workout_id: str, details: dict) -> dict | None:
 
 def create_hevy_routine_from_recommendation(
     user_slug: str,
-    recommendation_index: int = 0,
     ifit_workout_id: str = "",
     workout_title: str = "",
     hevy_api_key: str = "",
@@ -2359,45 +2358,30 @@ def create_hevy_routine_from_recommendation(
     """Create a Hevy routine from an iFit workout.
 
     Lookup priority:
-      1. ifit_workout_id — find in cached recs or fetch on-the-fly.
+      1. ifit_workout_id — fetch workout details from cache or iFit API.
       2. workout_title — search the iFit library by title if no valid ID.
-      3. recommendation_index — positional fallback into recommendations.json.
 
     Always prefer passing ifit_workout_id when you have a confirmed ID from
     a previous tool call in the same conversation. Pass workout_title as a
     fallback for title-based search."""
-    import json as _json
     from scripts.ifit_strength_recommend import (
         create_hevy_routine,
-        fetch_workout_exercises,
         Recommendation,
     )
 
     if not hevy_api_key:
         return {"error": "hevy_api_key required to create a routine."}
 
-    cache_path = ROOT / ".ifit_capture" / "recommendations.json"
-    recs_data: list[dict] = []
-    if cache_path.exists():
-        with open(cache_path) as f:
-            recs_data = _json.load(f)
-
     rec_dict: dict | None = None
 
-    # Primary: look up by workout ID (stable across conversations)
+    # Primary: look up by workout ID (fetch from iFit API)
     if ifit_workout_id:
-        for rd in recs_data:
-            if rd.get("workout_id") == ifit_workout_id:
-                rec_dict = rd
-                break
-
-        if rec_dict is None:
-            print(f"  Workout {ifit_workout_id} not in cached recs, fetching on-the-fly")
-            details = get_ifit_workout_details(ifit_workout_id)
-            if "error" not in details:
-                rec_dict = _build_rec_from_details(ifit_workout_id, details)
-            else:
-                print(f"  ID lookup failed ({details['error']}), will try title search")
+        print(f"  Fetching workout details for {ifit_workout_id}")
+        details = get_ifit_workout_details(ifit_workout_id)
+        if "error" not in details:
+            rec_dict = _build_rec_from_details(ifit_workout_id, details)
+        else:
+            print(f"  ID lookup failed ({details['error']}), will try title search")
 
     # Fallback: search by title when ID is missing or returned 404
     if rec_dict is None and workout_title:
@@ -2421,13 +2405,14 @@ def create_hevy_routine_from_recommendation(
                 if "error" not in details:
                     rec_dict = _build_rec_from_details(found_id, details)
 
-    # Fallback: positional index
     if rec_dict is None:
-        if not recs_data:
-            return {"error": "No recommendations cached and no ifit_workout_id provided. Run recommend_strength_workout first."}
-        if recommendation_index < 0 or recommendation_index >= len(recs_data):
-            return {"error": f"Invalid index {recommendation_index}. {len(recs_data)} recommendations available (0-based)."}
-        rec_dict = recs_data[recommendation_index]
+        return {
+            "error": (
+                "Could not find the iFit workout. "
+                "Provide a workout_title or ifit_workout_id from a tool call "
+                "in this conversation."
+            ),
+        }
 
     valid_keys = {f.name for f in Recommendation.__dataclass_fields__.values()}
     filtered = {k: v for k, v in rec_dict.items() if k in valid_keys}

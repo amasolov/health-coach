@@ -485,7 +485,8 @@ class TestCreateHevyRoutine:
         hevy_exercises_path = tmp_path / "hevy_exercises.json"
         hevy_exercises_path.write_text(json.dumps(SAMPLE_HEVY_EXERCISES_JSON))
 
-        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
+        with patch("scripts.ifit_strength_recommend._find_existing_routine", return_value=None), \
+             patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
              patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
              patch("scripts.ifit_strength_recommend.httpx.post") as mock_hevy, \
              patch("scripts.ifit_strength_recommend._save_routine_mapping"):
@@ -515,7 +516,8 @@ class TestCreateHevyRoutine:
         empty_resp.json.side_effect = Exception("empty body")
         empty_resp.text = ""
 
-        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
+        with patch("scripts.ifit_strength_recommend._find_existing_routine", return_value=None), \
+             patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
              patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
              patch("scripts.ifit_strength_recommend.httpx.post") as mock_hevy, \
              patch("scripts.ifit_strength_recommend._save_routine_mapping"):
@@ -539,7 +541,8 @@ class TestCreateHevyRoutine:
         hevy_exercises_path = tmp_path / "hevy_exercises.json"
         hevy_exercises_path.write_text(json.dumps(SAMPLE_HEVY_EXERCISES_JSON))
 
-        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
+        with patch("scripts.ifit_strength_recommend._find_existing_routine", return_value=None), \
+             patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
              patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
              patch("scripts.ifit_strength_recommend.httpx.post") as mock_hevy:
 
@@ -566,7 +569,8 @@ class TestCreateHevyRoutine:
         empty_custom_map = tmp_path / "hevy_custom_map.json"
         empty_custom_map.write_text("{}")
 
-        with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
+        with patch("scripts.ifit_strength_recommend._find_existing_routine", return_value=None), \
+             patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", hevy_exercises_path), \
              patch("scripts.hevy_exercise_resolver.CUSTOM_MAP_PATH", empty_custom_map), \
              patch("scripts.hevy_exercise_resolver._r2_available", return_value=False), \
              patch("scripts.hevy_exercise_resolver._create_custom_exercise", return_value=None), \
@@ -636,47 +640,15 @@ class TestCreateHevyRoutine:
             assert resolve_calls[0].get("force_revalidate", False) is False
             assert resolve_calls[1].get("force_revalidate") is True
 
-    def test_create_routine_from_recommendation_index(self, tmp_path):
-        rec = make_recommendation()
-        cache_dir = tmp_path / ".ifit_capture"
-        cache_dir.mkdir()
-        (cache_dir / "recommendations.json").write_text(json.dumps([rec]))
+    def test_create_routine_no_id_no_title_errors(self):
+        """When neither ifit_workout_id nor workout_title is provided, return error."""
+        result = health_tools.create_hevy_routine_from_recommendation(
+            user_slug="test", hevy_api_key="key"
+        )
+        assert "error" in result
 
-        with patch("scripts.health_tools.ROOT", tmp_path), \
-             patch("scripts.ifit_strength_recommend.create_hevy_routine") as mock_create:
-            mock_create.return_value = {"status": "created", "routine_id": "r-001"}
-
-            result = health_tools.create_hevy_routine_from_recommendation(
-                user_slug="test", recommendation_index=0, hevy_api_key="key"
-            )
-            assert result["status"] == "created"
-
-    def test_create_routine_by_workout_id_from_cache(self, tmp_path):
-        """When ifit_workout_id is provided, look up by ID in cached recommendations."""
-        rec = make_recommendation(workout_id="ifit_w500", title="Target Workout")
-        other_rec = make_recommendation(workout_id="ifit_w999", title="Wrong Workout")
-        cache_dir = tmp_path / ".ifit_capture"
-        cache_dir.mkdir()
-        (cache_dir / "recommendations.json").write_text(json.dumps([other_rec, rec]))
-
-        with patch("scripts.health_tools.ROOT", tmp_path), \
-             patch("scripts.ifit_strength_recommend.create_hevy_routine") as mock_create:
-            mock_create.return_value = {"status": "created", "routine_id": "r-target"}
-
-            result = health_tools.create_hevy_routine_from_recommendation(
-                user_slug="test", ifit_workout_id="ifit_w500", hevy_api_key="key"
-            )
-            assert result["status"] == "created"
-            created_rec = mock_create.call_args[0][0]
-            assert created_rec.workout_id == "ifit_w500"
-            assert created_rec.title == "Target Workout"
-
-    def test_create_routine_by_workout_id_on_the_fly(self, tmp_path):
-        """When ifit_workout_id is not in cached recs, fetch details on-the-fly."""
-        cache_dir = tmp_path / ".ifit_capture"
-        cache_dir.mkdir()
-        (cache_dir / "recommendations.json").write_text(json.dumps([]))
-
+    def test_create_routine_by_workout_id(self):
+        """When ifit_workout_id is provided, fetch details from iFit API."""
         workout_details = {
             "title": "On The Fly Workout",
             "trainer": {"name": "Test Trainer"},
@@ -691,8 +663,7 @@ class TestCreateHevyRoutine:
             ],
         }
 
-        with patch("scripts.health_tools.ROOT", tmp_path), \
-             patch("scripts.health_tools.get_ifit_workout_details", return_value=workout_details), \
+        with patch("scripts.health_tools.get_ifit_workout_details", return_value=workout_details), \
              patch("scripts.ifit_strength_recommend.create_hevy_routine") as mock_create:
             mock_create.return_value = {"status": "created", "routine_id": "r-fly"}
 
@@ -705,53 +676,21 @@ class TestCreateHevyRoutine:
             assert created_rec.title == "On The Fly Workout"
             assert len(created_rec.exercises) == 1
 
-    def test_create_routine_by_workout_id_no_exercises(self, tmp_path):
+    def test_create_routine_by_workout_id_no_exercises(self):
         """When workout has no exercises, return an error."""
-        cache_dir = tmp_path / ".ifit_capture"
-        cache_dir.mkdir()
-        (cache_dir / "recommendations.json").write_text(json.dumps([]))
-
         workout_details = {
             "title": "Empty Workout",
             "exercises": [],
         }
 
-        with patch("scripts.health_tools.ROOT", tmp_path), \
-             patch("scripts.health_tools.get_ifit_workout_details", return_value=workout_details):
+        with patch("scripts.health_tools.get_ifit_workout_details", return_value=workout_details):
             result = health_tools.create_hevy_routine_from_recommendation(
                 user_slug="test", ifit_workout_id="ifit_empty", hevy_api_key="key"
             )
             assert "error" in result
 
-    def test_workout_id_takes_priority_over_index(self, tmp_path):
-        """workout_id lookup should take priority over recommendation_index."""
-        rec_a = make_recommendation(workout_id="ifit_a", title="Workout A")
-        rec_b = make_recommendation(workout_id="ifit_b", title="Workout B")
-        cache_dir = tmp_path / ".ifit_capture"
-        cache_dir.mkdir()
-        (cache_dir / "recommendations.json").write_text(json.dumps([rec_a, rec_b]))
-
-        with patch("scripts.health_tools.ROOT", tmp_path), \
-             patch("scripts.ifit_strength_recommend.create_hevy_routine") as mock_create:
-            mock_create.return_value = {"status": "created", "routine_id": "r-b"}
-
-            result = health_tools.create_hevy_routine_from_recommendation(
-                user_slug="test",
-                recommendation_index=0,
-                ifit_workout_id="ifit_b",
-                hevy_api_key="key",
-            )
-            assert result["status"] == "created"
-            created_rec = mock_create.call_args[0][0]
-            assert created_rec.workout_id == "ifit_b"
-            assert created_rec.title == "Workout B"
-
-    def test_title_fallback_when_id_404s(self, tmp_path):
+    def test_title_fallback_when_id_404s(self):
         """When ifit_workout_id 404s, fall back to title-based search."""
-        cache_dir = tmp_path / ".ifit_capture"
-        cache_dir.mkdir()
-        (cache_dir / "recommendations.json").write_text(json.dumps([]))
-
         bad_details = {"error": "iFit API returned 404"}
         search_result = {
             "results": [
@@ -778,8 +717,7 @@ class TestCreateHevyRoutine:
                 return bad_details
             return good_details
 
-        with patch("scripts.health_tools.ROOT", tmp_path), \
-             patch("scripts.health_tools.get_ifit_workout_details", side_effect=mock_details), \
+        with patch("scripts.health_tools.get_ifit_workout_details", side_effect=mock_details), \
              patch("scripts.health_tools.search_ifit_library", return_value=search_result), \
              patch("scripts.ifit_strength_recommend.create_hevy_routine") as mock_create:
             mock_create.return_value = {"status": "created", "routine_id": "r-title"}
@@ -795,12 +733,8 @@ class TestCreateHevyRoutine:
             assert created_rec.workout_id == "real_id_001"
             assert created_rec.title == "Week 2 - Upper Body Pull"
 
-    def test_title_only_no_id(self, tmp_path):
+    def test_title_only_no_id(self):
         """When no ifit_workout_id is provided, title search finds the workout."""
-        cache_dir = tmp_path / ".ifit_capture"
-        cache_dir.mkdir()
-        (cache_dir / "recommendations.json").write_text(json.dumps([]))
-
         search_result = {
             "results": [
                 {"workout_id": "found_123", "title": "Lower Body Blast", "type": "strength"},
@@ -821,8 +755,7 @@ class TestCreateHevyRoutine:
             ],
         }
 
-        with patch("scripts.health_tools.ROOT", tmp_path), \
-             patch("scripts.health_tools.search_ifit_library", return_value=search_result), \
+        with patch("scripts.health_tools.search_ifit_library", return_value=search_result), \
              patch("scripts.health_tools.get_ifit_workout_details", return_value=workout_details), \
              patch("scripts.ifit_strength_recommend.create_hevy_routine") as mock_create:
             mock_create.return_value = {"status": "created", "routine_id": "r-found"}
