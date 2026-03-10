@@ -1809,6 +1809,112 @@ def get_user_integrations(user_slug: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _db_history_entries(user_id: int, days: int = 14) -> list[dict]:
+    """Build iFit-compatible history entries from Garmin activities and Hevy
+    strength sessions so that fatigue analysis sees all training, not just
+    iFit workouts."""
+    from scripts.ifit_recommend import MUSCLE_GROUP_MAP
+    from scripts.ifit_strength_recommend import MUSCLE_GROUP_CANONICAL
+    from scripts.tz import user_now
+
+    now = user_now()
+    entries: list[dict] = []
+
+    CARDIO_MG: dict[str, set[str]] = {
+        "running": {"lower"},
+        "treadmill": {"lower"},
+        "trail_running": {"lower"},
+        "cycling": {"lower"},
+        "hiking": {"lower"},
+        "walking": {"lower"},
+        "elliptical": {"lower", "core"},
+        "stair_climbing": {"lower"},
+    }
+
+    try:
+        activities = get_activities(user_id, days=days)
+        for a in activities:
+            atype = (a.get("activity_type") or "").lower()
+            title = a.get("title") or atype
+            dt_str = a.get("time", "")
+            try:
+                dt = datetime.fromisoformat(dt_str)
+            except Exception:
+                continue
+            d_ago = (now - dt).days
+
+            styles: set[str] = set()
+            muscle_groups: set[str] = set()
+            for key, mgs in CARDIO_MG.items():
+                if key in atype:
+                    muscle_groups.update(mgs)
+                    styles.add("running" if "run" in key else "cardio")
+                    break
+
+            if a.get("source") == "hevy" or "strength" in atype:
+                styles.add("strength")
+                muscle_groups.add("total")
+
+            if not muscle_groups:
+                muscle_groups.add("total")
+
+            entries.append({
+                "date": dt,
+                "days_ago": max(d_ago, 0),
+                "duration_min": (int(a.get("duration_s") or 0)) / 60,
+                "calories": 0,
+                "workout_id": f"db-{a.get('source_id', '')}",
+                "log_type": atype,
+                "muscle_groups": muscle_groups,
+                "styles": styles,
+                "categories": set(),
+                "subcategories": set(),
+                "difficulty": "?",
+                "type": atype,
+                "title": title,
+                "required_equipment": [],
+            })
+    except Exception:
+        pass
+
+    try:
+        sets = get_strength_sessions(user_id, days=days)
+        sessions_by_day: dict[int, set[str]] = {}
+        for s in sets:
+            dt_str = s.get("time", "")
+            try:
+                dt = datetime.fromisoformat(dt_str)
+            except Exception:
+                continue
+            d_ago = max((now - dt).days, 0)
+            mg_raw = (s.get("muscle_group") or "").lower()
+            mg = MUSCLE_GROUP_CANONICAL.get(mg_raw, MUSCLE_GROUP_MAP.get(mg_raw, ""))
+            if mg:
+                sessions_by_day.setdefault(d_ago, set()).add(mg)
+
+        for d_ago, mgs in sessions_by_day.items():
+            entries.append({
+                "date": now - timedelta(days=d_ago),
+                "days_ago": d_ago,
+                "duration_min": 0,
+                "calories": 0,
+                "workout_id": f"hevy-sets-{d_ago}",
+                "log_type": "strength",
+                "muscle_groups": mgs,
+                "styles": {"strength"},
+                "categories": set(),
+                "subcategories": set(),
+                "difficulty": "?",
+                "type": "strength",
+                "title": "Hevy strength session",
+                "required_equipment": [],
+            })
+    except Exception:
+        pass
+
+    return entries
+
+
 def recommend_ifit_workout(user_slug: str) -> dict:
     """Run the general iFit workout recommendation engine.
 
@@ -1831,6 +1937,16 @@ def recommend_ifit_workout(user_slug: str) -> dict:
         return {"error": str(exc)}
 
     history = fetch_recent_history(headers, days=14)
+
+    user_id = resolve_user_id(user_slug)
+    if user_id:
+        db_entries = _db_history_entries(user_id, days=14)
+        existing_ids = {e["workout_id"] for e in history}
+        for entry in db_entries:
+            if entry["workout_id"] not in existing_ids:
+                history.append(entry)
+        history.sort(key=lambda x: x["date"], reverse=True)
+
     fatigue = analyze_fatigue(history)
     candidates = fetch_candidates(headers)
     ranked = score_candidates(candidates, fatigue, history, headers)
