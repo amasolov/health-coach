@@ -28,6 +28,10 @@ from scripts import athlete_store
 ROOT = Path(__file__).resolve().parent.parent
 ATHLETE_PATH = ROOT / "config" / "athlete.yaml"
 ZONES_PATH = ROOT / "config" / "zones.yaml"
+
+# In-memory caches (survive across tool calls within the same process)
+_ifit_library_cache: dict[str, Any] = {}  # {"workouts": [...], "trainers": {...}}
+_workout_details_cache: dict[str, dict] = {}  # workout_id -> details dict
 TEMPLATES_PATH = ROOT / "config" / "treadmill_templates.yaml"
 EQUIPMENT_PATH = ROOT / "config" / "equipment.yaml"
 
@@ -1623,17 +1627,15 @@ def recommend_ifit_workout(user_slug: str) -> dict:
     }
 
 
-def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> dict:
-    """Search the iFit workout library by title, trainer, category, description, or keyword.
-
-    Uses the cached library (12K+ workouts).  Results are ranked by relevance
-    (title match > trainer match > description match > category match) and rating.
-    Also enriches results with program/series info from R2 when available."""
+def _load_ifit_library() -> tuple[list[dict], dict]:
+    """Load the iFit library and trainers into memory (cached after first call)."""
     import json as _json
-    from pathlib import Path as _P
 
-    cache_path = _P(__file__).resolve().parent.parent / ".ifit_capture" / "library_workouts.json"
-    trainers_path = _P(__file__).resolve().parent.parent / ".ifit_capture" / "trainers.json"
+    if _ifit_library_cache.get("workouts"):
+        return _ifit_library_cache["workouts"], _ifit_library_cache.get("trainers", {})
+
+    cache_path = ROOT / ".ifit_capture" / "library_workouts.json"
+    trainers_path = ROOT / ".ifit_capture" / "trainers.json"
 
     if not cache_path.exists():
         try:
@@ -1643,10 +1645,10 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
             headers = get_auth_headers()
             fetch_all_trainers(headers)
             asyncio.run(fetch_all_workouts(headers))
-        except Exception as exc:
-            return {"error": f"iFit library cache not available and auto-build failed: {exc}"}
+        except Exception:
+            return [], {}
         if not cache_path.exists():
-            return {"error": "Failed to build iFit library cache."}
+            return [], {}
 
     with open(cache_path) as f:
         workouts = _json.load(f)
@@ -1654,6 +1656,22 @@ def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> 
     if trainers_path.exists():
         with open(trainers_path) as f:
             trainers = _json.load(f)
+
+    _ifit_library_cache["workouts"] = workouts
+    _ifit_library_cache["trainers"] = trainers
+    return workouts, trainers
+
+
+def search_ifit_library(query: str, workout_type: str = "", limit: int = 10) -> dict:
+    """Search the iFit workout library by title, trainer, category, description, or keyword.
+
+    Uses the cached library (12K+ workouts).  Results are ranked by relevance
+    (title match > trainer match > description match > category match) and rating.
+    Also enriches results with program/series info from R2 when available."""
+
+    workouts, trainers = _load_ifit_library()
+    if not workouts:
+        return {"error": "iFit library cache not available."}
 
     # Load program index for enrichment (one-to-many)
     program_index: dict[str, list[dict]] = {}
@@ -1940,7 +1958,14 @@ def get_ifit_workout_details(workout_id: str) -> dict:
 
     Returns metadata, trainer info, and a full exercise breakdown.  If the
     workout hasn't been processed yet the transcript is fetched from iFit and
-    exercises are extracted via LLM on the fly (then cached for next time)."""
+    exercises are extracted via LLM on the fly (then cached for next time).
+
+    Results are cached in memory — repeated lookups for the same workout ID
+    within the same process are instant."""
+
+    if workout_id in _workout_details_cache:
+        return _workout_details_cache[workout_id]
+
     import httpx as _httpx
     from scripts.ifit_auth import get_auth_headers
 
@@ -2011,6 +2036,8 @@ def get_ifit_workout_details(workout_id: str) -> dict:
         result["exercises"] = exercise_info["exercises"]
         result["exercises_source"] = exercise_info["source"]
     result["transcript_available"] = exercise_info["transcript_available"]
+
+    _workout_details_cache[workout_id] = result
 
     # Enrich with program/series info (one-to-many: workout can belong to multiple series)
     programs_list = []
