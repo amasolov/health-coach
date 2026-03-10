@@ -132,16 +132,19 @@ if not users_file.exists():
 else:
     users = json.loads(users_file.read_text())
 
-# Auto-generate MCP API keys for users that don't have them
+# Auto-generate MCP API keys and backfill onboarding_complete for existing users
 changed = False
 for u in users:
     if not u.get('mcp_api_key'):
         u['mcp_api_key'] = secrets.token_urlsafe(32)
         changed = True
+    if 'onboarding_complete' not in u:
+        u['onboarding_complete'] = True
+        changed = True
 
 if changed:
     users_file.write_text(json.dumps(users, indent=2))
-    print('echo \"INFO: Auto-generated MCP API keys for new users\"')
+    print('echo \"INFO: Backfilled MCP API keys / onboarding_complete for existing users\"')
 
 print(f'export USERS_JSON={shlex.quote(json.dumps(users))}')
 

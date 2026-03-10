@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.41.0
+**Mandatory onboarding completion**
+
+- **`onboarding_complete` gate** — a new flag in `users.json` is set only after the full onboarding flow finishes (sync, profile fetch, summary); if a user disconnects mid-onboarding and logs back in, their partial registration is automatically cleaned up and onboarding restarts from scratch
+- **Automatic teardown** — both OAuth and password auth callbacks detect incomplete users and remove the partial DB record, `users.json` entry, and athlete config before restarting the registration flow
+- **Backfill on startup** — `run.sh` sets `onboarding_complete: true` for all existing users so they are not affected by the new gate
+- **`delete_user` / `athlete_store.delete`** — new cleanup functions for removing partially-created users across all stores
+
 ## v0.40.0
 **Self-service Hevy Connect via chat**
 

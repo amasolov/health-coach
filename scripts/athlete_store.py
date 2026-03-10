@@ -92,6 +92,34 @@ def save(slug: str, config: dict) -> None:
     _save_to_yaml(slug, config)
 
 
+def delete(slug: str) -> None:
+    """Remove an athlete's config from both DB and YAML."""
+    conn = _try_conn()
+    if conn:
+        try:
+            conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute("DELETE FROM athlete_config WHERE slug = %s", (slug,))
+            cur.close()
+        except Exception:
+            log.debug("athlete_store.delete: DB delete failed for '%s'", slug, exc_info=True)
+        finally:
+            conn.close()
+
+    try:
+        path = _YAML_PATH
+        if path.exists():
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
+            users = data.get("users", {})
+            if slug in users:
+                del users[slug]
+                with open(path, "w") as f:
+                    yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    except Exception:
+        log.debug("athlete_store.delete: YAML cleanup failed for '%s'", slug, exc_info=True)
+
+
 def update_field(slug: str, field_path: str, value: Any) -> None:
     """Update a single nested field, e.g. ``thresholds.heart_rate.lthr_run``.
 

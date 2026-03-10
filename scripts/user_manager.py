@@ -172,6 +172,39 @@ def create_athlete_config(
     athlete_store.save(slug, entry)
 
 
+def delete_user(slug: str) -> None:
+    """Remove a partially-created user (DB row, users.json entry, athlete config).
+
+    Used to clean up incomplete onboarding so the user can restart fresh.
+    Silently ignores missing records.
+    """
+    # DB
+    try:
+        conn = _get_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM users WHERE slug = %s", (slug,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"WARN: delete_user DB cleanup failed for {slug}: {e}")
+
+    # users.json
+    try:
+        if USERS_FILE.exists():
+            users = json.loads(USERS_FILE.read_text())
+            users = [u for u in users if u.get("slug") != slug]
+            USERS_FILE.write_text(json.dumps(users, indent=2))
+    except Exception as e:
+        print(f"WARN: delete_user users.json cleanup failed for {slug}: {e}")
+
+    # athlete config
+    try:
+        from scripts import athlete_store
+        athlete_store.delete(slug)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Slug helpers
 # ---------------------------------------------------------------------------

@@ -215,6 +215,7 @@ def _build_user_registry() -> None:
         "garmin_email": os.environ.get("GARMIN_EMAIL", ""),
         "garmin_password": os.environ.get("GARMIN_PASSWORD", ""),
         "hevy_api_key": os.environ.get("HEVY_API_KEY", ""),
+        "onboarding_complete": True,
     }
     _USERS_BY_SLUG[slug] = user
     if email:
@@ -233,6 +234,16 @@ def _register_user_in_memory(user_entry: dict) -> None:
     email = user_entry.get("email", "").lower().strip()
     if email:
         _USERS_BY_EMAIL[email] = user_entry
+
+
+def _teardown_incomplete_user(slug: str) -> None:
+    """Remove a partially-onboarded user so they can restart fresh."""
+    print(f"INFO: Incomplete onboarding detected for '{slug}' — cleaning up for restart")
+    user_manager.delete_user(slug)
+    _USERS_BY_SLUG.pop(slug, None)
+    for email_key, entry in list(_USERS_BY_EMAIL.items()):
+        if entry.get("slug") == slug:
+            _USERS_BY_EMAIL.pop(email_key, None)
 
 
 # ---------------------------------------------------------------------------
@@ -263,16 +274,19 @@ if _OAUTH_ENABLED:
 
         user = _USERS_BY_EMAIL.get(email)
         if user:
-            return cl.User(
-                identifier=email,
-                metadata={
-                    "slug": user["slug"],
-                    "first_name": user.get("first_name", user["slug"]),
-                    "last_name": user.get("last_name", ""),
-                    "email": email,
-                    "provider": provider_id,
-                },
-            )
+            if not user.get("onboarding_complete"):
+                _teardown_incomplete_user(user["slug"])
+            else:
+                return cl.User(
+                    identifier=email,
+                    metadata={
+                        "slug": user["slug"],
+                        "first_name": user.get("first_name", user["slug"]),
+                        "last_name": user.get("last_name", ""),
+                        "email": email,
+                        "provider": provider_id,
+                    },
+                )
 
         # Unknown email — allow through for onboarding if registration is open
         if ALLOW_REGISTRATION:
@@ -293,17 +307,20 @@ else:
     def password_callback(username: str, password: str) -> cl.User | None:
         user = _USERS_BY_SLUG.get(username)
         if user:
-            expected = user.get("mcp_api_key") or os.environ.get("MCP_API_KEY", "")
-            if not expected or password != expected:
-                return None
-            return cl.User(
-                identifier=user.get("email", username),
-                metadata={
-                    "slug": user["slug"],
-                    "first_name": user.get("first_name", username),
-                    "last_name": user.get("last_name", ""),
-                },
-            )
+            if not user.get("onboarding_complete"):
+                _teardown_incomplete_user(user["slug"])
+            else:
+                expected = user.get("mcp_api_key") or os.environ.get("MCP_API_KEY", "")
+                if not expected or password != expected:
+                    return None
+                return cl.User(
+                    identifier=user.get("email", username),
+                    metadata={
+                        "slug": user["slug"],
+                        "first_name": user.get("first_name", username),
+                        "last_name": user.get("last_name", ""),
+                    },
+                )
 
         # Unknown user — allow through for onboarding if registration is open
         if ALLOW_REGISTRATION:
@@ -769,6 +786,12 @@ async def run_onboarding(user: cl.User) -> None:
         and not profile_result.get("error")
         and bool(profile_result.get("written"))
     ) if garmin_email else False
+
+    # Mark onboarding as complete — must happen before the summary so that
+    # a disconnect after this point doesn't trigger a re-onboarding loop.
+    user_entry["onboarding_complete"] = True
+    user_manager.add_user_to_users_file(user_entry)
+    _register_user_in_memory(user_entry)
 
     await cl.Message(
         content=(
