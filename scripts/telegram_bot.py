@@ -376,9 +376,16 @@ def _chunk_message(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
 
 
 def _render_chart_png(fig) -> bytes | None:
-    """Render a Plotly figure to PNG bytes for Telegram."""
+    """Render a Plotly figure to PNG bytes for Telegram.
+
+    Requires kaleido (or orca).  On Alpine-based images where kaleido
+    is unavailable, this returns None and the bot falls back to text.
+    """
     try:
         return fig.to_image(format="png", width=800, height=400, scale=2)
+    except (ValueError, ImportError) as exc:
+        log.info("Chart rendering unavailable (install kaleido for image charts): %s", exc)
+        return None
     except Exception as exc:
         log.warning("Chart rendering failed: %s", exc)
         return None
@@ -540,12 +547,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             messages.append({"role": "assistant", "content": final_text})
             _trim_history(messages)
 
+            charts_sent = 0
             for fig in charts:
                 png_bytes = _render_chart_png(fig)
                 if png_bytes:
                     await update.message.reply_photo(
                         photo=io.BytesIO(png_bytes),
                     )
+                    charts_sent += 1
+
+            if charts and not charts_sent:
+                final_text += (
+                    "\n\n(Charts are available in the web UI at "
+                    f"{os.environ.get('CHAINLIT_URL', 'the Health Coach web interface')}.)"
+                )
 
             for chunk in _chunk_message(final_text):
                 await update.message.reply_text(chunk)
