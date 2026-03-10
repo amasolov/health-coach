@@ -21,7 +21,10 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from ifit_auth import get_auth_headers, get_valid_token
+try:
+    from scripts.ifit_auth import get_auth_headers, get_valid_token
+except ImportError:
+    from ifit_auth import get_auth_headers, get_valid_token
 from scripts.tz import user_now, DEFAULT_TZ
 
 GATEWAY = "https://gateway.ifit.com"

@@ -23,7 +23,10 @@ from collections import defaultdict
 
 import httpx
 
-from ifit_auth import get_auth_headers
+try:
+    from scripts.ifit_auth import get_auth_headers
+except ImportError:
+    from ifit_auth import get_auth_headers
 
 API = "https://api.ifit.com"
 LYCAN = "https://gateway.ifit.com/lycan/v1"

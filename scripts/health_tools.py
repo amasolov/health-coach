@@ -116,6 +116,28 @@ def _serialise(v: Any) -> Any:
     return str(v)
 
 
+def _localise_rows(rows: list[dict], tz_name: str, keys: tuple = ("time",)) -> list[dict]:
+    """Convert UTC timestamp fields in query results to the user's local timezone.
+    This makes it unambiguous for the LLM to interpret 'today' vs 'yesterday'."""
+    if not tz_name:
+        return rows
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        return rows
+    for row in rows:
+        for k in keys:
+            v = row.get(k)
+            if isinstance(v, str) and "T" in v:
+                try:
+                    dt = datetime.fromisoformat(v)
+                    if dt.tzinfo is not None:
+                        row[k] = dt.astimezone(tz).isoformat()
+                except Exception:
+                    pass
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # YAML helpers
 # ---------------------------------------------------------------------------
@@ -210,13 +232,13 @@ def get_training_load(
     if not end_date:
         end_date = (today + timedelta(days=1)).isoformat()
 
-    return query(
+    return _localise_rows(query(
         """SELECT time, tss, ctl, atl, tsb, ramp, source
            FROM training_load
            WHERE user_id = %s AND time >= %s AND time < %s
            ORDER BY time""",
         (user_id, start_date, end_date),
-    )
+    ), tz_name)
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +279,7 @@ def get_activities(
     sql += " ORDER BY time DESC LIMIT %s"
     params.append(limit)
 
-    return query(sql, tuple(params))
+    return _localise_rows(query(sql, tuple(params)), tz_name)
 
 
 def get_activity_detail(user_id: int, activity_time: str) -> dict:
@@ -292,14 +314,14 @@ def get_body_composition(
     if not end_date:
         end_date = (today + timedelta(days=1)).isoformat()
 
-    return query(
+    return _localise_rows(query(
         """SELECT time, weight_kg, body_fat_pct, muscle_mass_kg,
                   bone_mass_kg, bmi, body_water_pct
            FROM body_composition
            WHERE user_id = %s AND time >= %s AND time < %s
            ORDER BY time""",
         (user_id, start_date, end_date),
-    )
+    ), tz_name)
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +344,7 @@ def get_vitals(
     if not end_date:
         end_date = (today + timedelta(days=1)).isoformat()
 
-    return query(
+    return _localise_rows(query(
         """SELECT time, resting_hr, hrv_ms, bp_systolic, bp_diastolic,
                   bp_pulse, sleep_score, sleep_duration_min, stress_avg,
                   body_battery_high, body_battery_low, spo2_avg,
@@ -331,7 +353,7 @@ def get_vitals(
            WHERE user_id = %s AND time >= %s AND time < %s
            ORDER BY time""",
         (user_id, start_date, end_date),
-    )
+    ), tz_name)
 
 
 # ---------------------------------------------------------------------------
@@ -772,7 +794,7 @@ def get_strength_sessions(
         params.append(f"%{exercise.lower()}%")
 
     sql += " ORDER BY time DESC, workout_id, set_number LIMIT 200"
-    return query(sql, tuple(params))
+    return _localise_rows(query(sql, tuple(params)), tz_name)
 
 
 # ---------------------------------------------------------------------------
@@ -818,13 +840,18 @@ def get_workout_summary(
         seen_hevy_ids: set[str] = set()
         results: list[dict] = []
 
+        _tz = ZoneInfo(tz_name) if tz_name else None
         for act in activities:
             raw = act.get("raw_data") or {}
             hevy_wid = raw.get("hevy_workout_id") if isinstance(raw, dict) else None
             source = act["source"]
 
+            act_time = act["time"]
+            if _tz and isinstance(act_time, datetime) and act_time.tzinfo is not None:
+                act_time = act_time.astimezone(_tz)
+
             entry: dict[str, Any] = {
-                "time": _serialise(act["time"]),
+                "time": _serialise(act_time),
                 "title": act.get("title", ""),
                 "sources": [],
                 "tss": float(act["tss"]) if act.get("tss") else None,

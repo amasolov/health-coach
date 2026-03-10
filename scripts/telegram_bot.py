@@ -313,6 +313,13 @@ def _execute_tool(
 
     fn, param_kind = entry
 
+    if param_kind == "uid" and "tz_name" not in arguments:
+        import inspect
+        sig = inspect.signature(fn)
+        if "tz_name" in sig.parameters:
+            from scripts.tz import load_user_tz
+            arguments = {**arguments, "tz_name": str(load_user_tz(user_slug))}
+
     try:
         if param_kind == "uid":
             return fn(user_id, **arguments)

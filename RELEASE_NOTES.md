@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.37.0
+**Timezone-aware timestamps and iFit import fix**
+
+- **Timezone-aware output** — tool dispatchers in both Chainlit and Telegram now auto-inject the user's configured timezone (`tz_name`) into all uid-based tool calls; `get_activities`, `get_strength_sessions`, `get_training_load`, `get_body_composition`, `get_vitals`, and `get_workout_summary` all convert timestamps to the user's local time before returning, eliminating "today"/"yesterday" misinterpretation by the LLM
+- **Fixed `ifit_auth` import** — bare `from ifit_auth import ...` at module level in `ifit_strength_recommend.py`, `ifit_recommend.py`, and `ifit_list_series.py` now uses `scripts.ifit_auth` with fallback, fixing `"No module named 'ifit_auth'"` errors in the chatbot
+- **Fixed `health_tools` import** — `gather_athlete_state` now uses `scripts.health_tools` qualified import
+
 ## v0.36.0
 **Cross-platform workout deduplication (Garmin + Hevy)**
 

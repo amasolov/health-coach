@@ -68,7 +68,10 @@ def _llm_http():
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ifit_auth import get_auth_headers
+try:
+    from scripts.ifit_auth import get_auth_headers
+except ImportError:
+    from ifit_auth import get_auth_headers
 from r2_store import (
     is_configured as r2_configured,
     download_json as r2_download_json,
@@ -197,7 +200,7 @@ def _load_yaml(path: Path) -> dict:
 
 def gather_athlete_state(user_slug: str) -> AthleteState:
     """Build a snapshot of the athlete's current readiness and muscle load."""
-    from health_tools import (
+    from scripts.health_tools import (
         get_fitness_summary,
         get_vitals,
         get_strength_sessions,
