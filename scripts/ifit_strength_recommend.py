@@ -922,6 +922,7 @@ def _find_existing_routine(
 
     # 1) Check R2 mapping for this iFit workout ID
     mapping = _load_routine_map()
+    stale_ids: list[str] = []
     for routine_id, entry in mapping.items():
         if not isinstance(entry, dict):
             continue
@@ -941,19 +942,37 @@ def _find_existing_routine(
                         "exercise_count": len(routine.get("exercises", [])),
                         "source": "ifit_mapping",
                     }
+                if r.status_code in (404, 410):
+                    print(f"  Routine {routine_id} was deleted from Hevy — removing stale mapping")
+                    stale_ids.append(routine_id)
             except Exception:
                 pass
 
-    # 2) Query Hevy routines list for a title match
+    if stale_ids:
+        for rid in stale_ids:
+            mapping.pop(rid, None)
+        try:
+            from scripts.r2_store import is_configured, upload_json
+            if is_configured():
+                upload_json(R2_ROUTINE_MAP_KEY, mapping)
+        except Exception:
+            pass
+
+    # 2) Query Hevy routines list for a title match (paginated)
     try:
-        r = httpx.get(
-            f"{HEVY_BASE}/v1/routines",
-            headers={"api-key": hevy_api_key, "accept": "application/json"},
-            params={"page": 1, "pageSize": 50},
-            timeout=15,
-        )
-        if r.status_code == 200:
-            for rt in r.json().get("routines", []):
+        page = 1
+        while True:
+            r = httpx.get(
+                f"{HEVY_BASE}/v1/routines",
+                headers={"api-key": hevy_api_key, "accept": "application/json"},
+                params={"page": page, "pageSize": 10},
+                timeout=15,
+            )
+            if r.status_code != 200:
+                print(f"  Warning: Hevy routines list returned {r.status_code} — {r.text[:200]}")
+                break
+            data = r.json()
+            for rt in data.get("routines", []):
                 if rt.get("title", "").strip().lower() == expected_title.strip().lower():
                     rid = str(rt["id"])
                     print(f"  Found existing routine by title match: {rid}")
@@ -963,8 +982,9 @@ def _find_existing_routine(
                         "exercise_count": len(rt.get("exercises", [])),
                         "source": "title_match",
                     }
-        else:
-            print(f"  Warning: Hevy routines list returned {r.status_code} — skipping duplicate check")
+            if page >= data.get("page_count", 1):
+                break
+            page += 1
     except Exception:
         pass
 

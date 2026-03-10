@@ -15,6 +15,18 @@ a[href*="chainlit.io" i] {
   display: block !important;
 }
 
+/* ─── SINGLE-CONVERSATION MODE ──────────────────────────────────────────────  */
+
+/* Hide "New Chat" button and thread history toggle */
+button[data-testid="new-chat-button"],
+button[id="new-chat-button"],
+#new-chat-button,
+button[data-testid="open-sidebar-button"],
+button[id="open-sidebar-button"],
+#open-sidebar-button {
+  display: none !important;
+}
+
 /* ─── APP HEADER ─────────────────────────────────────────────────────────────  */
 
 /* Compact logo in the top nav bar */

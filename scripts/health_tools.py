@@ -2992,13 +2992,20 @@ def get_routine_weight_recommendations(
             r.raise_for_status()
             routine = r.json().get("routine", r.json())
         else:
-            r = httpx.get(
-                "https://api.hevyapp.com/v1/routines",
-                headers=headers, params={"page": 1, "pageSize": 50},
-                timeout=15,
-            )
-            r.raise_for_status()
-            routines = r.json().get("routines", [])
+            routines = []
+            page = 1
+            while True:
+                r = httpx.get(
+                    "https://api.hevyapp.com/v1/routines",
+                    headers=headers, params={"page": page, "pageSize": 10},
+                    timeout=15,
+                )
+                r.raise_for_status()
+                data = r.json()
+                routines.extend(data.get("routines", []))
+                if page >= data.get("page_count", 1):
+                    break
+                page += 1
             if not routines:
                 return {"error": "No routines found in your Hevy account."}
 
