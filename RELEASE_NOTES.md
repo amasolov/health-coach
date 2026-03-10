@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.31.0
+**Cross-channel conversation context between Telegram and web chat**
+
+- Telegram messages are now persisted to the database (survive bot restarts)
+- When opening the web chat, the system prompt includes a summary of recent Telegram conversations (last 24h)
+- When messaging via Telegram, the system prompt includes a summary of recent web chat conversations (last 24h)
+- The LLM maintains coaching context across both channels — no need to repeat yourself
+- New migration `008_telegram_messages.sql` for persistent Telegram history
+- `/reset` command now clears both in-memory session and database history
+- New shared module `scripts/cross_channel.py` for cross-channel context retrieval and formatting
+
 ## v0.30.0
 **Telegram bot + configurable RAG embedding backend**
 

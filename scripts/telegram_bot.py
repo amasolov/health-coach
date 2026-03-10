@@ -44,6 +44,13 @@ from scripts import health_tools
 from scripts import ops_emit
 from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
+from scripts.cross_channel import (
+    save_telegram_message,
+    load_telegram_history,
+    clear_telegram_history,
+    get_recent_web_messages,
+    format_web_context,
+)
 from scripts.telegram_link import (
     validate_link_code,
     set_telegram_chat_id,
@@ -333,17 +340,36 @@ def _execute_tool(
 
 
 # ---------------------------------------------------------------------------
-# Conversation state (in-memory per chat)
+# Conversation state (DB-backed with in-memory session cache)
 # ---------------------------------------------------------------------------
 
-_conversations: dict[int, list[dict]] = {}
+_sessions: dict[int, list[dict]] = {}
 
 
-def _get_messages(chat_id: int, user_slug: str, first_name: str) -> list[dict]:
-    if chat_id not in _conversations:
-        prompt = _build_system_prompt(user_slug, first_name)
-        _conversations[chat_id] = [{"role": "system", "content": prompt}]
-    return _conversations[chat_id]
+def _get_messages(
+    chat_id: int,
+    user_id: int,
+    user_slug: str,
+    first_name: str,
+    user_email: str,
+) -> list[dict]:
+    if chat_id in _sessions:
+        return _sessions[chat_id]
+
+    prompt = _build_system_prompt(user_slug, first_name)
+
+    web_msgs = get_recent_web_messages(user_email)
+    if web_msgs:
+        prompt += format_web_context(web_msgs)
+
+    messages: list[dict] = [{"role": "system", "content": prompt}]
+
+    db_history = load_telegram_history(user_id, limit=MAX_HISTORY_MESSAGES)
+    for row in db_history:
+        messages.append({"role": row["role"], "content": row["content"]})
+
+    _sessions[chat_id] = messages
+    return messages
 
 
 def _trim_history(messages: list[dict]) -> None:
@@ -373,6 +399,22 @@ def _chunk_message(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
         chunks.append(text[:split_at])
         text = text[split_at:].lstrip("\n")
     return chunks
+
+
+async def _send_with_retry(coro_factory, retries: int = 3, backoff: float = 2.0):
+    """Retry a Telegram API call on transient network errors."""
+    from telegram.error import NetworkError, TimedOut
+
+    for attempt in range(retries):
+        try:
+            return await coro_factory()
+        except (NetworkError, TimedOut) as exc:
+            if attempt == retries - 1:
+                raise
+            wait = backoff * (attempt + 1)
+            log.warning("Telegram send failed (attempt %d/%d, retry in %.1fs): %s",
+                        attempt + 1, retries, wait, exc)
+            await asyncio.sleep(wait)
 
 
 def _render_chart_png(fig) -> bytes | None:
@@ -443,7 +485,8 @@ async def cmd_unlink(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     """Handle /unlink — remove Telegram association."""
     chat_id = update.effective_chat.id
     if remove_telegram_chat_id(chat_id):
-        _conversations.pop(chat_id, None)
+        _sessions.pop(chat_id, None)
+        clear_telegram_history(chat_id)
         await update.message.reply_text(
             "Your Telegram account has been unlinked from Health Coach."
         )
@@ -455,7 +498,8 @@ async def cmd_unlink(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /reset — clear conversation history."""
     chat_id = update.effective_chat.id
-    _conversations.pop(chat_id, None)
+    _sessions.pop(chat_id, None)
+    clear_telegram_history(chat_id)
     await update.message.reply_text("Conversation history cleared. Send a new message to start fresh.")
 
 
@@ -479,11 +523,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = user["id"]
     first_name = user["display_name"].split()[0] if user["display_name"] else user_slug
     user_data = _USERS_BY_SLUG.get(user_slug, {})
+    user_email = user_data.get("email", user_slug)
 
-    messages = _get_messages(chat_id, user_slug, first_name)
+    messages = _get_messages(chat_id, user_id, user_slug, first_name, user_email)
     messages.append({"role": "user", "content": user_text})
+    save_telegram_message(user_id, chat_id, "user", user_text)
 
-    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    try:
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+    except Exception:
+        pass
 
     client = _get_client()
     charts: list = []
@@ -515,7 +564,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if choice.finish_reason == "tool_calls" or choice.message.tool_calls:
                 messages.append(choice.message.model_dump())
 
-                await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+                try:
+                    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+                except Exception:
+                    pass
 
                 for tool_call in choice.message.tool_calls:
                     fn_name = tool_call.function.name
@@ -545,14 +597,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             final_text = sanitize_response(choice.message.content or "")
             messages.append({"role": "assistant", "content": final_text})
+            save_telegram_message(user_id, chat_id, "assistant", final_text)
             _trim_history(messages)
 
             charts_sent = 0
             for fig in charts:
                 png_bytes = _render_chart_png(fig)
                 if png_bytes:
-                    await update.message.reply_photo(
-                        photo=io.BytesIO(png_bytes),
+                    photo_bytes = io.BytesIO(png_bytes)
+                    await _send_with_retry(
+                        lambda pb=photo_bytes: update.message.reply_photo(photo=pb)
                     )
                     charts_sent += 1
 
@@ -563,20 +617,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 )
 
             for chunk in _chunk_message(final_text):
-                await update.message.reply_text(chunk)
+                await _send_with_retry(
+                    lambda c=chunk: update.message.reply_text(c)
+                )
 
             return
 
-        await update.message.reply_text(
-            "I hit the tool-calling limit for this turn. "
-            "Try rephrasing or breaking your question into smaller parts."
+        await _send_with_retry(
+            lambda: update.message.reply_text(
+                "I hit the tool-calling limit for this turn. "
+                "Try rephrasing or breaking your question into smaller parts."
+            )
         )
 
     except Exception:
         log.exception("Error handling message from chat_id=%s", chat_id)
-        await update.message.reply_text(
-            "Something went wrong processing your message. Please try again."
-        )
+        try:
+            await _send_with_retry(
+                lambda: update.message.reply_text(
+                    "Something went wrong processing your message. Please try again."
+                )
+            )
+        except Exception:
+            log.error("Could not deliver error message to chat_id=%s", chat_id)
 
 
 # ---------------------------------------------------------------------------

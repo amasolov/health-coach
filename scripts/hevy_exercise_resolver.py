@@ -283,6 +283,32 @@ def _infer_exercise_type(weight_hint: str, reps: str | int) -> str:
     return "weight_reps"
 
 
+def _find_custom_exercise_by_title(title: str, hevy_api_key: str) -> str | None:
+    """Search the user's exercise templates for a custom exercise by title."""
+    title_lower = title.lower().strip()
+    page = 1
+    while True:
+        try:
+            r = httpx.get(
+                f"{HEVY_BASE}/exercise_templates",
+                headers={"api-key": hevy_api_key, "accept": "application/json"},
+                params={"page": page, "pageSize": 100},
+                timeout=30,
+            )
+            if r.status_code != 200:
+                break
+            data = r.json()
+            for t in data.get("exercise_templates", []):
+                if t.get("is_custom") and t.get("title", "").lower().strip() == title_lower:
+                    return str(t["id"])
+            if page >= data.get("page_count", 1):
+                break
+            page += 1
+        except Exception:
+            break
+    return None
+
+
 def _create_custom_exercise(
     title: str,
     exercise_type: str,
@@ -319,14 +345,23 @@ def _create_custom_exercise(
             try:
                 data = r.json()
             except Exception:
-                print(f"    Custom exercise '{title}': created (HTTP {r.status_code}) but empty response body")
-                return None
-            tmpl = data.get("exercise_template", data) if data else {}
-            new_id = str(tmpl.get("id", "")) if tmpl else ""
-            if new_id:
-                print(f"    Created custom exercise: {title} -> {new_id}")
-                return new_id
-            print(f"    Custom exercise '{title}': unexpected response: {data}")
+                data = None
+
+            if data:
+                tmpl = data.get("exercise_template", data)
+                new_id = str(tmpl.get("id", "")) if tmpl else ""
+                if new_id:
+                    print(f"    Created custom exercise: {title} -> {new_id}")
+                    return new_id
+
+            # API returned success but no usable ID — look it up
+            print(f"    Custom exercise '{title}': created (HTTP {r.status_code}), looking up ID...")
+            found_id = _find_custom_exercise_by_title(title, hevy_api_key)
+            if found_id:
+                print(f"    Found custom exercise after lookup: {title} -> {found_id}")
+                return found_id
+
+            print(f"    Custom exercise '{title}': created but could not find ID")
             return None
         print(f"    Failed to create custom exercise '{title}': HTTP {r.status_code} - {r.text[:200]}")
         return None

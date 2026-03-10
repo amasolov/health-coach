@@ -38,6 +38,7 @@ from scripts.sync_hevy import sync_user as sync_hevy_user
 from scripts.run_sync import sync_garmin_profile
 from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
+from scripts.cross_channel import get_recent_telegram_messages, format_telegram_context
 
 if os.environ.get("OAUTH_APPLE_CLIENT_ID"):
     from scripts.oauth_apple import AppleOAuthProvider
@@ -471,6 +472,14 @@ async def _init_session(user_slug: str, user_id: int, first_name: str, user_data
     cl.user_session.set("user_data", user_data)
 
     system_prompt = _build_system_prompt(user_slug, first_name)
+
+    try:
+        tg_msgs = get_recent_telegram_messages(user_id)
+        if tg_msgs:
+            system_prompt += format_telegram_context(tg_msgs)
+    except Exception:
+        pass
+
     cl.user_session.set("system_prompt", system_prompt)
     cl.user_session.set("messages", [{"role": "system", "content": system_prompt}])
 
