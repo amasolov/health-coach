@@ -131,15 +131,37 @@ def _notify_admin(title: str, message: str, notification_id: str = "") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Persistent data layer (SQLAlchemy + PostgreSQL)
+# Persistent data layer (SQLAlchemy + PostgreSQL + R2/S3 element storage)
 # ---------------------------------------------------------------------------
 
 if CHAINLIT_DB_URL:
     from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 
+    _storage_client = None
+    _r2_acct = os.environ.get("R2_ACCOUNT_ID", "")
+    _r2_key = os.environ.get("R2_ACCESS_KEY_ID", "")
+    _r2_secret = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+    _r2_bucket = os.environ.get("R2_BUCKET_NAME", "")
+
+    if _r2_acct and _r2_key and _r2_secret and _r2_bucket:
+        try:
+            from chainlit.data.storage_clients.s3 import S3StorageClient
+            _storage_client = S3StorageClient(
+                bucket=_r2_bucket,
+                endpoint_url=f"https://{_r2_acct}.r2.cloudflarestorage.com",
+                aws_access_key_id=_r2_key,
+                aws_secret_access_key=_r2_secret,
+                region_name="auto",
+            )
+        except Exception as exc:
+            print(f"  R2 storage client init failed: {exc}")
+
     @cl.data_layer
     def get_data_layer():
-        return SQLAlchemyDataLayer(conninfo=CHAINLIT_DB_URL)
+        return SQLAlchemyDataLayer(
+            conninfo=CHAINLIT_DB_URL,
+            storage_provider=_storage_client,
+        )
 
 
 def _get_client() -> AsyncOpenAI:
