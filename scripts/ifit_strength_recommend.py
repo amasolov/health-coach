@@ -584,7 +584,8 @@ def _llm_extract(
     workout_title: str,
 ) -> list[dict]:
     """Send transcript to LLM, return structured exercise list."""
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    from scripts.addon_config import config
+    api_key = config.openrouter_api_key
     if not api_key:
         return []
 
@@ -1555,6 +1556,7 @@ def recommend(user_slug: str = "alexey") -> list[Recommendation]:
 
 
 def main() -> int:
+    from scripts.addon_config import config
     user_slug = os.environ.get("USER_SLUG", "alexey")
 
     recs = recommend(user_slug)
@@ -1568,7 +1570,7 @@ def main() -> int:
         if idx + 1 < len(sys.argv):
             pick = int(sys.argv[idx + 1]) - 1
             if 0 <= pick < len(recs):
-                hevy_key = os.environ.get("HEVY_API_KEY", "")
+                hevy_key = config.hevy_api_key
                 if not hevy_key:
                     print("HEVY_API_KEY not set in .env")
                     return 1

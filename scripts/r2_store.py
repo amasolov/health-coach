@@ -10,14 +10,15 @@ unconditionally.
 from __future__ import annotations
 
 import json
-import os
 from functools import lru_cache
 from typing import Any
 
-_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
-_ACCESS_KEY = os.environ.get("R2_ACCESS_KEY_ID", "")
-_SECRET_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
-_BUCKET = os.environ.get("R2_BUCKET_NAME", "health-coach-ifit")
+from scripts.addon_config import config
+
+_ACCOUNT_ID = config.r2_account_id
+_ACCESS_KEY = config.r2_access_key_id
+_SECRET_KEY = config.r2_secret_access_key
+_BUCKET = config.r2_bucket_name
 
 
 def is_configured() -> bool:

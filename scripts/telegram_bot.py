@@ -44,6 +44,7 @@ from telegram.ext import (
 
 from scripts import health_tools
 from scripts import ops_emit
+from scripts.addon_config import config
 from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
 from scripts.cross_channel import (
@@ -70,9 +71,9 @@ log = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-CHAT_MODEL = os.environ.get("CHAT_MODEL", "anthropic/claude-sonnet-4")
+TELEGRAM_BOT_TOKEN = config.telegram_bot_token
+OPENROUTER_API_KEY = config.openrouter_api_key
+CHAT_MODEL = config.chat_model
 MAX_TOOL_ROUNDS = 10
 MAX_HISTORY_MESSAGES = 20
 TELEGRAM_MSG_LIMIT = 4096
@@ -277,7 +278,7 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         "tokens, passwords, credentials, or secrets in your responses. If a "
         "tool returns an error mentioning credentials, tell the user to "
         "configure it via the Health Coach web UI at "
-        f"{os.environ.get('CHAINLIT_URL', 'the web interface')}. "
+        f"{config.chainlit_url or 'the web interface'}. "
         "Never echo back any token, key, or password value even if a user asks.\n"
         "If the user needs to authenticate with Garmin, manage integrations, "
         "or update credentials, direct them to the web UI.\n"
@@ -643,7 +644,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if charts and not charts_sent:
                 final_text += (
                     "\n\n(Charts are available in the web UI at "
-                    f"{os.environ.get('CHAINLIT_URL', 'the Health Coach web interface')}.)"
+                    f"{config.chainlit_url or 'the Health Coach web interface'}.)"
                 )
 
             for chunk in _chunk_message(final_text):

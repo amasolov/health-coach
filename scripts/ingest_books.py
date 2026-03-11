@@ -27,9 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from dotenv import load_dotenv
-load_dotenv()
-
+from scripts.addon_config import config  # noqa: F401 — triggers load_dotenv
 from scripts.knowledge_store import (
     ingest_pdf,
     _extract_text_from_pdf,
@@ -99,8 +97,8 @@ def main() -> None:
     parser.add_argument("--user", type=str, default=None, help="User slug (omit for global)")
     args = parser.parse_args()
 
-    api_base = os.environ.get("EMBEDDING_API_BASE", "")
-    model = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+    api_base = config.embedding_api_base
+    model = config.embedding_model
     log.info("Embedding backend: %s via %s", model, api_base or "api.openai.com")
 
     user_id = _resolve_user_id(args.user)

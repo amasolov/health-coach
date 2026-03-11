@@ -9,14 +9,13 @@ addon startup.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
-load_dotenv()
-
 import psycopg2
+
+from scripts.addon_config import config  # noqa: F401 — triggers load_dotenv
+from scripts.db_pool import dsn_kwargs
 
 CHAT_DB = "healthcoach_chat"
 
@@ -152,13 +151,7 @@ END $$;
 
 
 def _conn(dbname: str):
-    return psycopg2.connect(
-        host=os.environ["DB_HOST"],
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=dbname,
-        user=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
-    )
+    return psycopg2.connect(**dsn_kwargs(dbname))
 
 
 def main() -> int:

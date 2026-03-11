@@ -72,7 +72,13 @@ class _PooledConn:
         self.close()
 
 
-def _dsn_kwargs(dbname: str | None = None) -> dict:
+def dsn_kwargs(dbname: str | None = None) -> dict:
+    """Build psycopg2 connection kwargs from environment variables.
+
+    Reads DB_HOST / DB_PORT / DB_NAME / DB_USER / DB_PASSWORD lazily so
+    that callers (including the test-container fixture) can override env
+    vars at any point before the first call.
+    """
     return dict(
         host=os.environ.get("DB_HOST", "localhost"),
         port=os.environ.get("DB_PORT", "5432"),
@@ -88,7 +94,7 @@ def _ensure_health_pool() -> psycopg2.pool.ThreadedConnectionPool:
         with _pool_lock:
             if _health_pool is None:
                 _health_pool = psycopg2.pool.ThreadedConnectionPool(
-                    minconn=1, maxconn=8, **_dsn_kwargs(),
+                    minconn=1, maxconn=8, **dsn_kwargs(),
                 )
     return _health_pool
 
@@ -99,7 +105,7 @@ def _ensure_chat_pool() -> psycopg2.pool.ThreadedConnectionPool:
         with _pool_lock:
             if _chat_pool is None:
                 _chat_pool = psycopg2.pool.ThreadedConnectionPool(
-                    minconn=1, maxconn=4, **_dsn_kwargs("healthcoach_chat"),
+                    minconn=1, maxconn=4, **dsn_kwargs("healthcoach_chat"),
                 )
     return _chat_pool
 

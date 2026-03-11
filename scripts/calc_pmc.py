@@ -16,16 +16,14 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from dotenv import load_dotenv
-load_dotenv()
-
 import psycopg2
 
+from scripts.addon_config import config  # noqa: F401 — triggers load_dotenv
+from scripts.db_pool import dsn_kwargs
 from scripts.tz import load_user_tz, tz_date_cast, user_today
 from scripts import ops_emit
 
@@ -35,13 +33,7 @@ PROJECTION_WEEKS = 8
 
 
 def get_connection():
-    return psycopg2.connect(
-        host=os.environ["DB_HOST"],
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ["DB_NAME"],
-        user=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
-    )
+    return psycopg2.connect(**dsn_kwargs())
 
 
 def get_users(cur) -> list[tuple[int, str]]:

@@ -39,6 +39,7 @@ from scripts import health_tools
 from scripts import garmin_auth
 from scripts import user_manager
 from scripts import ops_emit
+from scripts.addon_config import config
 from scripts.sync_garmin import sync_user as sync_garmin_user
 from scripts.sync_hevy import sync_user as sync_hevy_user
 from scripts.run_sync import sync_garmin_profile
@@ -46,7 +47,7 @@ from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
 from scripts.cross_channel import get_recent_telegram_messages, format_telegram_context
 
-if os.environ.get("OAUTH_APPLE_CLIENT_ID"):
+if config.apple_oauth_client_id:
     from scripts.oauth_apple import AppleOAuthProvider
     providers.append(AppleOAuthProvider())
 
@@ -54,8 +55,8 @@ if os.environ.get("OAUTH_APPLE_CLIENT_ID"):
 # Configuration
 # ---------------------------------------------------------------------------
 
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-CHAT_MODEL = os.environ.get("CHAT_MODEL", "anthropic/claude-sonnet-4")
+OPENROUTER_API_KEY = config.openrouter_api_key
+CHAT_MODEL = config.chat_model
 
 TOOL_DISPLAY_NAMES = {
     "get_fitness_summary":       "Fitness Summary",
@@ -108,8 +109,8 @@ TOOL_DISPLAY_NAMES = {
     "list_knowledge_documents":  "Knowledge Documents",
     "delete_knowledge_document": "Knowledge Document Deletion",
 }
-ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "").lower() in ("true", "1", "yes")
-SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))
+ALLOW_REGISTRATION = config.allow_registration
+SYNC_INTERVAL = config.sync_interval
 MAX_TOOL_ROUNDS = 10
 CHAINLIT_DB_URL = os.environ.get("CHAINLIT_DB_URL", "")
 
@@ -119,7 +120,7 @@ _credit_warning_sent = False
 
 def _notify_admin(title: str, message: str, notification_id: str = "") -> None:
     """Send a persistent notification to Home Assistant (best-effort)."""
-    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    token = config.supervisor_token
     if not token:
         print(f"  [ADMIN] {title}: {message}")
         return
@@ -146,10 +147,10 @@ if CHAINLIT_DB_URL:
     from chainlit.data.sql_alchemy import SQLAlchemyDataLayer
 
     _storage_client = None
-    _r2_acct = os.environ.get("R2_ACCOUNT_ID", "")
-    _r2_key = os.environ.get("R2_ACCESS_KEY_ID", "")
-    _r2_secret = os.environ.get("R2_SECRET_ACCESS_KEY", "")
-    _r2_bucket = os.environ.get("R2_BUCKET_NAME", "")
+    _r2_acct = config.r2_account_id
+    _r2_key = config.r2_access_key_id
+    _r2_secret = config.r2_secret_access_key
+    _r2_bucket = config.r2_bucket_name
 
     if _r2_acct and _r2_key and _r2_secret and _r2_bucket:
         try:
@@ -232,8 +233,8 @@ def _teardown_incomplete_user(slug: str) -> None:
 # ---------------------------------------------------------------------------
 
 _OAUTH_ENABLED = bool(
-    os.environ.get("OAUTH_GOOGLE_CLIENT_ID")
-    or os.environ.get("OAUTH_APPLE_CLIENT_ID")
+    config.google_oauth_client_id
+    or config.apple_oauth_client_id
 )
 
 if _OAUTH_ENABLED:
@@ -291,7 +292,7 @@ else:
             if not user.get("onboarding_complete"):
                 _teardown_incomplete_user(user["slug"])
             else:
-                expected = user.get("mcp_api_key") or os.environ.get("MCP_API_KEY", "")
+                expected = user.get("mcp_api_key") or config.mcp_api_key
                 if not expected or password != expected:
                     return None
                 return cl.User(

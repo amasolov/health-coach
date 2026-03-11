@@ -19,11 +19,10 @@ import time as _time
 import traceback
 from datetime import datetime
 
-from dotenv import load_dotenv
-load_dotenv()
-
 import psycopg2
 
+from scripts.addon_config import config  # noqa: F401 — triggers load_dotenv
+from scripts.db_pool import dsn_kwargs
 from scripts.sync_garmin import sync_user as sync_garmin_user
 from scripts.sync_hevy import sync_user as sync_hevy_user
 from scripts.strength_tss import (
@@ -49,13 +48,7 @@ def get_users() -> list[dict]:
 
 
 def _get_conn():
-    return psycopg2.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ.get("DB_NAME", "health"),
-        user=os.environ.get("DB_USER", "postgres"),
-        password=os.environ.get("DB_PASSWORD", ""),
-    )
+    return psycopg2.connect(**dsn_kwargs())
 
 
 def _resolve_user_id(slug: str) -> int | None:
@@ -801,7 +794,7 @@ def sync_one_user(user: dict) -> dict:
         errors += 1
 
     # --- Hevy ---
-    hevy_key = user.get("hevy_api_key") or os.environ.get("HEVY_API_KEY", "")
+    hevy_key = user.get("hevy_api_key") or config.hevy_api_key
     print(f"\n  [Hevy]")
     if hevy_key:
         try:

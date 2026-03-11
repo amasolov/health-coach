@@ -9,6 +9,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from scripts import health_tools
+from scripts.addon_config import config as _cfg
 from tests.conftest import MockResponse, make_github_issue_response, FakeR2Store
 
 
@@ -18,7 +19,8 @@ from tests.conftest import MockResponse, make_github_issue_response, FakeR2Store
 
 class TestSuggestFeature:
 
-    @patch.dict("os.environ", {"GITHUB_TOKEN": "fake-token", "GITHUB_REPO": "test/repo"})
+    @patch.object(_cfg, "github_token", "fake-token")
+    @patch.object(_cfg, "github_repo", "test/repo")
     @patch("httpx.post")
     def test_creates_issue(self, mock_post):
         mock_post.return_value = make_github_issue_response(99, "https://github.com/test/repo/issues/99")
@@ -31,7 +33,8 @@ class TestSuggestFeature:
         assert result.get("status") == "created" or result.get("issue_number") == 99
         mock_post.assert_called_once()
 
-    @patch.dict("os.environ", {"GITHUB_TOKEN": "", "GITHUB_REPO": "test/repo"})
+    @patch.object(_cfg, "github_token", "")
+    @patch.object(_cfg, "github_repo", "test/repo")
     def test_no_token_error(self):
         result = health_tools.suggest_feature(
             user_slug="test",
@@ -43,7 +46,8 @@ class TestSuggestFeature:
 
 class TestReportExerciseCorrection:
 
-    @patch.dict("os.environ", {"GITHUB_TOKEN": "fake-token", "GITHUB_REPO": "test/repo"})
+    @patch.object(_cfg, "github_token", "fake-token")
+    @patch.object(_cfg, "github_repo", "test/repo")
     @patch("httpx.post")
     def test_creates_issue(self, mock_post, mock_r2, fake_r2):
         fake_r2.upload_json("exercises/wid_test.json", [
@@ -57,7 +61,8 @@ class TestReportExerciseCorrection:
         )
         assert result.get("status") == "created" or "issue_number" in result
 
-    @patch.dict("os.environ", {"GITHUB_TOKEN": "", "GITHUB_REPO": "test/repo"})
+    @patch.object(_cfg, "github_token", "")
+    @patch.object(_cfg, "github_repo", "test/repo")
     def test_no_token_error(self):
         result = health_tools.report_exercise_correction(
             user_slug="test", workout_id="w1", feedback="test",

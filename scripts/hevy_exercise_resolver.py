@@ -206,7 +206,8 @@ def _fuzzy_match(name: str, library: dict[str, dict]) -> dict | None:
 
 def _llm_classify(exercise_name: str, muscle_hint: str = "", weight_hint: str = "") -> dict | None:
     """Ask LLM to classify an exercise for custom creation in Hevy."""
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+    from scripts.addon_config import config
+    api_key = config.openrouter_api_key
     if not api_key:
         return None
 

@@ -14,17 +14,15 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
-load_dotenv()
-
 import httpx
 
 from scripts import ops_emit
+from scripts.addon_config import config
+from scripts.db_pool import dsn_kwargs
 
 ROOT = Path(__file__).resolve().parent.parent
 DASHBOARDS_DIR = ROOT / "grafana" / "dashboards"
@@ -34,11 +32,11 @@ FOLDER_TITLE = "Health Coach"
 
 
 def get_grafana_url() -> str:
-    host = os.environ.get("GRAFANA_HOST", "localhost")
-    port = os.environ.get("GRAFANA_PORT", "3000")
+    host = config.grafana_host
+    port = config.grafana_port
     base = f"http://{host}:{port}"
 
-    ingress_path = os.environ.get("GRAFANA_INGRESS_PATH", "")
+    ingress_path = config.grafana_ingress_path
     if ingress_path:
         return f"{base}{ingress_path}"
 
@@ -57,7 +55,7 @@ def get_grafana_url() -> str:
 
 
 def get_api_key() -> str | None:
-    return os.environ.get("GRAFANA_API_KEY") or None
+    return config.grafana_api_key or None
 
 
 # ---------------------------------------------------------------------------
@@ -89,23 +87,24 @@ def ensure_folder(client: httpx.Client, uid: str, title: str, parent_uid: str = 
 # ---------------------------------------------------------------------------
 
 def _ds_payload() -> dict:
-    db_host = os.environ.get("GRAFANA_DB_HOST", "") or os.environ.get("DB_HOST", "localhost")
+    db = dsn_kwargs()
+    db_host = config.grafana_db_host or db["host"]
     return {
         "name": "TimescaleDB",
         "type": "grafana-postgresql-datasource",
         "access": "proxy",
-        "url": f"{db_host}:{os.environ.get('DB_PORT', '5432')}",
-        "database": os.environ.get("DB_NAME", "health"),
-        "user": os.environ.get("DB_USER", "postgres"),
+        "url": f"{db_host}:{db['port']}",
+        "database": db["dbname"],
+        "user": db["user"],
         "jsonData": {"sslmode": "disable", "postgresVersion": 1700, "timescaledb": True},
-        "secureJsonData": {"password": os.environ.get("DB_PASSWORD", "")},
+        "secureJsonData": {"password": db["password"]},
         "isDefault": False,
     }
 
 
 def _try_supervisor_datasource() -> bool:
     """Create datasource via HA Supervisor ingress (admin-level access)."""
-    supervisor_token = os.environ.get("SUPERVISOR_TOKEN", "")
+    supervisor_token = config.supervisor_token
     if not supervisor_token:
         return False
 
@@ -125,8 +124,8 @@ def _try_supervisor_datasource() -> bool:
     except Exception:
         return False
 
-    grafana_host = os.environ.get("GRAFANA_HOST", "a0d7b954-grafana")
-    grafana_port = os.environ.get("GRAFANA_PORT", "3000")
+    grafana_host = config.grafana_host
+    grafana_port = config.grafana_port
     grafana_url = f"http://{grafana_host}:{grafana_port}"
 
     try:

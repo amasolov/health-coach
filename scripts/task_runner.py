@@ -28,15 +28,13 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
-import os
 import signal
 import sys
 import time as _time
 
-from dotenv import load_dotenv
-load_dotenv()
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from scripts.addon_config import config
 
 logger = logging.getLogger("task_runner")
 
@@ -44,10 +42,10 @@ logger = logging.getLogger("task_runner")
 # Configuration
 # ---------------------------------------------------------------------------
 
-SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "30"))
-MAX_RETRIES = int(os.environ.get("SYNC_MAX_RETRIES", "2"))
-RETRY_BASE_DELAY = int(os.environ.get("SYNC_RETRY_BASE", "10"))
-USER_TIMEOUT = int(os.environ.get("SYNC_USER_TIMEOUT", "600"))
+SYNC_INTERVAL = config.sync_interval
+MAX_RETRIES = config.sync_max_retries
+RETRY_BASE_DELAY = config.sync_retry_base
+USER_TIMEOUT = config.sync_user_timeout
 
 # ---------------------------------------------------------------------------
 # Helpers

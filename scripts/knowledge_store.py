@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -25,11 +24,13 @@ import psycopg2
 import psycopg2.extras
 from openai import OpenAI
 
+from scripts.addon_config import config
+
 log = logging.getLogger(__name__)
 
-EMBEDDING_API_BASE = os.environ.get("EMBEDDING_API_BASE", "")
-EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
-EMBEDDING_DIM = int(os.environ.get("EMBEDDING_DIM", "768"))
+EMBEDDING_API_BASE = config.embedding_api_base
+EMBEDDING_MODEL = config.embedding_model
+EMBEDDING_DIM = config.embedding_dim
 CHUNK_TARGET_TOKENS = 500
 CHUNK_OVERLAP_TOKENS = 50
 APPROX_CHARS_PER_TOKEN = 4
@@ -55,7 +56,7 @@ def _get_conn():
 def _get_openai_client() -> OpenAI:
     global _openai_client
     if _openai_client is None:
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        api_key = config.openai_api_key
         if not api_key and not EMBEDDING_API_BASE:
             raise RuntimeError(
                 "OPENAI_API_KEY is not set and no EMBEDDING_API_BASE configured. "

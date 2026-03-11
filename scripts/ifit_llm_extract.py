@@ -15,12 +15,11 @@ import sys
 import time
 
 import httpx
-from dotenv import load_dotenv
 
-load_dotenv()
+from scripts.addon_config import config
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", ".ifit_capture")
-API_KEY = os.environ["OPENROUTER_API_KEY"]
+API_KEY = config.openrouter_api_key
 MODEL = "google/gemini-2.5-flash"
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 

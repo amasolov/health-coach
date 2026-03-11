@@ -7,6 +7,7 @@ dependencies = [
     "psycopg2-binary",
     "pyyaml",
     "python-dotenv",
+    "pydantic-settings",
     "fastmcp",
     "garminconnect",
     "chainlit",

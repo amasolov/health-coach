@@ -124,7 +124,20 @@ python -m scripts.mcp_server
 
 ## Configuration
 
-All configuration is managed through the Home Assistant add-on options panel. Key settings:
+All configuration flows through a **Pydantic `BaseSettings` singleton** in
+`scripts/addon_config.py`. It reads from three sources in priority order:
+
+1. **Environment variables** (highest priority)
+2. **`/data/options.json`** (Home Assistant add-on runtime)
+3. **Field defaults**
+
+For local development, place a `.env` file in the repo root — it is loaded
+automatically when `addon_config` is imported.
+
+```python
+from scripts.addon_config import config
+print(config.db_host, config.chat_model)
+```
 
 | Option | Default | Description |
 |--------|---------|-------------|

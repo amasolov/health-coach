@@ -12,17 +12,15 @@ Works both locally (via .env) and inside the HA addon.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
-
-from dotenv import load_dotenv
-
-load_dotenv()
 
 import psycopg2
 from alembic import command
 from alembic.config import Config
+
+from scripts.addon_config import config  # noqa: F401 — triggers load_dotenv
+from scripts.db_pool import dsn_kwargs
 
 ROOT = Path(__file__).resolve().parent.parent
 ALEMBIC_INI = ROOT / "db" / "alembic.ini"
@@ -30,13 +28,7 @@ BASELINE_REV = "0001"
 
 
 def _get_connection():
-    return psycopg2.connect(
-        host=os.environ["DB_HOST"],
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ["DB_NAME"],
-        user=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
-    )
+    return psycopg2.connect(**dsn_kwargs())
 
 
 def _legacy_migrations_applied(conn) -> bool:

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import functools
 import json
-import os
 from typing import Any
 
 import anyio
@@ -29,13 +28,14 @@ from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 
 from scripts import health_tools
+from scripts.addon_config import config
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
-MCP_PORT = int(os.environ.get("MCP_PORT", "8765"))
-MCP_HOST = os.environ.get("MCP_HOST", "0.0.0.0")
+MCP_PORT = config.mcp_port
+MCP_HOST = config.mcp_host
 
 # ---------------------------------------------------------------------------
 # User registry (loaded from DB)

@@ -5,6 +5,12 @@ an automatic fallback to **environment variables** (local dev / CI).  Field
 names match ``options.json`` keys exactly; the corresponding env var is the
 UPPER_CASE version (e.g. ``db_host`` ↔ ``DB_HOST``).
 
+Importing this module has two side-effects:
+
+1. ``load_dotenv()`` populates ``os.environ`` from the repo-root ``.env``
+   file (no-op when the file is absent, e.g. inside the HA addon).
+2. A module-level ``config`` singleton is created for direct attribute access.
+
 Usage::
 
     from scripts.addon_config import config
@@ -20,17 +26,26 @@ from __future__ import annotations
 import os
 import secrets
 from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, JsonConfigSettingsSource, SettingsConfigDict
 
+_ROOT = Path(__file__).resolve().parent.parent
 _OPTIONS_FILE = Path("/data/options.json")
+
+load_dotenv(_ROOT / ".env")
+
+
+_json_cfg: dict = {}
+if _OPTIONS_FILE.exists():
+    _json_cfg = {"json_file": str(_OPTIONS_FILE), "json_file_encoding": "utf-8"}
 
 
 class AddonConfig(BaseSettings):
     model_config = SettingsConfigDict(
-        json_file=str(_OPTIONS_FILE),
-        json_file_encoding="utf-8",
         env_prefix="",
         extra="ignore",
+        **_json_cfg,
     )
 
     @classmethod
@@ -56,11 +71,18 @@ class AddonConfig(BaseSettings):
     grafana_host: str = "a0d7b954-grafana"
     grafana_port: int = 3000
     grafana_api_key: str = ""
+    grafana_ingress_path: str = ""
+    grafana_db_host: str = ""
 
     # --- Ports & intervals ---
     mcp_port: int = 8765
+    mcp_host: str = "0.0.0.0"
+    mcp_api_key: str = ""
     chat_port: int = 8080
     sync_interval_minutes: int = 30
+    sync_max_retries: int = 2
+    sync_retry_base: int = 10
+    sync_user_timeout: int = 600
 
     # --- AI / LLM ---
     openrouter_api_key: str = ""
@@ -68,6 +90,7 @@ class AddonConfig(BaseSettings):
     chat_model: str = "anthropic/claude-sonnet-4"
     embedding_api_base: str = ""
     embedding_model: str = "text-embedding-3-small"
+    embedding_dim: int = 768
 
     # --- Chat UI ---
     chainlit_url: str = ""
@@ -85,6 +108,7 @@ class AddonConfig(BaseSettings):
 
     # --- GitHub ---
     github_token: str = ""
+    github_repo: str = "amasolov/health-coach"
 
     # --- R2 / S3 ---
     r2_account_id: str = ""
@@ -95,6 +119,12 @@ class AddonConfig(BaseSettings):
     # --- Telegram ---
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
+
+    # --- External APIs ---
+    hevy_api_key: str = ""
+
+    # --- Home Assistant ---
+    supervisor_token: str = ""
 
     # ------------------------------------------------------------------
     # Derived values (not in options.json, computed at load time)
@@ -154,6 +184,7 @@ _ENV_MAP: dict[str, str] = {
     "GRAFANA_PORT": "grafana_port",
     "GRAFANA_API_KEY": "grafana_api_key",
     "MCP_PORT": "mcp_port",
+    "MCP_HOST": "mcp_host",
     "CHAT_PORT": "chat_port",
     "SYNC_INTERVAL": "sync_interval_minutes",
     "OPENROUTER_API_KEY": "openrouter_api_key",
@@ -161,15 +192,19 @@ _ENV_MAP: dict[str, str] = {
     "CHAT_MODEL": "chat_model",
     "EMBEDDING_API_BASE": "embedding_api_base",
     "EMBEDDING_MODEL": "embedding_model",
+    "EMBEDDING_DIM": "embedding_dim",
     "CHAINLIT_URL": "chainlit_url",
     "ALLOW_REGISTRATION": "",
     "GITHUB_TOKEN": "github_token",
+    "GITHUB_REPO": "github_repo",
     "R2_ACCOUNT_ID": "r2_account_id",
     "R2_ACCESS_KEY_ID": "r2_access_key_id",
     "R2_SECRET_ACCESS_KEY": "r2_secret_access_key",
     "R2_BUCKET_NAME": "r2_bucket_name",
     "TELEGRAM_BOT_TOKEN": "telegram_bot_token",
     "TELEGRAM_BOT_USERNAME": "telegram_bot_username",
+    "HEVY_API_KEY": "hevy_api_key",
+    "SUPERVISOR_TOKEN": "supervisor_token",
 }
 
 

@@ -176,13 +176,8 @@ def _extract_sets(
 # ---------------------------------------------------------------------------
 
 def _get_conn():
-    return psycopg2.connect(
-        host=os.environ.get("DB_HOST", "localhost"),
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ.get("DB_NAME", "health"),
-        user=os.environ.get("DB_USER", "postgres"),
-        password=os.environ.get("DB_PASSWORD", ""),
-    )
+    from scripts.db_pool import dsn_kwargs
+    return psycopg2.connect(**dsn_kwargs())
 
 
 def _workout_exists(cur, user_id: int, workout_id: str) -> bool:

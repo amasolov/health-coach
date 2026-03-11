@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.50.0
+**Pydantic BaseSettings for unified configuration (issue #9)**
+
+- **Single config singleton** — `addon_config.config` is now the canonical entry point for all configuration; modules read typed attributes (`config.openrouter_api_key`, `config.grafana_host`, …) instead of raw `os.environ.get()` calls
+- **Automatic `.env` loading** — importing `addon_config` calls `load_dotenv()` once at module level; individual scripts no longer need their own `load_dotenv()` calls
+- **New fields** — `embedding_dim`, `mcp_host`, `mcp_api_key`, `github_repo`, `supervisor_token`, `hevy_api_key`, `grafana_ingress_path`, `grafana_db_host`, `sync_max_retries`, `sync_retry_base`, `sync_user_timeout`
+- **DB connection consolidation** — `db_pool.dsn_kwargs()` (now public) replaces six duplicated 5-line `os.environ` blocks in `calc_pmc`, `sync_garmin`, `sync_hevy`, `run_sync`, `run_migrate`, and `setup_chainlit_db`
+- **17 modules converted** — `r2_store`, `knowledge_store`, `task_runner`, `mcp_server`, `chat_app`, `telegram_bot`, `push_dashboards`, `health_tools`, `hevy_exercise_resolver`, `ifit_strength_recommend`, `ifit_llm_extract`, `ingest_books`, and the six sync scripts above
+- **Test compatibility** — DB settings remain env-var-driven (via `dsn_kwargs()`) so the testcontainer fixture continues to work; tests that need to override non-DB config use `patch.object` on the config singleton
+- **`pydantic-settings`** added to project dependencies
+
 ## v0.49.0
 **Isolated database testing with testcontainers (issue #10)**
 

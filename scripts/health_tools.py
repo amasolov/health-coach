@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -20,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
+from scripts.addon_config import config
 from scripts.tz import DEFAULT_TZ_NAME, load_user_tz, user_today
 from scripts import athlete_store
 
@@ -2504,8 +2504,8 @@ def suggest_feature(
     Requires GITHUB_TOKEN and GITHUB_REPO env vars."""
     import httpx
 
-    token = os.environ.get("GITHUB_TOKEN", "")
-    repo = os.environ.get("GITHUB_REPO", "amasolov/health-coach")
+    token = config.github_token
+    repo = config.github_repo
 
     if not token:
         return {
@@ -2563,8 +2563,8 @@ def report_exercise_correction(
     import httpx
     from pathlib import Path as _P
 
-    token = os.environ.get("GITHUB_TOKEN", "")
-    repo = os.environ.get("GITHUB_REPO", "amasolov/health-coach")
+    token = config.github_token
+    repo = config.github_repo
 
     if not token:
         return {
@@ -3636,7 +3636,7 @@ def generate_telegram_link_code(user_id: int) -> dict:
     """
     from scripts.telegram_link import generate_link_code
 
-    bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "")
+    bot_username = config.telegram_bot_username
     code = generate_link_code(user_id)
     result: dict = {"code": code, "expires_in_minutes": 10}
     if bot_username:
