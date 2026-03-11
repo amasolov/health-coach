@@ -151,6 +151,7 @@ def fetch_recent_history(headers: dict, days: int = 14) -> list[dict]:
     logs = _api_get(f"{API}/v1/activity_logs?perPage=30", headers) or []
 
     now = user_now()
+    today = now.date()
     cutoff = now - timedelta(days=days)
     recent = []
 
@@ -175,7 +176,7 @@ def fetch_recent_history(headers: dict, days: int = 14) -> list[dict]:
 
         recent.append({
             "date": dt,
-            "days_ago": (now - dt).days,
+            "days_ago": (today - dt.date()).days,
             "duration_min": log.get("duration", 0) / 60000,
             "calories": log.get("summary", {}).get("total_calories", 0),
             "workout_id": wid,

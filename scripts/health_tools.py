@@ -1814,9 +1814,10 @@ def _db_history_entries(user_id: int, days: int = 14) -> list[dict]:
     iFit workouts."""
     from scripts.ifit_recommend import MUSCLE_GROUP_MAP
     from scripts.ifit_strength_recommend import MUSCLE_GROUP_CANONICAL
-    from scripts.tz import user_now
+    from scripts.tz import user_now, user_today, DEFAULT_TZ
 
     now = user_now()
+    today = user_today()
     entries: list[dict] = []
 
     CARDIO_MG: dict[str, set[str]] = {
@@ -1840,7 +1841,8 @@ def _db_history_entries(user_id: int, days: int = 14) -> list[dict]:
                 dt = datetime.fromisoformat(dt_str)
             except Exception:
                 continue
-            d_ago = (now - dt).days
+            dt_local = dt.astimezone(DEFAULT_TZ) if dt.tzinfo else dt
+            d_ago = (today - dt_local.date()).days
 
             styles: set[str] = set()
             muscle_groups: set[str] = set()
@@ -1885,7 +1887,8 @@ def _db_history_entries(user_id: int, days: int = 14) -> list[dict]:
                 dt = datetime.fromisoformat(dt_str)
             except Exception:
                 continue
-            d_ago = max((now - dt).days, 0)
+            dt_local = dt.astimezone(DEFAULT_TZ) if dt.tzinfo else dt
+            d_ago = max((today - dt_local.date()).days, 0)
             mg_raw = (s.get("muscle_group") or "").lower()
             mg = MUSCLE_GROUP_CANONICAL.get(mg_raw, MUSCLE_GROUP_MAP.get(mg_raw, ""))
             if mg:
