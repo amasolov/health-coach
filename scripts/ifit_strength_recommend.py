@@ -89,7 +89,7 @@ CACHE_DIR = ROOT / ".ifit_capture"
 EXERCISE_CACHE_PATH = CACHE_DIR / "exercise_cache.json"
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-LLM_MODEL = "google/gemini-2.0-flash-001"
+LLM_MODEL = "google/gemini-2.5-flash"
 
 HEVY_BASE = "https://api.hevyapp.com"
 

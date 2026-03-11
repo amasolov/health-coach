@@ -43,7 +43,7 @@ def _llm_http():
 
 HEVY_BASE = "https://api.hevyapp.com/v1"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-LLM_MODEL = "google/gemini-2.0-flash-001"
+LLM_MODEL = "google/gemini-2.5-flash"
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".ifit_capture"
 EXERCISES_JSON = CACHE_DIR / "hevy_exercises.json"
