@@ -539,12 +539,12 @@ def _generate_recommendations(
     recs = []
     goals = goals or {}
 
-    primary = goals.get("primary_goal", "")
+    primary = goals.get("primary_goal") or ""
     avail_hrs = goals.get("available_hours_per_week")
-    experience = goals.get("experience_level", "")
-    preferred = goals.get("preferred_sports", [])
-    constraints = goals.get("constraints", [])
-    secondary = goals.get("secondary_goals", [])
+    experience = goals.get("experience_level") or ""
+    preferred = goals.get("preferred_sports") or []
+    constraints = goals.get("constraints") or []
+    secondary = goals.get("secondary_goals") or []
 
     is_ultra = any(
         kw in primary.lower()
@@ -804,7 +804,7 @@ def generate_action_items(
     goals = goals or {}
 
     is_ultra = any(
-        kw in (goals.get("primary_goal", "")).lower()
+        kw in (goals.get("primary_goal") or "").lower()
         for kw in ("utmb", "ultra", "trail", "100k", "100mi", "50k")
     )
 
