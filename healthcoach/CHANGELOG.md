@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.49.0
+**Isolated database testing with testcontainers (issue #10)**
+
+- **Ephemeral TimescaleDB container** — every `pytest` run now spins up a fresh `timescale/timescaledb-ha:pg17` container via testcontainers-python; Alembic migrations run automatically against it and synthetic seed data is inserted before tests execute
+- **Zero production risk** — tests no longer connect to the shared production database; the `db_pool` connection pool is redirected to the container via env var overrides
+- **Podman support** — auto-discovers the Podman machine socket on macOS and configures `DOCKER_HOST` / disables Ryuk; falls back to Docker transparently
+- **Synthetic seed data** — new `tests/seed_data.py` provides a test user, 15 activities, 30 days of vitals/body composition, 120 days of training load (with projections), strength sets with routine IDs, athlete config, and threshold history — all date-relative so assertions never go stale
+- **`integration` marker** — future tests that deliberately need the real production DB can use `@pytest.mark.integration`; excluded from the default test run alongside `slow`
+
 ## v0.48.0
 **Threshold history for date-aware TSS calculation**
 

@@ -1,7 +1,8 @@
 """
 Shared fixtures for the Health Coach test suite.
 
-Loads .env so tests can connect to the real TimescaleDB instance.
+Spins up an ephemeral TimescaleDB container via testcontainers so that
+every test run is fully isolated from the production database.
 Provides mock factories for external services (Hevy, iFit, GitHub,
 OpenRouter) so tests never create real data in third-party apps.
 """
@@ -26,6 +27,86 @@ from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
 
+# ---------------------------------------------------------------------------
+# Ephemeral TimescaleDB container (session-scoped, autouse)
+# ---------------------------------------------------------------------------
+
+def _configure_podman():
+    """Point testcontainers at the Podman socket and disable Ryuk."""
+    import subprocess
+    try:
+        sock = subprocess.check_output(
+            ["podman", "machine", "inspect",
+             "--format", "{{.ConnectionInfo.PodmanSocket.Path}}"],
+            text=True,
+        ).strip()
+        if sock:
+            os.environ.setdefault("DOCKER_HOST", f"unix://{sock}")
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+    os.environ.setdefault("TESTCONTAINERS_RYUK_DISABLED", "true")
+
+
+_configure_podman()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _tc_db():
+    """Start an ephemeral TimescaleDB container, run migrations, and seed
+    synthetic data.  All DB access during the test session goes here."""
+    from testcontainers.postgres import PostgresContainer
+
+    with PostgresContainer(
+        image="timescale/timescaledb-ha:pg17",
+        username="postgres",
+        password="testpass",
+        dbname="health",
+    ) as pg:
+        host = pg.get_container_host_ip()
+        port = pg.get_exposed_port(5432)
+
+        os.environ["DB_HOST"] = host
+        os.environ["DB_PORT"] = str(port)
+        os.environ["DB_NAME"] = "health"
+        os.environ["DB_USER"] = "postgres"
+        os.environ["DB_PASSWORD"] = "testpass"
+
+        # Reset the connection pool so it picks up the new env vars
+        import scripts.db_pool as _pool_mod
+        _pool_mod._health_pool = None
+
+        # Run Alembic migrations
+        from alembic.config import Config as AlembicConfig
+        from alembic import command as alembic_cmd
+
+        alembic_cfg = AlembicConfig(str(ROOT / "db" / "alembic.ini"))
+        alembic_cfg.set_main_option(
+            "sqlalchemy.url",
+            f"postgresql+psycopg2://postgres:testpass@{host}:{port}/health",
+        )
+        alembic_cmd.upgrade(alembic_cfg, "head")
+
+        # Seed synthetic test data
+        import psycopg2
+        seed_conn = psycopg2.connect(
+            host=host, port=port, dbname="health",
+            user="postgres", password="testpass",
+        )
+        try:
+            from tests.seed_data import seed
+            seed(seed_conn)
+        finally:
+            seed_conn.close()
+
+        yield pg
+
+        _pool_mod._health_pool = None
+
+
+# ---------------------------------------------------------------------------
+# HTTP client patches
+# ---------------------------------------------------------------------------
+
 @pytest.fixture(autouse=True)
 def _use_bare_httpx_in_clients():
     """Force client wrappers to return the bare httpx module so existing
@@ -44,7 +125,7 @@ def _use_bare_httpx_in_clients():
 # User context
 # ---------------------------------------------------------------------------
 
-TEST_SLUG = os.environ.get("TEST_USER_SLUG", "alexeym")
+TEST_SLUG = os.environ.get("TEST_USER_SLUG", "testuser")
 TEST_USER_ID: int | None = None
 
 
@@ -54,7 +135,7 @@ def user_slug() -> str:
 
 
 @pytest.fixture(scope="session")
-def user_id() -> int:
+def user_id(_tc_db) -> int:
     from scripts.health_tools import resolve_user_id
     uid = resolve_user_id(TEST_SLUG)
     if uid is None:
@@ -69,8 +150,8 @@ def user_id() -> int:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
-def db_conn():
-    """Real DB connection for read-only assertions."""
+def db_conn(_tc_db):
+    """Connection to the ephemeral container DB."""
     import psycopg2
     conn = psycopg2.connect(
         host=os.environ.get("DB_HOST", "localhost"),
