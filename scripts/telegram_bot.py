@@ -60,6 +60,7 @@ from scripts.telegram_link import (
     remove_telegram_chat_id,
     get_user_by_telegram,
 )
+from scripts.telegram_format import md_to_telegram_html, chunk_html
 
 logging.basicConfig(
     format="%(asctime)s [telegram_bot] %(levelname)s %(message)s",
@@ -426,11 +427,13 @@ def _chunk_message(text: str, limit: int = TELEGRAM_MSG_LIMIT) -> list[str]:
 
 async def _send_with_retry(coro_factory, retries: int = 3, backoff: float = 2.0):
     """Retry a Telegram API call on transient network errors."""
-    from telegram.error import NetworkError, TimedOut
+    from telegram.error import BadRequest, NetworkError, TimedOut
 
     for attempt in range(retries):
         try:
             return await coro_factory()
+        except BadRequest:
+            raise
         except (NetworkError, TimedOut) as exc:
             if attempt == retries - 1:
                 raise
@@ -454,6 +457,31 @@ def _render_chart_png(fig) -> bytes | None:
     except Exception as exc:
         log.warning("Chart rendering failed: %s", exc)
         return None
+
+
+async def _send_reply(message, text: str) -> None:
+    """Send *text* as Telegram HTML, falling back to plain text on error.
+
+    Converts standard Markdown from the LLM to Telegram HTML, splits into
+    chunks that fit Telegram's 4 096-char limit, and sends with
+    parse_mode="HTML".  If Telegram rejects the HTML (BadRequest), the
+    chunk is re-sent as plain text.
+    """
+    if not text:
+        return
+
+    html = md_to_telegram_html(text)
+    for chunk in chunk_html(html):
+        try:
+            await _send_with_retry(
+                lambda c=chunk: message.reply_text(c, parse_mode="HTML")
+            )
+        except telegram.error.BadRequest:
+            log.warning("Telegram rejected HTML chunk, falling back to plain text")
+            plain_chunk = text if len(chunk_html(html)) == 1 else chunk
+            await _send_with_retry(
+                lambda c=plain_chunk: message.reply_text(c, parse_mode=None)
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -647,10 +675,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     f"{config.chainlit_url or 'the Health Coach web interface'}.)"
                 )
 
-            for chunk in _chunk_message(final_text):
-                await _send_with_retry(
-                    lambda c=chunk: update.message.reply_text(c)
-                )
+            await _send_reply(update.message, final_text)
 
             return
 

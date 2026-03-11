@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.51.0
+**Telegram-compatible rich text formatting (issue #19)**
+
+- **Markdown → Telegram HTML conversion** — new `scripts/telegram_format.py` module converts standard LLM Markdown (`**bold**`, `*italic*`, `` `code` ``, fenced code blocks, links, headings, lists, blockquotes, strikethrough) into the HTML subset Telegram accepts (`<b>`, `<i>`, `<code>`, `<pre>`, `<a>`, `<blockquote>`, `<s>`)
+- **HTML parse mode** — bot responses are now sent with `parse_mode="HTML"` so Telegram renders bold, italic, code, and other formatting natively instead of showing raw markdown characters
+- **Graceful fallback** — if Telegram rejects a chunk (malformed HTML), the bot resends it as plain text so users always get the message
+- **BadRequest not retried** — `_send_with_retry` now excludes `BadRequest` from its retry loop since format errors won't self-heal
+- **59 new tests** — `test_telegram_format.py` (48 tests covering all formatting constructs, escaping, emoji, realistic LLM output) and `test_telegram_bot.py` (11 tests for HTML sending, fallback, chunking)
+
 ## v0.50.0
 **Pydantic BaseSettings for unified configuration (issue #9)**
 
