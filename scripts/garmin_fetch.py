@@ -13,7 +13,7 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
-from scripts.tz import user_today
+from scripts.tz import user_today, DEFAULT_TZ
 
 from garminconnect import Garmin
 
@@ -127,7 +127,7 @@ def _extract_body_composition(client: Garmin, today: date | None = None) -> tupl
     result = {}
     sources = {}
 
-    _today = today or user_today()
+    _today = today or user_today(DEFAULT_TZ)
     today_s = _today.isoformat()
     start = (_today - timedelta(days=30)).isoformat()
     data = _safe_call(client.get_body_composition, start, today_s)
@@ -171,7 +171,7 @@ def _extract_heart_rate(client: Garmin, today: date | None = None) -> tuple[dict
     result = {}
     sources = {}
 
-    today = (today or user_today()).isoformat()
+    today = (today or user_today(DEFAULT_TZ)).isoformat()
     data = _safe_call(client.get_heart_rates, today)
     if not data:
         return result, sources
@@ -189,7 +189,7 @@ def _extract_max_metrics(client: Garmin, today: date | None = None) -> tuple[dic
     result = {}
     sources = {}
 
-    today = (today or user_today()).isoformat()
+    today = (today or user_today(DEFAULT_TZ)).isoformat()
     data = _safe_call(client.get_max_metrics, today)
     if not data:
         return result, sources
@@ -294,7 +294,7 @@ def _extract_max_hr_from_activities(client: Garmin, today: date | None = None) -
     result = {}
     sources = {}
 
-    _today = today or user_today()
+    _today = today or user_today(DEFAULT_TZ)
     end = _today.isoformat()
     start = (_today - timedelta(days=90)).isoformat()
     activities = _safe_call(client.get_activities_by_date, start, end)
@@ -515,13 +515,13 @@ def refresh_thresholds(
       - "advisories": list of dicts describing significant differences from lab values
       - "garmin_latest": dict of field -> value (latest Garmin values stored in _sources)
     """
-    from datetime import date as _date
     from scripts import athlete_store
+    from scripts.tz import load_user_tz, user_today
 
     user = athlete_store.load(slug) or {}
     thresh = user.setdefault("thresholds", {})
     sources = thresh.setdefault("_sources", {})
-    today = str(_date.today())
+    today = user_today(load_user_tz(slug)).isoformat()
 
     updated = {}
     advisories = []

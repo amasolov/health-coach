@@ -166,7 +166,10 @@ def record_threshold_snapshot(
         if not row:
             return False
         user_id = row[0]
-        eff = effective or _date.today()
+        if not effective:
+            from scripts.tz import load_user_tz, user_today
+            effective = user_today(load_user_tz(slug))
+        eff = effective
 
         cur.execute(
             """INSERT INTO threshold_history

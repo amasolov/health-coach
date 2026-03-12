@@ -796,10 +796,11 @@ def generate_action_items(
     strength: dict,
     missing_data: list[dict],
     goals: dict | None = None,
+    tz: "ZoneInfo | None" = None,
 ) -> list[dict]:
     """Generate suggested action items based on assessment findings.
     Returns a list of action item dicts ready to be merged into athlete config."""
-    today = user_today().isoformat()
+    today = user_today(tz).isoformat()
     items: list[dict] = []
     goals = goals or {}
 
@@ -1069,6 +1070,7 @@ def assess_fitness(
         strength_summary,
         missing_data,
         goals=goals,
+        tz=tz,
     )
 
     return {

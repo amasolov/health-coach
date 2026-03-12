@@ -274,6 +274,15 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
     )
 
     parts.append(
+        "\niFit-sourced Hevy routines:\n"
+        "Some Hevy routines were auto-created from iFit workouts (their "
+        "titles start with 'iFit: '). NEVER recommend these as workouts. "
+        "When a user wants to do one of those workouts, recommend the "
+        "original iFit workout instead. Only mention iFit-sourced Hevy "
+        "routines when the user explicitly asks about routine management.\n"
+    )
+
+    parts.append(
         "\nSECURITY — CRITICAL:\n"
         "You are responding via Telegram. You must NEVER include API keys, "
         "tokens, passwords, credentials, or secrets in your responses. If a "

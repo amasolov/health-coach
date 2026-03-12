@@ -25,7 +25,7 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field, asdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import logging
@@ -982,7 +982,7 @@ def _save_routine_mapping(
                 }
                 for ex in predicted_exercises
             ],
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
         upload_json(R2_ROUTINE_MAP_KEY, mapping)
         print(f"  Saved routine mapping: {routine_id} -> iFit {ifit_workout_id}")
@@ -1342,7 +1342,9 @@ def _create_hevy_routine_locked(rec: Recommendation, hevy_api_key: str) -> dict:
 def list_hevy_routines(hevy_api_key: str) -> list[dict]:
     """List all routines from the user's Hevy account via the public API.
 
-    Returns a list of routine summary dicts.
+    Returns a list of routine summary dicts.  Routines created from iFit
+    workouts are annotated with ``ifit_source`` containing the original
+    iFit workout ID and title.
     """
     routines: list[dict] = []
     page = 1
@@ -1368,6 +1370,17 @@ def list_hevy_routines(hevy_api_key: str) -> list[dict]:
         if page >= data.get("page_count", 1):
             break
         page += 1
+
+    routine_map = _load_routine_map()
+    if routine_map:
+        for rt in routines:
+            mapping = routine_map.get(rt["id"])
+            if mapping:
+                rt["ifit_source"] = {
+                    "ifit_workout_id": mapping.get("ifit_workout_id", ""),
+                    "original_title": mapping.get("title", ""),
+                }
+
     return routines
 
 

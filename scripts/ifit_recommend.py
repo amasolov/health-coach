@@ -146,11 +146,13 @@ def classify_workout(workout_data: dict) -> dict:
     }
 
 
-def fetch_recent_history(headers: dict, days: int = 14) -> list[dict]:
+def fetch_recent_history(headers: dict, days: int = 14,
+                         tz: "ZoneInfo | None" = None) -> list[dict]:
     """Fetch activity logs and enrich with workout metadata."""
     logs = _api_get(f"{API}/v1/activity_logs?perPage=30", headers) or []
 
-    now = user_now()
+    tz = tz or DEFAULT_TZ
+    now = user_now(tz)
     today = now.date()
     cutoff = now - timedelta(days=days)
     recent = []

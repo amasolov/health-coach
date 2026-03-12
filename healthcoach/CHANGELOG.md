@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.52.0
+**Fix timezone bugs causing wrong-day vitals/sleep/recovery data**
+
+- **UTC-aware Garmin parsing** — `_parse_garmin_datetime` and `_extract_vitals` now return UTC-aware datetimes instead of naive; eliminates server-timezone-dependent storage
+- **Timezone-aware SQL boundaries** — `get_vitals`, `get_activities`, `get_training_load`, `get_body_composition`, and `get_strength_sessions` use `datetime.combine(..., tzinfo=tz)` so date ranges respect the user's timezone
+- **Eliminated bare `date.today()` / `datetime.now()`** — replaced with `user_today(tz)` / `utc_now()` in `health_tools.py`, `garmin_fetch.py`, `athlete_store.py`, `ifit_strength_recommend.py`
+- **Explicit tz propagation** — `_db_history_entries`, `generate_action_items`, `fetch_recent_history` now accept and use a `tz` parameter instead of silently falling back to `DEFAULT_TZ`
+- **sync_vitals date-range fix** — converts UTC `last` to user timezone before `.date()` to prevent off-by-one at day boundary
+- **Cursor rule rewrite** — `.cursor/rules/timezone-handling.mdc` is now `alwaysApply: true` with 10 sections: golden rules, banned patterns, SQL boundaries, sleep/vitals specifics, and code review checklist
+- **11 new tests** in `test_timezone.py` including AST-based static analysis that scans all scripts for bare `date.today()`, `datetime.now()`, and `user_today()`/`user_now()` without explicit tz
+
+## v0.51.1
+**Don't recommend iFit-sourced Hevy routines (issue #25)**
+
+- **iFit-source annotation** — `list_hevy_routines` now cross-references the R2 routine map and adds an `ifit_source` field (with original workout ID and title) to routines that were auto-created from iFit workouts
+- **Separated listing** — `manage_hevy_routines` (action=list) splits routines into user-created vs iFit-sourced groups; LLM instructions tell the model not to recommend iFit-sourced routines as workouts
+- **Weight recommendations filtering** — `get_routine_weight_recommendations` excludes iFit-sourced routines when listing available routines (direct ID lookup still works)
+- **System prompt guidance** — both Chainlit and Telegram system prompts now instruct the LLM to never recommend iFit-sourced Hevy routines and to suggest the original iFit workout instead
+- **4 new tests** covering annotation, separation, filtering, and the no-iFit-routines case
+
 ## v0.51.0
 **Telegram-compatible rich text formatting (issue #19)**
 

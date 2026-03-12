@@ -119,7 +119,7 @@ def _parse_garmin_datetime(s: str | None) -> datetime | None:
         return None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
         try:
-            return datetime.strptime(s, fmt)
+            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
         except ValueError:
             continue
     return None
@@ -235,7 +235,7 @@ def _extract_vitals(
     """Combine daily stats, sleep, HRV, respiration, BP into one vitals row."""
     dt = _parse_garmin_datetime(day)
     if not dt:
-        dt = datetime.strptime(day, "%Y-%m-%d")
+        dt = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc)
 
     sleep_dto = sleep.get("dailySleepDTO", {}) if sleep else {}
     sleep_scores = sleep_dto.get("sleepScores", {})
@@ -578,7 +578,7 @@ def sync_vitals(
     if full_sync:
         start_date = date(2000, 1, 1)
     elif last:
-        start_date = last.date()
+        start_date = last.astimezone(tz).date() if last.tzinfo and tz else last.date()
     else:
         start_date = today - timedelta(days=lookback_days)
 

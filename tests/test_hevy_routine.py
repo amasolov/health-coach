@@ -884,3 +884,99 @@ class TestApplyExerciseFeedback:
     def test_no_exercises_found(self, mock_r2, fake_r2):
         result = health_tools.apply_exercise_feedback("test", "missing_wid", [])
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# iFit-sourced routine filtering (issue #25)
+# ---------------------------------------------------------------------------
+
+class TestIfitSourcedRoutineFiltering:
+    """Routines created from iFit workouts should be separated from
+    user-created routines and not recommended as standalone workouts."""
+
+    ROUTINE_MAP = {
+        "hevy-rt-001": {
+            "ifit_workout_id": "ifit-wid-abc",
+            "title": "iFit: Baldwin Beach Upper-Body",
+            "predicted_exercises": [],
+            "created_at": "2026-03-10T12:00:00",
+        },
+    }
+
+    HEVY_ROUTINES_PAGE = {
+        "routines": [
+            {"id": "hevy-rt-001", "title": "iFit: Baldwin Beach Upper-Body",
+             "exercises": [{"id": "e1"}], "created_at": "", "updated_at": ""},
+            {"id": "hevy-rt-002", "title": "My Push Day",
+             "exercises": [{"id": "e2"}, {"id": "e3"}], "created_at": "", "updated_at": ""},
+            {"id": "hevy-rt-003", "title": "My Pull Day",
+             "exercises": [{"id": "e4"}], "created_at": "", "updated_at": ""},
+        ],
+        "page_count": 1,
+    }
+
+    def test_list_hevy_routines_annotates_ifit_source(self):
+        from scripts.ifit_strength_recommend import list_hevy_routines
+        with patch("scripts.ifit_strength_recommend.httpx.get",
+                   return_value=MockResponse(200, self.HEVY_ROUTINES_PAGE)), \
+             patch("scripts.ifit_strength_recommend._load_routine_map",
+                   return_value=self.ROUTINE_MAP):
+            routines = list_hevy_routines("test-key")
+
+        ifit_sourced = [r for r in routines if "ifit_source" in r]
+        user_only = [r for r in routines if "ifit_source" not in r]
+        assert len(ifit_sourced) == 1
+        assert ifit_sourced[0]["id"] == "hevy-rt-001"
+        assert ifit_sourced[0]["ifit_source"]["ifit_workout_id"] == "ifit-wid-abc"
+        assert len(user_only) == 2
+
+    def test_manage_hevy_routines_separates_ifit_sourced(self):
+        with patch("scripts.ifit_strength_recommend.httpx.get",
+                   return_value=MockResponse(200, self.HEVY_ROUTINES_PAGE)), \
+             patch("scripts.ifit_strength_recommend._load_routine_map",
+                   return_value=self.ROUTINE_MAP):
+            result = health_tools.manage_hevy_routines(
+                "test", action="list", hevy_api_key="test-key",
+            )
+
+        assert result["count"] == 2
+        assert all("ifit_source" not in r for r in result["routines"])
+        assert result["ifit_sourced_count"] == 1
+        assert "instructions" in result
+        assert result["ifit_sourced_routines"][0]["id"] == "hevy-rt-001"
+
+    def test_manage_hevy_routines_no_ifit_routines(self):
+        page = {
+            "routines": [
+                {"id": "r1", "title": "Push Day", "exercises": [],
+                 "created_at": "", "updated_at": ""},
+            ],
+            "page_count": 1,
+        }
+        with patch("scripts.ifit_strength_recommend.httpx.get",
+                   return_value=MockResponse(200, page)), \
+             patch("scripts.ifit_strength_recommend._load_routine_map",
+                   return_value={}):
+            result = health_tools.manage_hevy_routines(
+                "test", action="list", hevy_api_key="test-key",
+            )
+
+        assert result["count"] == 1
+        assert "ifit_sourced_routines" not in result
+        assert "instructions" not in result
+
+    @patch("httpx.get")
+    def test_weight_recs_excludes_ifit_routines_from_listing(
+        self, mock_get, user_id, user_slug,
+    ):
+        mock_get.return_value = MockResponse(200, self.HEVY_ROUTINES_PAGE)
+        with patch("scripts.health_tools._load_routine_map",
+                   return_value=self.ROUTINE_MAP):
+            result = health_tools.get_routine_weight_recommendations(
+                user_id, user_slug, hevy_api_key="test-key",
+            )
+
+        ids = [r["id"] for r in result["available_routines"]]
+        assert "hevy-rt-001" not in ids
+        assert "hevy-rt-002" in ids
+        assert "hevy-rt-003" in ids

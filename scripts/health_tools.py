@@ -12,7 +12,7 @@ import json
 import logging
 import time
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as _time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -225,18 +225,21 @@ def get_training_load(
 ) -> list[dict]:
     """Get daily TSS, CTL, ATL, TSB for a date range.  Defaults to last 90 days.
     Dates in YYYY-MM-DD format."""
-    today = user_today(ZoneInfo(tz_name) if tz_name else None)
-    if not start_date:
-        start_date = (today - timedelta(days=days)).isoformat()
-    if not end_date:
-        end_date = (today + timedelta(days=1)).isoformat()
+    tz = ZoneInfo(tz_name) if tz_name else None
+    today = user_today(tz)
+
+    start_d = date.fromisoformat(start_date) if start_date else (today - timedelta(days=days))
+    end_d = date.fromisoformat(end_date) if end_date else (today + timedelta(days=1))
+
+    start_dt = datetime.combine(start_d, _time.min, tzinfo=tz or timezone.utc)
+    end_dt = datetime.combine(end_d, _time.min, tzinfo=tz or timezone.utc)
 
     return _localise_rows(query(
         """SELECT time, tss, ctl, atl, tsb, ramp, source
            FROM training_load
            WHERE user_id = %s AND time >= %s AND time < %s
            ORDER BY time""",
-        (user_id, start_date, end_date),
+        (user_id, start_dt, end_dt),
     ), tz_name)
 
 
@@ -256,11 +259,14 @@ def get_activities(
 ) -> list[dict]:
     """List activities with metrics.  Filter by date range and/or sport type
     (running, cycling, strength_training, etc.).  Defaults to last 30 days."""
-    today = user_today(ZoneInfo(tz_name) if tz_name else None)
-    if not start_date:
-        start_date = (today - timedelta(days=days)).isoformat()
-    if not end_date:
-        end_date = (today + timedelta(days=1)).isoformat()
+    tz = ZoneInfo(tz_name) if tz_name else None
+    today = user_today(tz)
+
+    start_d = date.fromisoformat(start_date) if start_date else (today - timedelta(days=days))
+    end_d = date.fromisoformat(end_date) if end_date else (today + timedelta(days=1))
+
+    start_dt = datetime.combine(start_d, _time.min, tzinfo=tz or timezone.utc)
+    end_dt = datetime.combine(end_d, _time.min, tzinfo=tz or timezone.utc)
 
     sql = """SELECT time, activity_type, title, duration_s, distance_m,
                     elevation_gain_m, avg_hr, max_hr, avg_power, max_power,
@@ -269,7 +275,7 @@ def get_activities(
                     training_effect_ae, training_effect_an
              FROM activities
              WHERE user_id = %s AND time >= %s AND time < %s"""
-    params: list = [user_id, start_date, end_date]
+    params: list = [user_id, start_dt, end_dt]
 
     if sport:
         sql += " AND LOWER(activity_type) LIKE %s"
@@ -307,11 +313,14 @@ def get_body_composition(
 ) -> list[dict]:
     """Get body composition trend (weight, body fat %, muscle mass, BMI)
     over a date range.  Defaults to last 90 days."""
-    today = user_today(ZoneInfo(tz_name) if tz_name else None)
-    if not start_date:
-        start_date = (today - timedelta(days=days)).isoformat()
-    if not end_date:
-        end_date = (today + timedelta(days=1)).isoformat()
+    tz = ZoneInfo(tz_name) if tz_name else None
+    today = user_today(tz)
+
+    start_d = date.fromisoformat(start_date) if start_date else (today - timedelta(days=days))
+    end_d = date.fromisoformat(end_date) if end_date else (today + timedelta(days=1))
+
+    start_date = datetime.combine(start_d, _time.min, tzinfo=tz or timezone.utc).isoformat()
+    end_date = datetime.combine(end_d, _time.min, tzinfo=tz or timezone.utc).isoformat()
 
     return _localise_rows(query(
         """SELECT time, weight_kg, body_fat_pct, muscle_mass_kg,
@@ -337,11 +346,14 @@ def get_vitals(
 ) -> list[dict]:
     """Get daily vitals (resting HR, HRV, blood pressure, sleep, stress,
     body battery, SpO2).  Defaults to last 30 days."""
-    today = user_today(ZoneInfo(tz_name) if tz_name else None)
-    if not start_date:
-        start_date = (today - timedelta(days=days)).isoformat()
-    if not end_date:
-        end_date = (today + timedelta(days=1)).isoformat()
+    tz = ZoneInfo(tz_name) if tz_name else None
+    today = user_today(tz)
+
+    start_d = date.fromisoformat(start_date) if start_date else (today - timedelta(days=days))
+    end_d = date.fromisoformat(end_date) if end_date else (today + timedelta(days=1))
+
+    start_dt = datetime.combine(start_d, _time.min, tzinfo=tz or timezone.utc)
+    end_dt = datetime.combine(end_d, _time.min, tzinfo=tz or timezone.utc)
 
     return _localise_rows(query(
         """SELECT time, resting_hr, hrv_ms, bp_systolic, bp_diastolic,
@@ -351,7 +363,7 @@ def get_vitals(
            FROM vitals
            WHERE user_id = %s AND time >= %s AND time < %s
            ORDER BY time""",
-        (user_id, start_date, end_date),
+        (user_id, start_dt, end_dt),
     ), tz_name)
 
 
@@ -402,8 +414,6 @@ def setup_running_hr_zones(user_slug: str) -> dict:
       5. Percentage of observed max HR
       6. Age-predicted max HR (Tanaka formula)
     """
-    from datetime import date, timedelta
-
     user_data = athlete_store.load(user_slug)
     if not user_data:
         return {"error": f"No athlete data for user '{user_slug}'"}
@@ -454,7 +464,8 @@ def setup_running_hr_zones(user_slug: str) -> dict:
     except Exception:
         user_id = None
     if user_id and not lthr_run and not lt2_hr:
-        today = date.today()
+        tz = load_user_tz(user_slug)
+        today = user_today(tz)
         start = (today - timedelta(days=180)).isoformat()
         end = (today + timedelta(days=1)).isoformat()
         hard_runs = query(
@@ -775,18 +786,21 @@ def get_strength_sessions(
 ) -> list[dict]:
     """Get strength training sets from Hevy.  Filter by date range and/or
     exercise name (partial match).  Defaults to last 30 days."""
-    today = user_today(ZoneInfo(tz_name) if tz_name else None)
-    if not start_date:
-        start_date = (today - timedelta(days=days)).isoformat()
-    if not end_date:
-        end_date = (today + timedelta(days=1)).isoformat()
+    tz = ZoneInfo(tz_name) if tz_name else None
+    today = user_today(tz)
+
+    start_d = date.fromisoformat(start_date) if start_date else (today - timedelta(days=days))
+    end_d = date.fromisoformat(end_date) if end_date else (today + timedelta(days=1))
+
+    start_dt = datetime.combine(start_d, _time.min, tzinfo=tz or timezone.utc)
+    end_dt = datetime.combine(end_d, _time.min, tzinfo=tz or timezone.utc)
 
     sql = """SELECT time, workout_id, exercise_name, exercise_type,
                     muscle_group, set_number, set_type,
                     weight_kg, reps, rpe, duration_s, distance_m
              FROM strength_sets
              WHERE user_id = %s AND time >= %s AND time < %s"""
-    params: list = [user_id, start_date, end_date]
+    params: list = [user_id, start_dt, end_dt]
 
     if exercise:
         sql += " AND LOWER(exercise_name) LIKE %s"
@@ -1808,7 +1822,8 @@ def get_user_integrations(user_slug: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _db_history_entries(user_id: int, days: int = 14) -> list[dict]:
+def _db_history_entries(user_id: int, days: int = 14,
+                        tz: "ZoneInfo | None" = None) -> list[dict]:
     """Build iFit-compatible history entries from Garmin activities and Hevy
     strength sessions so that fatigue analysis sees all training, not just
     iFit workouts."""
@@ -1816,8 +1831,9 @@ def _db_history_entries(user_id: int, days: int = 14) -> list[dict]:
     from scripts.ifit_strength_recommend import MUSCLE_GROUP_CANONICAL
     from scripts.tz import user_now, user_today, DEFAULT_TZ
 
-    now = user_now()
-    today = user_today()
+    tz = tz or DEFAULT_TZ
+    now = user_now(tz)
+    today = user_today(tz)
     entries: list[dict] = []
 
     CARDIO_MG: dict[str, set[str]] = {
@@ -1938,11 +1954,12 @@ def recommend_ifit_workout(user_slug: str) -> dict:
     except RuntimeError as exc:
         return {"error": str(exc)}
 
-    history = fetch_recent_history(headers, days=14)
+    tz = load_user_tz(user_slug)
+    history = fetch_recent_history(headers, days=14, tz=tz)
 
     user_id = resolve_user_id(user_slug)
     if user_id:
-        db_entries = _db_history_entries(user_id, days=14)
+        db_entries = _db_history_entries(user_id, days=14, tz=tz)
         existing_ids = {e["workout_id"] for e in history}
         for entry in db_entries:
             if entry["workout_id"] not in existing_ids:
@@ -2885,10 +2902,25 @@ def manage_hevy_routines(
 
     if action == "list":
         routines = list_hevy_routines(hevy_api_key)
-        return {
-            "routines": routines,
-            "count": len(routines),
+        user_routines = [r for r in routines if "ifit_source" not in r]
+        ifit_routines = [r for r in routines if "ifit_source" in r]
+        result: dict = {
+            "routines": user_routines,
+            "count": len(user_routines),
         }
+        if ifit_routines:
+            result["ifit_sourced_routines"] = ifit_routines
+            result["ifit_sourced_count"] = len(ifit_routines)
+            result["instructions"] = (
+                "Routines under 'ifit_sourced_routines' were auto-created from "
+                "iFit workouts. Do NOT recommend them as workouts. If the user "
+                "wants to do one of those workouts, recommend the original iFit "
+                "workout instead (use the ifit_source.ifit_workout_id with "
+                "get_ifit_workout_details). Only show ifit_sourced_routines "
+                "when the user explicitly asks about their Hevy routines or "
+                "routine management."
+            )
+        return result
 
     if action == "rename":
         if not routine_id:
@@ -3053,7 +3085,8 @@ def compare_hevy_workout(
                 ORDER BY set_number
             """, (user_id, hevy_workout_id))
         else:
-            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            from scripts.tz import utc_now
+            cutoff = (utc_now() - timedelta(days=days)).isoformat()
             cur.execute("""
                 SELECT workout_id, routine_id, exercise_name, set_number,
                        weight_kg, reps, duration_s, set_type
@@ -3518,16 +3551,23 @@ def get_routine_weight_recommendations(
             if not routines:
                 return {"error": "No routines found in your Hevy account."}
 
+            routine_map = _load_routine_map()
+            ifit_ids = {rid for rid, v in routine_map.items() if v} if routine_map else set()
+            user_routines = [
+                rt for rt in routines
+                if str(rt.get("id", "")) not in ifit_ids
+            ]
+
             if routine_name:
                 name_lower = routine_name.lower()
-                matched = [rt for rt in routines
+                matched = [rt for rt in user_routines
                            if name_lower in rt.get("title", "").lower()]
                 if not matched:
                     return {
                         "error": f"No routine matching '{routine_name}'.",
                         "available_routines": [
                             {"id": rt["id"], "title": rt.get("title", "")}
-                            for rt in routines
+                            for rt in user_routines
                         ],
                     }
                 matched_rt = matched[0]
@@ -3542,7 +3582,7 @@ def get_routine_weight_recommendations(
                 return {
                     "available_routines": [
                         {"id": rt["id"], "title": rt.get("title", "")}
-                        for rt in routines
+                        for rt in user_routines
                     ],
                     "hint": "Specify a routine_name or routine_id to get weight recommendations.",
                 }
