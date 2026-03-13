@@ -587,7 +587,8 @@ TOOL_SCHEMAS: list[dict] = [
                 "Search the iFit workout library (12,000+ workouts) by title, "
                 "trainer name, category, or keyword. Use this when the user "
                 "asks about specific iFit programs, series, trainers, or "
-                "workout types. Returns workout details, ratings, and metadata."
+                "workout types. Returns workout details, ratings, route metadata "
+                "(distance, elevation gain, incline profile), and location type."
             ),
             "parameters": {
                 "type": "object",
@@ -616,9 +617,10 @@ TOOL_SCHEMAS: list[dict] = [
             "description": (
                 "Get detailed info about a specific iFit workout by its ID. "
                 "Returns description, trainer info, muscle groups, difficulty, "
-                "duration, equipment needed, and ratings. Use after "
-                "search_ifit_library or recommend_ifit_workout to get more "
-                "details about a specific workout."
+                "duration, equipment needed, ratings, and route metadata "
+                "(distance, elevation gain/loss, incline profile, speed, "
+                "location type). Use after search_ifit_library or "
+                "recommend_ifit_workout to get more details about a specific workout."
             ),
             "parameters": {
                 "type": "object",

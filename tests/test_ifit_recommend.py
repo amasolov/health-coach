@@ -307,6 +307,111 @@ class TestCardioMuscleStress:
         assert "core" in c
 
 
+class TestExtractRouteStats:
+    """_extract_route_stats should compute incline/speed statistics from controls."""
+
+    def test_running_workout_with_controls(self):
+        from scripts.ifit_list_series import _extract_route_stats
+        controls = [
+            {"type": "incline", "at": 0, "value": 0},
+            {"type": "incline", "at": 300, "value": 5},
+            {"type": "incline", "at": 600, "value": 10},
+            {"type": "incline", "at": 900, "value": 3},
+            {"type": "mps", "at": 0, "value": 2.5},
+            {"type": "mps", "at": 300, "value": 3.0},
+            {"type": "mps", "at": 600, "value": 3.5},
+            {"type": "mps", "at": 900, "value": 2.8},
+        ]
+        stats = _extract_route_stats(controls)
+        assert stats["avg_incline_pct"] == pytest.approx(4.5, abs=0.1)
+        assert stats["max_incline_pct"] == 10
+        assert stats["avg_speed_mps"] == pytest.approx(2.95, abs=0.1)
+        assert stats["max_speed_mps"] == 3.5
+
+    def test_empty_controls(self):
+        from scripts.ifit_list_series import _extract_route_stats
+        stats = _extract_route_stats([])
+        assert stats["avg_incline_pct"] == 0
+        assert stats["max_incline_pct"] == 0
+        assert stats["avg_speed_mps"] == 0
+        assert stats["max_speed_mps"] == 0
+
+    def test_strength_workout_zero_controls(self):
+        from scripts.ifit_list_series import _extract_route_stats
+        controls = [
+            {"type": "incline", "at": 0, "value": 0},
+            {"type": "mps", "at": 0, "value": 0},
+            {"type": "incline", "at": 900, "value": 0},
+            {"type": "mps", "at": 900, "value": 0},
+        ]
+        stats = _extract_route_stats(controls)
+        assert stats["avg_incline_pct"] == 0
+        assert stats["max_speed_mps"] == 0
+
+
+class TestSlimWorkoutRouteFields:
+    """_slim_workout should include route metadata from the lycan API."""
+
+    def test_slim_extracts_distance(self):
+        from scripts.ifit_list_series import _slim_workout
+        w = {
+            "id": "w1", "title": "Hill Climb", "type": "run",
+            "estimates": {"time": 1800, "calories": 300, "distance": 5200,
+                          "gross_elevation_gain": 150, "gross_elevation_loss": 80},
+            "library_filters": [],
+            "controls": [],
+        }
+        slim = _slim_workout(w)
+        assert slim["distance_m"] == 5200
+        assert slim["elevation_gain_m"] == 150
+        assert slim["elevation_loss_m"] == 80
+
+    def test_slim_extracts_location_type(self):
+        from scripts.ifit_list_series import _slim_workout
+        w = {
+            "id": "w1", "title": "Outdoor Run", "type": "run",
+            "estimates": {},
+            "library_filters": [],
+            "location_types": ["Outdoor"],
+            "has_geo_data": True,
+            "controls": [],
+        }
+        slim = _slim_workout(w)
+        assert slim["location_type"] == "Outdoor"
+        assert slim["has_geo_data"] is True
+
+    def test_slim_extracts_incline_stats(self):
+        from scripts.ifit_list_series import _slim_workout
+        w = {
+            "id": "w1", "title": "Incline Trainer", "type": "run",
+            "estimates": {"time": 1800},
+            "library_filters": [],
+            "controls": [
+                {"type": "incline", "at": 0, "value": 0},
+                {"type": "incline", "at": 600, "value": 12},
+                {"type": "incline", "at": 1200, "value": 8},
+                {"type": "mps", "at": 0, "value": 2.0},
+                {"type": "mps", "at": 600, "value": 2.5},
+                {"type": "mps", "at": 1200, "value": 3.0},
+            ],
+        }
+        slim = _slim_workout(w)
+        assert slim["max_incline_pct"] == 12
+        assert slim["avg_incline_pct"] > 0
+        assert slim["max_speed_mps"] == 3.0
+
+    def test_slim_defaults_when_missing(self):
+        from scripts.ifit_list_series import _slim_workout
+        w = {"id": "w1", "title": "Basic", "type": "strength",
+             "library_filters": []}
+        slim = _slim_workout(w)
+        assert slim["distance_m"] == 0
+        assert slim["elevation_gain_m"] == 0
+        assert slim["avg_incline_pct"] == 0
+        assert slim["location_type"] == ""
+        assert slim["has_geo_data"] is False
+
+
 class TestClassifyWorkoutMetadata:
     """classify_workout should extract trainer_id, duration_min, rating_avg
     from the iFit API response so the LLM doesn't need to hallucinate them."""
@@ -471,6 +576,173 @@ class TestRecommendOutputFields:
         assert rec["trainer"] == "Casey Gilbert"
         assert rec["duration_min"] == 33
         assert rec["rating"] == 4.9
+
+
+class TestElevationScoring:
+    """score_candidates should factor elevation/incline into scoring for running workouts."""
+
+    def test_hilly_workout_gets_variety_bonus_after_flat(self):
+        """If recent runs were flat, a hilly workout should get a bonus."""
+        from scripts.ifit_recommend import score_candidates, _trainer_name_cache
+        _trainer_name_cache.clear()
+
+        candidates = [{
+            "source": "recommended", "source_title": "",
+            "workout_id": "w_hilly", "title": "Mountain Climb",
+        }]
+        fatigue = {
+            "days_since": {}, "total_3d": 1, "total_7d": 2,
+            "last_run_day": 2, "ran_recently": False,
+        }
+        history = [{
+            "workout_id": "w_prev", "date": "2026-03-11",
+            "days_ago": 2, "title": "Flat Run",
+            "avg_incline_pct": 0, "max_incline_pct": 0,
+            "muscle_groups": set(), "styles": {"running"},
+        }]
+
+        meta = {
+            "title": "Mountain Climb", "type": "run",
+            "metadata": {"trainer": ""},
+            "estimates": {"time": 2400, "distance": 5000,
+                          "gross_elevation_gain": 300,
+                          "gross_elevation_loss": 250},
+            "ratings": {"average": 4.5, "count": 100},
+            "difficulty": {"rating": "hard"},
+            "library_filters": [{"categories": [{"name": "Running", "subcategories": []}]}],
+            "controls": [
+                {"type": "incline", "at": 0, "value": 3},
+                {"type": "incline", "at": 1200, "value": 10},
+            ],
+        }
+
+        def mock_api(url, headers):
+            if "lycan" in url:
+                return meta
+            return None
+
+        with patch("scripts.ifit_recommend._api_get", side_effect=mock_api):
+            results = score_candidates(candidates, fatigue, history, {})
+            assert len(results) == 1
+            assert any("elevation" in r.lower() or "hill" in r.lower()
+                        for r in results[0].get("reasons", []))
+
+    def test_classify_workout_includes_route_stats(self):
+        """classify_workout should extract distance, elevation, and incline stats."""
+        from scripts.ifit_recommend import classify_workout
+        data = {
+            "title": "Trail Run", "type": "run",
+            "estimates": {"time": 2400, "distance": 8000,
+                          "gross_elevation_gain": 200,
+                          "gross_elevation_loss": 180},
+            "library_filters": [],
+            "controls": [
+                {"type": "incline", "at": 0, "value": 2},
+                {"type": "incline", "at": 600, "value": 8},
+                {"type": "incline", "at": 1200, "value": 5},
+                {"type": "mps", "at": 0, "value": 3.0},
+                {"type": "mps", "at": 600, "value": 2.5},
+                {"type": "mps", "at": 1200, "value": 3.2},
+            ],
+        }
+        result = classify_workout(data)
+        assert result["distance_m"] == 8000
+        assert result["elevation_gain_m"] == 200
+        assert result["max_incline_pct"] == 8
+        assert result["avg_speed_mps"] > 0
+
+
+class TestSearchLibraryRouteFields:
+    """search_ifit_library results should include route metadata."""
+
+    def test_search_includes_distance_and_elevation(self):
+        from scripts.health_tools import _search_ifit_library_inner
+
+        fake_workouts = [{
+            "id": "w1", "title": "Hill Runner 5K", "type": "run",
+            "description": "A hilly 5K through mountains",
+            "trainer_id": "t1", "difficulty": "hard",
+            "rating_avg": 4.7, "rating_count": 200,
+            "time_sec": 1800, "calories": 350,
+            "categories": ["Running"], "subcategories": ["Hills"],
+            "required_equipment": [],
+            "distance_m": 5000,
+            "elevation_gain_m": 180,
+            "elevation_loss_m": 160,
+            "avg_incline_pct": 3.5,
+            "max_incline_pct": 12,
+            "avg_speed_mps": 2.8,
+            "max_speed_mps": 3.5,
+            "location_type": "Outdoor",
+            "has_geo_data": True,
+        }]
+        fake_trainers = {"t1": {"name": "Test Trainer"}}
+
+        with patch("scripts.health_tools._load_ifit_library",
+                    return_value=(fake_workouts, fake_trainers)), \
+             patch("scripts.health_tools._program_index_cache", {}):
+            result = _search_ifit_library_inner("hill runner", "", 10)
+
+        assert result["count"] == 1
+        r = result["results"][0]
+        assert r["distance_km"] == 5.0
+        assert r["elevation_gain_m"] == 180
+        assert r["max_incline_pct"] == 12
+        assert r["location_type"] == "Outdoor"
+
+
+class TestWorkoutDetailsRouteFields:
+    """get_ifit_workout_details should include route metadata."""
+
+    def test_details_include_route_metadata(self):
+        from scripts.health_tools import _get_ifit_workout_details_inner
+
+        meta = {
+            "title": "Coastal Run", "type": "run",
+            "description": "Run along the coast",
+            "difficulty": {"rating": "moderate"},
+            "estimates": {"time": 2400, "calories": 400,
+                          "distance": 10000,
+                          "gross_elevation_gain": 100,
+                          "gross_elevation_loss": 90},
+            "ratings": {"average": 4.8, "count": 500},
+            "metadata": {"trainer": "t1"},
+            "required_equipment": [],
+            "library_filters": [{"categories": [{"name": "Running", "subcategories": ["Endurance"]}]}],
+            "workout_group_id": None,
+            "controls": [
+                {"type": "incline", "at": 0, "value": 1},
+                {"type": "incline", "at": 1200, "value": 4},
+                {"type": "mps", "at": 0, "value": 3.0},
+                {"type": "mps", "at": 1200, "value": 3.5},
+            ],
+            "location_types": ["Outdoor"],
+            "has_geo_data": True,
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = meta
+
+        mock_trainer_resp = MagicMock()
+        mock_trainer_resp.status_code = 200
+        mock_trainer_resp.json.return_value = {"first_name": "Test", "last_name": "Trainer"}
+
+        mock_http = MagicMock()
+        mock_http.get.side_effect = lambda url, **kw: (
+            mock_resp if "lycan" in url else mock_trainer_resp
+        )
+
+        with patch("scripts.health_tools._ifit_http", return_value=mock_http), \
+             patch("scripts.ifit_auth.get_auth_headers", return_value={"Authorization": "fake"}), \
+             patch("scripts.ifit_strength_recommend.fetch_workout_exercises",
+                   return_value={"exercises": [], "source": "none", "transcript_available": False}):
+            result = _get_ifit_workout_details_inner("w1")
+
+        assert result.get("distance_km") == 10.0
+        assert result.get("elevation_gain_m") == 100
+        assert result.get("max_incline_pct") == 4
+        assert result.get("location_type") == "Outdoor"
 
 
 class TestRecommendIfitWorkout:

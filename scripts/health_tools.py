@@ -2122,7 +2122,7 @@ def recommend_ifit_workout(user_slug: str) -> dict:
             stars, label = 2, "Fair"
         else:
             stars, label = 1, "Poor"
-        top.append({
+        rec = {
             "title": cand.get("title", "?"),
             "trainer": cand.get("trainer_name", ""),
             "duration_min": cand.get("duration_min", 0),
@@ -2136,7 +2136,17 @@ def recommend_ifit_workout(user_slug: str) -> dict:
             "difficulty": cand.get("difficulty", "?"),
             "required_equipment": cand.get("required_equipment", []),
             "reasons": cand.get("reasons", []),
-        })
+        }
+        dist_m = cand.get("distance_m", 0) or 0
+        if dist_m:
+            rec["distance_km"] = round(dist_m / 1000, 1)
+        elev = cand.get("elevation_gain_m", 0) or 0
+        if elev:
+            rec["elevation_gain_m"] = elev
+        max_inc = cand.get("max_incline_pct", 0) or 0
+        if max_inc:
+            rec["max_incline_pct"] = max_inc
+        top.append(rec)
 
     return {
         "recent_activity": recent_summary,
@@ -2281,6 +2291,23 @@ def _search_ifit_library_inner(query: str, workout_type: str, limit: int) -> dic
             "equipment": w.get("required_equipment", []),
             "workout_id": wid,
         }
+
+        dist_m = w.get("distance_m", 0) or 0
+        if dist_m:
+            entry["distance_km"] = round(dist_m / 1000, 1)
+        elev = w.get("elevation_gain_m", 0) or 0
+        if elev:
+            entry["elevation_gain_m"] = elev
+        max_inc = w.get("max_incline_pct", 0) or 0
+        if max_inc:
+            entry["max_incline_pct"] = max_inc
+        avg_inc = w.get("avg_incline_pct", 0) or 0
+        if avg_inc:
+            entry["avg_incline_pct"] = avg_inc
+        loc_type = w.get("location_type", "")
+        if loc_type:
+            entry["location_type"] = loc_type
+
         desc = w.get("description", "")
         if desc:
             entry["description"] = desc[:200] + ("..." if len(desc) > 200 else "")
@@ -2533,6 +2560,28 @@ def _get_ifit_workout_details_inner(workout_id: str) -> dict:
         "required_equipment": meta.get("required_equipment", []),
         "workout_group_id": meta.get("workout_group_id"),
     }
+
+    dist_m = classification.get("distance_m", 0) or 0
+    if dist_m:
+        result["distance_km"] = round(dist_m / 1000, 1)
+    elev_gain = classification.get("elevation_gain_m", 0) or 0
+    if elev_gain:
+        result["elevation_gain_m"] = elev_gain
+    elev_loss = classification.get("elevation_loss_m", 0) or 0
+    if elev_loss:
+        result["elevation_loss_m"] = elev_loss
+    max_inc = classification.get("max_incline_pct", 0) or 0
+    if max_inc:
+        result["max_incline_pct"] = max_inc
+    avg_inc = classification.get("avg_incline_pct", 0) or 0
+    if avg_inc:
+        result["avg_incline_pct"] = avg_inc
+    avg_speed = classification.get("avg_speed_mps", 0) or 0
+    if avg_speed:
+        result["avg_speed_kmh"] = round(avg_speed * 3.6, 1)
+    loc_type = classification.get("location_type", "")
+    if loc_type:
+        result["location_type"] = loc_type
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from scripts.ifit_strength_recommend import fetch_workout_exercises

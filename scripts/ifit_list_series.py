@@ -110,10 +110,28 @@ async def _fetch_page(
         return data if isinstance(data, list) else []
 
 
+def _extract_route_stats(controls: list[dict]) -> dict:
+    """Compute incline and speed statistics from lycan workout controls.
+
+    Controls are time-series data points with type "incline" (percentage)
+    or "mps" (meters per second).  Returns averages and maxima for each.
+    """
+    inclines = [c["value"] for c in controls if c.get("type") == "incline"]
+    speeds = [c["value"] for c in controls if c.get("type") == "mps"]
+
+    return {
+        "avg_incline_pct": round(sum(inclines) / len(inclines), 1) if inclines else 0,
+        "max_incline_pct": max(inclines) if inclines else 0,
+        "avg_speed_mps": round(sum(speeds) / len(speeds), 2) if speeds else 0,
+        "max_speed_mps": max(speeds) if speeds else 0,
+    }
+
+
 def _slim_workout(w: dict) -> dict:
     """Extract only the fields we need to keep the cache manageable."""
     meta = w.get("metadata") or {}
     lib_filters = w.get("library_filters", [])
+    estimates = w.get("estimates") or {}
     categories = set()
     subcategories = set()
     equipment_types = set()
@@ -125,6 +143,9 @@ def _slim_workout(w: dict) -> dict:
                 for sc in cat.get("subcategories", []):
                     subcategories.add(sc)
 
+    route_stats = _extract_route_stats(w.get("controls", []))
+    loc_types = w.get("location_types", [])
+
     return {
         "id": w.get("id", ""),
         "title": w.get("title", ""),
@@ -134,14 +155,20 @@ def _slim_workout(w: dict) -> dict:
         "difficulty": w.get("difficulty", {}).get("rating", ""),
         "rating_avg": w.get("ratings", {}).get("average", 0),
         "rating_count": w.get("ratings", {}).get("count", 0),
-        "time_sec": w.get("estimates", {}).get("time", 0),
-        "calories": w.get("estimates", {}).get("calories", 0),
+        "time_sec": estimates.get("time", 0),
+        "calories": estimates.get("calories", 0),
         "required_equipment": w.get("required_equipment", []),
         "categories": sorted(categories - {""}),
         "subcategories": sorted(subcategories - {""}),
         "equipment_types": sorted(equipment_types - {""}),
         "workout_group_id": w.get("workout_group_id"),
         "workout_filters": w.get("workout_filters", []),
+        "distance_m": estimates.get("distance", 0) or 0,
+        "elevation_gain_m": estimates.get("gross_elevation_gain", 0) or 0,
+        "elevation_loss_m": estimates.get("gross_elevation_loss", 0) or 0,
+        "location_type": loc_types[0] if loc_types else "",
+        "has_geo_data": bool(w.get("has_geo_data")),
+        **route_stats,
     }
 
 

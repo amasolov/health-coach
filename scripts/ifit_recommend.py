@@ -156,6 +156,10 @@ def classify_workout(workout_data: dict) -> dict:
     estimates = workout_data.get("estimates") or {}
     ratings = workout_data.get("ratings") or {}
 
+    from scripts.ifit_list_series import _extract_route_stats
+    route_stats = _extract_route_stats(workout_data.get("controls", []))
+    loc_types = workout_data.get("location_types", [])
+
     return {
         "muscle_groups": muscle_groups,
         "styles": styles,
@@ -168,6 +172,12 @@ def classify_workout(workout_data: dict) -> dict:
         "trainer_id": meta.get("trainer", ""),
         "duration_min": int(estimates.get("time", 0)) // 60,
         "rating_avg": ratings.get("average", 0),
+        "distance_m": estimates.get("distance", 0) or 0,
+        "elevation_gain_m": estimates.get("gross_elevation_gain", 0) or 0,
+        "elevation_loss_m": estimates.get("gross_elevation_loss", 0) or 0,
+        "location_type": loc_types[0] if loc_types else "",
+        "has_geo_data": bool(workout_data.get("has_geo_data")),
+        **route_stats,
     }
 
 
@@ -389,6 +399,27 @@ def score_candidates(
         if fatigue["total_3d"] >= 4 and info["difficulty"] == "easy":
             score += 10
             reasons.append("easy workout on tired week (+10)")
+
+        # Elevation/incline variety for running workouts
+        if "running" in info["styles"]:
+            elev = info.get("elevation_gain_m", 0)
+            max_incline = info.get("max_incline_pct", 0)
+            recent_inclines = [
+                h.get("max_incline_pct", 0) or h.get("avg_incline_pct", 0)
+                for h in history
+                if "running" in h.get("styles", set()) and h.get("days_ago", 99) <= 7
+            ]
+            avg_recent_incline = (
+                sum(recent_inclines) / len(recent_inclines) if recent_inclines else 0
+            )
+            if elev >= 100 and avg_recent_incline < 3:
+                score += 10
+                reasons.append(f"elevation variety: {elev}m gain after flat runs (+10)")
+            elif elev < 30 and avg_recent_incline > 5:
+                score += 8
+                reasons.append(f"flat run for recovery after hilly week (+8)")
+            if max_incline >= 8:
+                reasons.append(f"hill training: max {max_incline}% incline")
 
         cand["score"] = score
         cand["reasons"] = reasons

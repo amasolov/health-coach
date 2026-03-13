@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.57.0
+**Enrich iFit workout library with route metadata — distance, elevation, incline (issue #1)**
+
+- **Route metadata extraction** — `_slim_workout()` now extracts distance, elevation gain/loss, incline profile (avg/max), speed profile (avg/max), location type, and geo-data flag from the lycan API response; new `_extract_route_stats()` computes incline and speed statistics from the `controls` time-series
+- **Elevation-aware recommendation scoring** — `score_candidates()` now factors in elevation and incline variety for running workouts: hilly workouts get a +10 bonus after a week of flat runs, and flat runs get a +8 bonus after hilly training, promoting balanced hill periodisation
+- **Enriched LLM tool output** — `search_ifit_library()` results include distance (km), elevation gain, max incline, and location type when available; `get_ifit_workout_details()` includes full route profile (distance, elevation gain/loss, incline stats, avg speed in km/h, location type); `recommend_ifit_workout()` includes distance, elevation, and incline for running candidates
+- **classify_workout() enrichment** — real-time API calls via `classify_workout()` also extract route metadata, so both cached library searches and live workout lookups return consistent data
+- **Schema updates** — tool descriptions for `search_ifit_library` and `get_ifit_workout_details` updated to mention route metadata availability
+- **System prompt update** — iFit tool description now mentions route data for treadmill workouts
+- **12 new tests** covering `_extract_route_stats`, `_slim_workout` route fields, `classify_workout` route enrichment, elevation-aware scoring, search library route output, and workout details route metadata
+- **Note:** Existing library cache needs re-sync (`python3 scripts/ifit_list_series.py --refresh`) to populate route fields for cached workouts; new fields are zeros until re-synced
+
 ## v0.56.0
 **Australia-focused weather intelligence — air quality, UV safety, and humidity awareness**
 
