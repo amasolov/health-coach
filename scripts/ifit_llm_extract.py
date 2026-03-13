@@ -36,7 +36,7 @@ You will receive:
 1. A transcript of an iFit strength training workout (trainer speaking during the video)
 2. A reference list of Hevy exercise names with their muscle groups and equipment
 
-Your task: Extract ONLY the main working exercises (skip warm-up and cool-down/stretching).
+Your task: Extract ALL exercises performed during the workout.
 For each exercise, output a JSON array of objects with these fields:
 
 - "hevy_name": The closest matching exercise from the Hevy reference list (MUST be an exact match from the list)
@@ -47,7 +47,9 @@ For each exercise, output a JSON array of objects with these fields:
 - "notes": Brief note if the trainer gives specific form cues or variations
 
 Rules:
-- Only include exercises that are part of the main workout, NOT warm-up or cool-down stretches
+- Include exercises from ALL phases of the workout (warmup, main work, cooldown). Only skip passive stretching, static mobility holds, and rest periods that involve no movement.
+- If an active exercise appears during warmup or cooldown (e.g. push-ups, shoulder taps, inchworms), DO include it.
+- Use the workout title to cross-check your results. If the title says "upper-body" but you extracted mostly core/lower exercises, re-read the transcript — you likely missed upper-body movements.
 - IMPORTANT: If the trainer repeats the same exercise in multiple rounds/circuits/supersets, list it ONCE with the total number of sets across all rounds. For example, if an exercise appears in 3 rounds, sets=3.
 - For timed exercises, convert to approximate reps: 30s ≈ 10-12 reps, 45s ≈ 12-15 reps, 60s ≈ 15-20 reps. But if the trainer says a specific rep count, use that.
 - Use EXACT names from the Hevy reference list

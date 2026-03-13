@@ -526,8 +526,9 @@ You are a fitness expert who extracts structured exercise data from workout tran
 You will receive:
 1. A transcript of an iFit strength training workout (trainer speaking during the video)
 2. A reference list of Hevy exercises in the format: Title | ID | muscle_group | equipment
+3. The workout title and duration in minutes
 
-Your task: Extract ONLY the main working exercises (skip warm-up and cool-down/stretching).
+Your task: Extract ALL exercises performed during the workout.
 For each exercise, output a JSON array of objects with these fields:
 
 - "hevy_name": The closest matching exercise from the Hevy reference list. Use an EXACT name from the list when possible. If no good match exists, use a clear descriptive name for the exercise.
@@ -540,12 +541,15 @@ For each exercise, output a JSON array of objects with these fields:
 - "notes": Brief note about form cues or variations the trainer mentions
 
 Rules:
-- Only include exercises from the main workout, NOT warm-up or cool-down stretches
-- If the trainer repeats the same exercise in multiple rounds, list it ONCE with total sets
-- Prefer EXACT names and IDs from the Hevy reference list
-- If the exercise has no good match in the list, still include it with a descriptive name and empty hevy_id
-- For compound movements, pick the primary exercise and note the combo in notes
-- Output ONLY valid JSON array, no markdown, no explanation
+- Include exercises from ALL phases of the workout (warmup, main work, cooldown). Only skip passive stretching, static mobility holds, and rest periods that involve no movement.
+- If an active exercise appears during warmup or cooldown (e.g. push-ups, shoulder taps, inchworms), DO include it.
+- Use the workout title to cross-check your results. If the title says "upper-body" but you extracted mostly core/lower exercises, re-read the transcript — you likely missed upper-body movements.
+- Use the workout duration to calibrate completeness. A typical strength workout has roughly 1 exercise per 2–4 minutes. If you extracted far fewer exercises than the duration suggests, re-read the transcript.
+- If the trainer repeats the same exercise in multiple rounds, list it ONCE with total sets.
+- Prefer EXACT names and IDs from the Hevy reference list.
+- If the exercise has no good match in the list, still include it with a descriptive name and empty hevy_id.
+- For compound movements, pick the primary exercise and note the combo in notes.
+- Output ONLY valid JSON array, no markdown, no explanation.
 """
 
 
@@ -582,6 +586,7 @@ def _llm_extract(
     transcript: str,
     hevy_ref: str,
     workout_title: str,
+    duration_min: int | None = None,
 ) -> list[dict]:
     """Send transcript to LLM, return structured exercise list."""
     from scripts.addon_config import config
@@ -589,13 +594,14 @@ def _llm_extract(
     if not api_key:
         return []
 
+    duration_hint = f" — {duration_min} minutes" if duration_min else ""
     user_msg = f"""## Hevy Exercise Reference List
 {hevy_ref}
 
-## Workout Transcript ({workout_title})
+## Workout Transcript ({workout_title}{duration_hint})
 {transcript}
 
-Extract all main working exercises as a JSON array. Skip warm-up and stretching/cool-down."""
+Extract ALL exercises as a JSON array. Include active warmup/cooldown exercises; only skip passive stretching and mobility holds."""
 
     try:
         resp = _llm_http().post(
@@ -698,11 +704,16 @@ def fetch_workout_exercises(
     ifit_headers: dict | None = None,
     hevy_ref: str | None = None,
     verbose: bool = False,
+    duration_min: int | None = None,
+    force_reextract: bool = False,
 ) -> dict:
     """Fetch exercises for a workout using cache layers with on-demand fallback.
 
     Pipeline: R2 exercise cache → local cache → R2 transcript → live VTT
     → LLM extraction → write-through to all caches.
+
+    When *force_reextract* is True the exercise caches are bypassed and the
+    transcript is re-sent to the LLM.  The new result overwrites the caches.
 
     Returns dict with:
       exercises  – list of exercise dicts (may be empty)
@@ -713,24 +724,25 @@ def fetch_workout_exercises(
     source = "none"
     transcript_available = False
 
-    # 1. R2 exercise cache
-    if r2_configured():
-        exercises = r2_download_json(f"exercises/{workout_id}.json")
-        if exercises:
-            source = "r2_cache"
-            transcript_available = True
-            if verbose:
-                print(f"    {len(exercises)} exercises (R2 cached)")
+    if not force_reextract:
+        # 1. R2 exercise cache
+        if r2_configured():
+            exercises = r2_download_json(f"exercises/{workout_id}.json")
+            if exercises:
+                source = "r2_cache"
+                transcript_available = True
+                if verbose:
+                    print(f"    {len(exercises)} exercises (R2 cached)")
 
-    # 2. Local exercise cache
-    if exercises is None:
-        cache = _load_exercise_cache()
-        if workout_id in cache:
-            exercises = cache[workout_id]
-            source = "local_cache"
-            transcript_available = True
-            if verbose:
-                print(f"    {len(exercises)} exercises (local cached)")
+        # 2. Local exercise cache
+        if exercises is None:
+            cache = _load_exercise_cache()
+            if workout_id in cache:
+                exercises = cache[workout_id]
+                source = "local_cache"
+                transcript_available = True
+                if verbose:
+                    print(f"    {len(exercises)} exercises (local cached)")
 
     # 3. Fetch transcript and run LLM extraction
     if exercises is None:
@@ -755,7 +767,10 @@ def fetch_workout_exercises(
                         hevy_ref = f.read()
 
             if hevy_ref:
-                exercises = _llm_extract(transcript, hevy_ref, workout_title)
+                exercises = _llm_extract(
+                    transcript, hevy_ref, workout_title,
+                    duration_min=duration_min,
+                )
                 if exercises:
                     source = "extracted"
                     cache = _load_exercise_cache()
@@ -791,6 +806,7 @@ def stage2_analyse(
 
         result = fetch_workout_exercises(
             wid, title, ifit_headers, hevy_ref=hevy_ref, verbose=True,
+            duration_min=c.get("duration_min"),
         )
         exercises = result["exercises"]
 

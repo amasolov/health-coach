@@ -68,6 +68,92 @@ class TestRecommendStrengthWorkout:
         from scripts.ifit_strength_recommend import EXTRACT_PROMPT
         assert "hevy_id" in EXTRACT_PROMPT.lower() or "hevy" in EXTRACT_PROMPT.lower()
 
+    def test_extract_prompt_includes_duration_guidance(self):
+        """Prompt should tell the LLM to use workout duration as context
+        so it doesn't under-extract exercises for longer workouts (#24)."""
+        from scripts.ifit_strength_recommend import EXTRACT_PROMPT
+        lower = EXTRACT_PROMPT.lower()
+        assert "duration" in lower or "minutes" in lower, (
+            "Prompt must mention workout duration so the LLM calibrates exercise count"
+        )
+
+    def test_extract_prompt_includes_title_focus_validation(self):
+        """Prompt should instruct the LLM to cross-check extracted exercises
+        against the workout title's stated muscle focus (#24)."""
+        from scripts.ifit_strength_recommend import EXTRACT_PROMPT
+        lower = EXTRACT_PROMPT.lower()
+        assert "workout title" in lower or "muscle focus" in lower, (
+            "Prompt must instruct the LLM to use the workout title's "
+            "muscle focus as a validation check"
+        )
+
+    def test_extract_prompt_warmup_not_overly_aggressive(self):
+        """Prompt should include substantive exercises even if they appear
+        in warmup/cooldown phases.  Only pure stretching should be skipped (#24)."""
+        from scripts.ifit_strength_recommend import EXTRACT_PROMPT
+        lower = EXTRACT_PROMPT.lower()
+        assert "stretch" in lower and "mobility" in lower or "active" in lower, (
+            "Prompt should distinguish real exercises from pure stretching/mobility"
+        )
+
+    def test_llm_extract_passes_duration(self):
+        """_llm_extract should accept and embed duration_min in the LLM
+        user message so the model knows the expected workout length (#24)."""
+        from unittest.mock import patch, MagicMock
+        from tests.conftest import make_openrouter_response
+
+        with patch("scripts.ifit_strength_recommend._llm_http") as mock_http, \
+             patch("scripts.addon_config.config") as mock_cfg:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = make_openrouter_response("[]")
+            mock_http.return_value.post.return_value = mock_resp
+            mock_cfg.openrouter_api_key = "fake-key"
+
+            from scripts.ifit_strength_recommend import _llm_extract
+            _llm_extract("transcript", "hevy_ref", "Upper-Body Test", duration_min=28)
+
+            call_args = mock_http.return_value.post.call_args
+            body = call_args.kwargs.get("json") or call_args[1].get("json")
+            user_content = body["messages"][1]["content"]
+            assert "28" in user_content, (
+                "User message should contain the workout duration"
+            )
+
+    def test_force_reextract_skips_cache(self):
+        """force_reextract=True should bypass R2/local caches and re-run
+        LLM extraction so stale results can be refreshed (#24)."""
+        from unittest.mock import patch, MagicMock
+        from tests.conftest import make_openrouter_response
+
+        fake_exercises = json.dumps([{
+            "hevy_name": "Push Up", "hevy_id": "", "muscle_group": "chest",
+            "equipment": "bodyweight", "sets": 3, "reps": 10,
+            "weight": "bodyweight", "notes": "",
+        }])
+
+        with patch("scripts.ifit_strength_recommend.r2_configured", return_value=True), \
+             patch("scripts.ifit_strength_recommend.r2_download_json") as mock_dl, \
+             patch("scripts.ifit_strength_recommend.r2_download_text", return_value="transcript"), \
+             patch("scripts.ifit_strength_recommend.r2_upload_json"), \
+             patch("scripts.ifit_strength_recommend._llm_extract") as mock_llm, \
+             patch("scripts.ifit_strength_recommend._load_exercise_cache", return_value={}), \
+             patch("scripts.ifit_strength_recommend._save_exercise_cache"):
+
+            mock_dl.return_value = [{"old": "cached"}]
+            mock_llm.return_value = json.loads(fake_exercises)
+
+            from scripts.ifit_strength_recommend import fetch_workout_exercises
+
+            result = fetch_workout_exercises(
+                "wid_test", "Test Workout", hevy_ref="ref",
+                force_reextract=True,
+            )
+            mock_dl.assert_not_called()
+            mock_llm.assert_called_once()
+            assert result["source"] == "extracted"
+            assert result["exercises"][0]["hevy_name"] == "Push Up"
+
     def test_recommendation_dataclass(self):
         from scripts.ifit_strength_recommend import Recommendation
         from tests.conftest import make_recommendation

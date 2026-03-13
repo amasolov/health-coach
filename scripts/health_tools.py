@@ -2439,6 +2439,7 @@ def _get_ifit_workout_details_inner(workout_id: str) -> dict:
     def _fetch_exercises():
         return fetch_workout_exercises(
             workout_id, result["title"], ifit_headers=headers,
+            duration_min=result.get("duration_min"),
         )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
