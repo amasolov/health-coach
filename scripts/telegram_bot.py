@@ -261,6 +261,14 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
     except Exception:
         pass
 
+    try:
+        from scripts.route_discovery import get_weather_nudge
+        nudge = get_weather_nudge(user_slug)
+        if nudge:
+            parts.append(nudge)
+    except Exception:
+        pass
+
     parts.append(
         "\nGuidelines:\n"
         "- Always query tools before making recommendations\n"
@@ -271,6 +279,8 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         "- Charts will be sent as images automatically\n"
         "- At the start of a conversation, check action items for pending tasks\n"
         "- Be encouraging but honest about the data\n"
+        "- When the user asks about running or outdoor training, "
+        "use check_weather / recommend_outdoor_run for weather-aware suggestions\n"
     )
 
     parts.append(

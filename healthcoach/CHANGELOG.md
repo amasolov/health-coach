@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.55.0
+**Route popularity, variety, and proactive coaching for outdoor runs (issue #27 — Phases 3 & 4)**
+
+- **Route popularity scoring** — enhanced Overpass query fetches OSM route relations (running/hiking/walking/fitness trails); ways that are part of named route relations score higher; additional popularity signals from `foot=designated`, `lit=yes`, park/nature proximity, and Wikipedia/Wikidata references
+- **Route variety** — tracks previously recommended routes in `route_cache` and applies a novelty bonus to routes not shown in the last 7 days, encouraging exploration
+- **`rate_route` tool** — athletes can rate routes 1–5 stars after running them; ratings stored in `athlete_config` and `route_cache.popularity_score` for future preference learning
+- **Training-aware recommendations** — `recommend_outdoor_run` now infers the day's appropriate run type from current TSB: fatigued (TSB < -15) → easy/flat/short routes; fresh (TSB > 10 or weekend) → longer scenic loop routes; normal → standard preferences. Distance preferences are auto-adjusted (0.6× for easy, 1.5× for long run days)
+- **Proactive weather nudge** — both Chainlit and Telegram system prompts now silently check weather at conversation start; when conditions are good for running, the coach receives a context-appropriate nudge (e.g. "Great running weather today! TSB is -18 — suggest an easy recovery run")
+- **Bad weather: next good day** — when weather is unsuitable, the response now suggests the next forecasted suitable day from the 3-day outlook
+- **System prompt enhancements** — outdoor running tool descriptions added to both Chainlit and Telegram system prompts so the coach proactively offers weather-aware route suggestions
+- **36 new tests** covering relation extraction, popularity computation, novelty scoring, training context inference, training-adjusted distances, weather nudge, and end-to-end integration
+
 ## v0.54.0
 **Outdoor run recommendations based on weather, location & route preferences (issue #27 — Phases 1 & 2)**
 

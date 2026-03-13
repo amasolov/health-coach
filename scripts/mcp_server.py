@@ -650,9 +650,22 @@ async def recommend_outdoor_run(ctx: Context, target_date: str = "") -> dict:
     """Recommend outdoor running routes based on weather and preferences.
     Checks weather first — if conditions are suitable, discovers nearby
     routes via OpenStreetMap and scores them against the athlete's distance,
-    surface, and loop preferences. Returns top 5 routes with weather context.
-    If weather is poor, suggests indoor alternatives."""
+    surface, and loop preferences. Factors in current training load (easy
+    day → flat/short routes, long run day → scenic loops). Includes
+    popularity scoring and favours routes not recently shown for variety.
+    Returns top 5 routes with weather and training context.
+    If weather is poor, suggests indoor alternatives and the next good day."""
     return await _wrap(health_tools.recommend_outdoor_run, _uslug(ctx), target_date)
+
+
+@mcp.tool
+async def rate_route(
+    ctx: Context, osm_id: int, rating: int, notes: str = ""
+) -> dict:
+    """Rate a running route after completing it (1–5 stars). Helps
+    personalise future route recommendations. Include optional notes
+    about the route (e.g. 'great views', 'too crowded on weekends')."""
+    return await _wrap(health_tools.rate_route, _uslug(ctx), osm_id, rating, notes)
 
 
 # ---------------------------------------------------------------------------

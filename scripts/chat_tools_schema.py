@@ -978,9 +978,12 @@ TOOL_SCHEMAS: list[dict] = [
             "description": (
                 "Recommend outdoor running routes based on weather and preferences. "
                 "Checks weather first — if suitable, discovers nearby routes via "
-                "OpenStreetMap and scores them against distance, surface, and loop "
-                "preferences. Returns top 5 routes with weather context. If weather "
-                "is poor, suggests indoor alternatives."
+                "OpenStreetMap and scores them against distance, surface, loop "
+                "preferences, and popularity. Factors in current training load "
+                "(easy day → flat/short, long run day → scenic loops). Favours "
+                "routes not recently shown for variety. Returns top 5 routes with "
+                "weather and training context. If weather is poor, suggests indoor "
+                "alternatives and the next suitable day."
             ),
             "parameters": {
                 "type": "object",
@@ -991,6 +994,35 @@ TOOL_SCHEMAS: list[dict] = [
                     },
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rate_route",
+            "description": (
+                "Rate a running route after completing it (1–5 stars). "
+                "Helps personalise future route recommendations. Include "
+                "optional notes about the route."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "osm_id": {
+                        "type": "integer",
+                        "description": "The OpenStreetMap way ID (from recommend_outdoor_run results).",
+                    },
+                    "rating": {
+                        "type": "integer",
+                        "description": "Rating from 1 (poor) to 5 (excellent).",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional notes (e.g. 'great views', 'too hilly').",
+                    },
+                },
+                "required": ["osm_id", "rating"],
             },
         },
     },
@@ -1103,4 +1135,5 @@ TOOL_DISPATCH: dict[str, tuple] = {
     # Weather & outdoor running
     "check_weather":               (health_tools.check_weather, "slug"),
     "recommend_outdoor_run":       (health_tools.recommend_outdoor_run, "slug"),
+    "rate_route":                  (health_tools.rate_route, "slug"),
 }

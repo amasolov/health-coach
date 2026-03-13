@@ -3762,3 +3762,9 @@ def recommend_outdoor_run(slug: str, target_date: str = "") -> dict:
     """Recommend outdoor running routes based on weather and preferences."""
     from scripts.route_discovery import recommend_outdoor_run as _recommend
     return _recommend(slug, target_date)
+
+
+def rate_route(slug: str, osm_id: int, rating: int, notes: str = "") -> dict:
+    """Rate a running route after completing it (1-5 stars)."""
+    from scripts.route_discovery import rate_route as _rate
+    return _rate(slug, osm_id, rating, notes)

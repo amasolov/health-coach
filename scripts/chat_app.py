@@ -106,6 +106,7 @@ TOOL_DISPLAY_NAMES = {
     "delete_knowledge_document": "Knowledge Document Deletion",
     "check_weather":             "Weather Check",
     "recommend_outdoor_run":     "Outdoor Run Recommendations",
+    "rate_route":                "Route Rating",
 }
 ALLOW_REGISTRATION = config.allow_registration
 SYNC_INTERVAL = config.sync_interval
@@ -448,6 +449,24 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
             )
     except Exception:
         pass
+
+    try:
+        from scripts.route_discovery import get_weather_nudge
+        nudge = get_weather_nudge(user_slug)
+        if nudge:
+            parts.append(nudge)
+    except Exception:
+        pass
+
+    parts.append(
+        "\nOutdoor Running:\n"
+        "You have weather and route discovery tools. When the user asks about "
+        "running, outdoor training, or 'what should I do today', consider:\n"
+        "- check_weather: weather forecast and running suitability\n"
+        "- recommend_outdoor_run: weather-aware route suggestions with "
+        "training load context (easy/long/normal day)\n"
+        "- rate_route: let the user rate a route after running it\n"
+    )
 
     parts.append(
         "\nGuidelines:\n"
