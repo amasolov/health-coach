@@ -23,6 +23,7 @@ services launched via ``with-contenv`` inherit them.
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 from pathlib import Path
@@ -30,8 +31,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, JsonConfigSettingsSource, SettingsConfigDict
 
+_log = logging.getLogger(__name__)
+
 _ROOT = Path(__file__).resolve().parent.parent
 _OPTIONS_FILE = Path("/data/options.json")
+_CHAINLIT_SECRET_FILE = Path("/config/healthcoach/.chainlit_auth_secret")
 
 load_dotenv(_ROOT / ".env")
 
@@ -100,12 +104,6 @@ class AddonConfig(BaseSettings):
     google_oauth_client_id: str = ""
     google_oauth_client_secret: str = ""
 
-    # --- OAuth (Apple) ---
-    apple_oauth_client_id: str = ""
-    apple_oauth_team_id: str = ""
-    apple_oauth_key_id: str = ""
-    apple_oauth_private_key_file: str = ""
-
     # --- GitHub ---
     github_token: str = ""
     github_repo: str = "amasolov/health-coach"
@@ -144,26 +142,49 @@ class AddonConfig(BaseSettings):
 
     @property
     def chainlit_auth_secret(self) -> str:
-        """Persistent JWT secret — created on first run, reused after."""
-        secret_file = Path("/config/healthcoach/.chainlit_auth_secret")
-        if secret_file.exists():
-            return secret_file.read_text().strip()
-        secret = secrets.token_urlsafe(48)
-        secret_file.parent.mkdir(parents=True, exist_ok=True)
-        secret_file.write_text(secret)
-        return secret
+        """Persistent JWT secret — DB-first, file-fallback, auto-generate."""
+        return _resolve_chainlit_secret()
 
     @property
     def ifit_token_file(self) -> str:
         return "/config/healthcoach/.ifit_token.json"
 
-    @property
-    def apple_key_path(self) -> str:
-        """Resolve the Apple private key path relative to /config/."""
-        raw = self.apple_oauth_private_key_file
-        if not raw:
-            return ""
-        return raw if raw.startswith("/") else f"/config/{raw}"
+
+def _resolve_chainlit_secret() -> str:
+    """Resolve the Chainlit JWT secret: DB -> file -> generate new."""
+    try:
+        from scripts.credential_store import get_credential, put_credential
+        cred = get_credential("chainlit_auth_secret")
+        if cred and cred.get("secret"):
+            return cred["secret"]
+    except Exception:
+        _log.debug("addon_config: DB credential lookup failed", exc_info=True)
+
+    if _CHAINLIT_SECRET_FILE.exists():
+        secret = _CHAINLIT_SECRET_FILE.read_text().strip()
+        if secret:
+            try:
+                from scripts.credential_store import put_credential
+                put_credential("chainlit_auth_secret", {"secret": secret})
+            except Exception:
+                pass
+            return secret
+
+    secret = secrets.token_urlsafe(48)
+
+    try:
+        from scripts.credential_store import put_credential
+        put_credential("chainlit_auth_secret", {"secret": secret})
+    except Exception:
+        pass
+
+    try:
+        _CHAINLIT_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _CHAINLIT_SECRET_FILE.write_text(secret)
+    except OSError:
+        pass
+
+    return secret
 
 
 # Singleton — imported by all modules
@@ -235,10 +256,3 @@ def write_s6_env(env_dir: str = "/run/s6/container_environment") -> None:
         (out / "OAUTH_GOOGLE_CLIENT_ID").write_text(config.google_oauth_client_id)
         (out / "OAUTH_GOOGLE_CLIENT_SECRET").write_text(config.google_oauth_client_secret)
 
-    # OAuth (Apple)
-    if config.apple_oauth_client_id:
-        (out / "OAUTH_APPLE_CLIENT_ID").write_text(config.apple_oauth_client_id)
-        (out / "OAUTH_APPLE_TEAM_ID").write_text(config.apple_oauth_team_id)
-        (out / "OAUTH_APPLE_KEY_ID").write_text(config.apple_oauth_key_id)
-        if config.apple_key_path:
-            (out / "OAUTH_APPLE_PRIVATE_KEY_FILE").write_text(config.apple_key_path)

@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.53.0
+**Migrate OAuth / credential storage from local files to DB (issue #29)**
+
+- **`credentials` table** — new Alembic migration (`0003`) creates a `credentials` table with JSONB storage, per-user and system-wide unique indexes, and `ON DELETE CASCADE` for user cleanup
+- **`credential_store` module** — `CredentialStore` ABC with `DBCredentialStore` (PostgreSQL) and `FileCredentialStore` (local JSON) implementations; module-level `get_credential` / `put_credential` / `delete_credential` / `get_credential_locked` API
+- **Auto-detection** — the store probes DB connectivity on first use and caches the choice; falls back to file storage when the database is unreachable
+- **Garmin OAuth** — `garmin_auth.py` now persists tokens via `client.garth.dumps()` (base64) into the credential store on login and MFA completion; `try_cached_login` checks DB before the local token directory
+- **iFit OAuth** — `ifit_auth.py` reads/writes tokens through the credential store; `refresh_token` uses `SELECT … FOR UPDATE` row-level locking to prevent concurrent refresh races
+- **Chainlit auth secret** — `addon_config.py` resolves the JWT secret DB-first, migrates an existing file-based secret into DB on first read, and generates a new secret into both DB and file when none exists
+- **File backward compatibility** — all three credential types continue to work with local files for HA addon deployments or when DB is unavailable
+- **24 new tests** in `test_credential_store.py` covering DB store, file store, auto-detection, locked reads, and integration with Garmin auth, iFit auth, and Chainlit secret
+
 ## v0.52.0
 **Fix timezone bugs causing wrong-day vitals/sleep/recovery data**
 

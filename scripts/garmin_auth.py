@@ -1,7 +1,8 @@
 """
 Per-user Garmin Connect authentication with OAuth token caching.
 
-Token store layout:
+Token store layout (DB-first, file-fallback):
+  - DB: credentials table (cred_type='garmin_oauth', garth base64 string)
   - HA addon: /data/garmin/{slug}/
   - Local dev: .garmin_tokens/{slug}/
 
@@ -13,7 +14,9 @@ Typical flow (orchestrated by MCP tools):
 
 from __future__ import annotations
 
+import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +27,8 @@ from garminconnect import (
 )
 from garth.exc import GarthException, GarthHTTPError
 
-# Pending MFA sessions keyed by user slug
+log = logging.getLogger(__name__)
+
 _MFA_SESSIONS: dict[str, tuple[Garmin, Any]] = {}
 
 
@@ -40,8 +44,69 @@ def _token_dir(slug: str) -> Path:
     return d
 
 
+def _resolve_user_id(slug: str) -> int | None:
+    """Look up user.id from slug. Returns None if not found."""
+    try:
+        from scripts.db_pool import get_conn
+        conn = get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT id FROM users WHERE slug = %s", (slug,))
+            row = cur.fetchone()
+            return row[0] if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def _save_tokens(slug: str, client: Garmin) -> None:
+    """Persist Garmin OAuth tokens to both file and credential store."""
+    client.garth.dump(str(_token_dir(slug)))
+
+    try:
+        token_str = client.garth.dumps()
+        uid = _resolve_user_id(slug)
+        if uid is not None:
+            from scripts.credential_store import put_credential
+            put_credential("garmin_oauth", {"token": token_str}, user_id=uid)
+    except Exception:
+        log.debug("garmin_auth: DB credential save failed", exc_info=True)
+
+
+def _load_from_garth_str(token_str: str) -> Garmin | None:
+    """Restore a Garmin client from a garth base64 token string."""
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            import garth
+            garth.client.loads(token_str)
+            garth.client.dump(td)
+            client = Garmin()
+            client.login(td)
+            return client
+    except Exception:
+        log.debug("garmin_auth: garth.loads() restore failed", exc_info=True)
+        return None
+
+
 def try_cached_login(slug: str) -> Garmin | None:
-    """Attempt to login using cached OAuth tokens. Returns a client or None."""
+    """Attempt to login using cached OAuth tokens. Returns a client or None.
+
+    Checks the credential store (DB) first, then falls back to the
+    local token directory.
+    """
+    uid = _resolve_user_id(slug)
+    if uid is not None:
+        try:
+            from scripts.credential_store import get_credential
+            cred = get_credential("garmin_oauth", user_id=uid)
+            if cred and cred.get("token"):
+                client = _load_from_garth_str(cred["token"])
+                if client is not None:
+                    return client
+        except Exception:
+            log.debug("garmin_auth: DB credential load failed", exc_info=True)
+
     token_path = _token_dir(slug)
     token_files = list(token_path.glob("*.json"))
     if not token_files:
@@ -79,8 +144,7 @@ def start_login(
             _MFA_SESSIONS[slug] = (client, result2)
             return ("needs_mfa", None)
 
-        # No MFA needed -- save tokens
-        client.garth.dump(str(_token_dir(slug)))
+        _save_tokens(slug, client)
         return ("ok", client)
 
     except GarminConnectAuthenticationError as e:
@@ -106,7 +170,7 @@ def finish_mfa_login(slug: str, mfa_code: str) -> tuple[str, Garmin | None]:
     client, mfa_data = session
     try:
         client.resume_login(mfa_data, mfa_code)
-        client.garth.dump(str(_token_dir(slug)))
+        _save_tokens(slug, client)
         return ("ok", client)
     except GarminConnectAuthenticationError as e:
         return (f"error: MFA failed -- {e}", None)
@@ -116,6 +180,18 @@ def finish_mfa_login(slug: str, mfa_code: str) -> tuple[str, Garmin | None]:
 
 def get_auth_status(slug: str) -> dict:
     """Check the authentication status for a user."""
+    uid = _resolve_user_id(slug)
+    if uid is not None:
+        try:
+            from scripts.credential_store import get_credential
+            cred = get_credential("garmin_oauth", user_id=uid)
+            if cred and cred.get("token"):
+                client = _load_from_garth_str(cred["token"])
+                if client is not None:
+                    return {"authenticated": True, "store": "db"}
+        except Exception:
+            pass
+
     token_path = _token_dir(slug)
     token_files = list(token_path.glob("*.json"))
 
