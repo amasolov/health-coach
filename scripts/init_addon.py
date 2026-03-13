@@ -86,14 +86,6 @@ def step_write_env() -> None:
         os.environ.setdefault("OAUTH_GOOGLE_CLIENT_ID", config.google_oauth_client_id)
         os.environ.setdefault("OAUTH_GOOGLE_CLIENT_SECRET", config.google_oauth_client_secret)
         print("  Google OAuth: enabled")
-    if config.apple_oauth_client_id:
-        os.environ.setdefault("OAUTH_APPLE_CLIENT_ID", config.apple_oauth_client_id)
-        os.environ.setdefault("OAUTH_APPLE_TEAM_ID", config.apple_oauth_team_id)
-        os.environ.setdefault("OAUTH_APPLE_KEY_ID", config.apple_oauth_key_id)
-        if config.apple_key_path:
-            os.environ.setdefault("OAUTH_APPLE_PRIVATE_KEY_FILE", config.apple_key_path)
-        print("  Apple OAuth: enabled")
-
     print(f"DB: {config.db_host}:{config.db_port}/{config.db_name}")
     print(f"Grafana: {config.grafana_host}:{config.grafana_port}")
     print(f"MCP server: port {config.mcp_port}")

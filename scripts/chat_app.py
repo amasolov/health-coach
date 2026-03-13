@@ -47,10 +47,6 @@ from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
 from scripts.cross_channel import get_recent_telegram_messages, format_telegram_context
 
-if config.apple_oauth_client_id:
-    from scripts.oauth_apple import AppleOAuthProvider
-    providers.append(AppleOAuthProvider())
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -229,13 +225,10 @@ def _teardown_incomplete_user(slug: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Authentication  —  OAuth (Google / Apple) + password fallback
+# Authentication  —  OAuth (Google) + password fallback
 # ---------------------------------------------------------------------------
 
-_OAUTH_ENABLED = bool(
-    config.google_oauth_client_id
-    or config.apple_oauth_client_id
-)
+_OAUTH_ENABLED = bool(config.google_oauth_client_id)
 
 if _OAUTH_ENABLED:
     @cl.oauth_callback
