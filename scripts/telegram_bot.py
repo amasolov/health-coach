@@ -269,6 +269,18 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
     except Exception:
         pass
 
+    # Nudge existing users about newly added profile fields (e.g. location)
+    try:
+        missing = health_tools.get_missing_profile_nudges(user_slug)
+        if missing:
+            lines = ["\n📍 Missing profile info — please ask early in the conversation:"]
+            for m in missing:
+                lines.append(f"- {m['prompt']}")
+                lines.append(f"  (Instructions: {m['instructions']})")
+            parts.append("\n".join(lines))
+    except Exception:
+        pass
+
     parts.append(
         "\nGuidelines:\n"
         "- Always query tools before making recommendations\n"

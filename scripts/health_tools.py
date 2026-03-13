@@ -1227,12 +1227,13 @@ def generate_fitness_assessment(
 
 
 def update_athlete_profile(
-    user_slug: str, field_path: str, value: float | int | str
+    user_slug: str, field_path: str, value: Any,
 ) -> dict:
     """Update a single field in the athlete profile config.
 
     field_path is dot-separated relative to the user, for example:
-      thresholds.heart_rate.max_hr, body.weight_kg, profile.date_of_birth"""
+      thresholds.heart_rate.max_hr, body.weight_kg, profile.date_of_birth,
+      location (dict: {lat, lon, label}), running_preferences (dict)"""
     athlete_store.update_field(user_slug, field_path, value)
 
     user = athlete_store.load(user_slug) or {}
@@ -1331,6 +1332,50 @@ ONBOARDING_QUESTIONS = [
         "field": "goals.training_preferences",
         "optional": True,
     },
+    {
+        "id": "location",
+        "question": (
+            "Where are you based? This lets me check weather and suggest "
+            "outdoor running routes near you. A city name or suburb is fine."
+        ),
+        "examples": [
+            "Sydney CBD, Australia",
+            "Brooklyn, New York",
+            "Central London",
+        ],
+        "field": "location",
+        "instructions": (
+            "Convert the user's answer to a lat/lon using your knowledge. "
+            "Store with update_athlete_profile(field_path='location', "
+            "value={'lat': ..., 'lon': ..., 'label': '<user's description>'}). "
+            "If unsure about coordinates, ask the user to confirm the "
+            "city/suburb name."
+        ),
+    },
+    {
+        "id": "outdoor_running",
+        "question": (
+            "Do you run outdoors? If so, what kind of routes do you prefer? "
+            "(distance, surface type, flat vs hilly, loops vs out-and-back)"
+        ),
+        "examples": [
+            "I prefer 5-10 km loop trails through parks",
+            "10-15 km on sealed roads, mostly flat",
+            "Mix of trail and road, hilly is fine, 5-20 km",
+            "I only run on a treadmill",
+        ],
+        "field": "running_preferences",
+        "optional": True,
+        "instructions": (
+            "Parse the user's answer into structured preferences and store "
+            "with update_athlete_profile(field_path='running_preferences', "
+            "value={'preferred_distance_km': [...], 'surface': [...], "
+            "'prefer_flat': bool, 'prefer_loop': bool, "
+            "'avoid_high_traffic': bool, 'scenic_preference': 'low'|'medium'|'high'}). "
+            "Valid surfaces: sealed_road, trail, unsealed_road, mixed. "
+            "If the user only runs indoors, skip this."
+        ),
+    },
 ]
 
 
@@ -1344,15 +1389,26 @@ def get_onboarding_questions(user_slug: str) -> dict:
     answered = []
     unanswered = []
     for q in ONBOARDING_QUESTIONS:
-        field_key = q["field"].removeprefix("goals.")
-        parts = field_key.split(".")
-        val = existing_goals
-        for p in parts:
-            if isinstance(val, dict):
-                val = val.get(p)
-            else:
-                val = None
-                break
+        field = q["field"]
+        if field.startswith("goals."):
+            parts = field.removeprefix("goals.").split(".")
+            val = existing_goals
+            for p in parts:
+                if isinstance(val, dict):
+                    val = val.get(p)
+                else:
+                    val = None
+                    break
+        else:
+            # Top-level config fields (location, running_preferences, etc.)
+            parts = field.split(".")
+            val = user_data
+            for p in parts:
+                if isinstance(val, dict):
+                    val = val.get(p)
+                else:
+                    val = None
+                    break
 
         if val is not None:
             answered.append({**q, "current_value": val})
@@ -1365,11 +1421,72 @@ def get_onboarding_questions(user_slug: str) -> dict:
         "unanswered": unanswered,
         "instructions": (
             "Ask the unanswered questions conversationally. You don't have to "
-            "follow the exact wording -- adapt to the conversation. Store each "
-            "answer with set_user_goals. After collecting goals, run "
-            "generate_fitness_assessment for a data-driven overview."
+            "follow the exact wording — adapt to the conversation. Store goal "
+            "answers with set_user_goals. For location and running preferences, "
+            "use update_athlete_profile with the field_path and structured value "
+            "as described in each question's instructions. After collecting all "
+            "info, run generate_fitness_assessment for a data-driven overview."
         ),
     }
+
+
+_PROFILE_NUDGE_FIELDS = [
+    {
+        "field": "location",
+        "prompt": (
+            "I can now check weather conditions and recommend outdoor running "
+            "routes near you — but I need to know where you're based. "
+            "What city or suburb are you in?"
+        ),
+        "instructions": (
+            "Convert the user's answer to lat/lon using your knowledge. "
+            "Store with update_athlete_profile(field_path='location', "
+            "value={'lat': ..., 'lon': ..., 'label': '<user description>'})."
+        ),
+    },
+    {
+        "field": "running_preferences",
+        "prompt": (
+            "I also have new outdoor route recommendations. Do you run "
+            "outdoors? If so, what kind of routes do you prefer — distance, "
+            "surface, flat vs hilly, loops?"
+        ),
+        "instructions": (
+            "Parse into structured preferences and store with "
+            "update_athlete_profile(field_path='running_preferences', "
+            "value={'preferred_distance_km': [...], 'surface': [...], "
+            "'prefer_flat': bool, 'prefer_loop': bool})."
+        ),
+        "optional": True,
+    },
+]
+
+
+def get_missing_profile_nudges(user_slug: str) -> list[dict]:
+    """Return prompts for important profile fields that are not yet set.
+
+    Used by the system prompt builder to ask already-onboarded users
+    about newly added features (e.g. location for outdoor run
+    recommendations).
+    """
+    user_data = athlete_store.load(user_slug) or {}
+    nudges = []
+    for entry in _PROFILE_NUDGE_FIELDS:
+        parts = entry["field"].split(".")
+        val = user_data
+        for p in parts:
+            if isinstance(val, dict):
+                val = val.get(p)
+            else:
+                val = None
+                break
+        if val is None:
+            nudges.append({
+                "field": entry["field"],
+                "prompt": entry["prompt"],
+                "instructions": entry["instructions"],
+            })
+    return nudges
 
 
 def set_user_goals(user_slug: str, goals: dict) -> dict:

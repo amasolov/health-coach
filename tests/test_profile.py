@@ -81,6 +81,130 @@ class TestUserGoals:
         assert isinstance(result, (dict, list))
 
 
+class TestOnboardingLocationQuestion:
+    """Onboarding includes location and running-preference questions."""
+
+    def test_location_question_exists(self):
+        ids = [q["id"] for q in health_tools.ONBOARDING_QUESTIONS]
+        assert "location" in ids
+
+    def test_outdoor_running_question_exists(self):
+        ids = [q["id"] for q in health_tools.ONBOARDING_QUESTIONS]
+        assert "outdoor_running" in ids
+
+    def test_location_question_has_instructions(self):
+        q = next(q for q in health_tools.ONBOARDING_QUESTIONS if q["id"] == "location")
+        assert "instructions" in q
+        assert "update_athlete_profile" in q["instructions"]
+
+    def test_location_unanswered_when_missing(self, user_slug):
+        """When no location is set, it appears in unanswered."""
+        from scripts import athlete_store
+        user = athlete_store.load(user_slug) or {}
+        user.pop("location", None)
+        athlete_store.save(user_slug, user)
+
+        result = health_tools.get_onboarding_questions(user_slug)
+        unanswered_ids = [q["id"] for q in result["unanswered"]]
+        assert "location" in unanswered_ids
+
+    def test_location_answered_when_set(self, user_slug):
+        """When location is set, it appears in answered."""
+        from scripts import athlete_store
+        user = athlete_store.load(user_slug) or {}
+        user["location"] = {"lat": -33.87, "lon": 151.21, "label": "Sydney"}
+        athlete_store.save(user_slug, user)
+
+        result = health_tools.get_onboarding_questions(user_slug)
+        answered_ids = [q["id"] for q in result["answered"]]
+        assert "location" in answered_ids
+
+    def test_running_prefs_answered_when_set(self, user_slug):
+        """When running_preferences is set, outdoor_running appears in answered."""
+        from scripts import athlete_store
+        user = athlete_store.load(user_slug) or {}
+        user["running_preferences"] = {"preferred_distance_km": [5, 10]}
+        athlete_store.save(user_slug, user)
+
+        result = health_tools.get_onboarding_questions(user_slug)
+        answered_ids = [q["id"] for q in result["answered"]]
+        assert "outdoor_running" in answered_ids
+
+
+class TestMissingProfileNudges:
+    """get_missing_profile_nudges returns prompts for unset fields."""
+
+    def test_returns_location_nudge_when_missing(self, user_slug):
+        from scripts import athlete_store
+        user = athlete_store.load(user_slug) or {}
+        user.pop("location", None)
+        athlete_store.save(user_slug, user)
+
+        nudges = health_tools.get_missing_profile_nudges(user_slug)
+        assert any("location" in n["field"] for n in nudges)
+
+    def test_no_location_nudge_when_set(self, user_slug):
+        from scripts import athlete_store
+        user = athlete_store.load(user_slug) or {}
+        user["location"] = {"lat": -33.87, "lon": 151.21, "label": "Sydney"}
+        athlete_store.save(user_slug, user)
+
+        nudges = health_tools.get_missing_profile_nudges(user_slug)
+        assert not any("location" in n["field"] for n in nudges)
+
+    def test_returns_empty_when_all_set(self, user_slug):
+        from scripts import athlete_store
+        user = athlete_store.load(user_slug) or {}
+        user["location"] = {"lat": -33.87, "lon": 151.21, "label": "Sydney"}
+        user["running_preferences"] = {"preferred_distance_km": [5]}
+        athlete_store.save(user_slug, user)
+
+        nudges = health_tools.get_missing_profile_nudges(user_slug)
+        assert len(nudges) == 0
+
+    def test_nudge_has_required_keys(self, user_slug):
+        from scripts import athlete_store
+        user = athlete_store.load(user_slug) or {}
+        user.pop("location", None)
+        athlete_store.save(user_slug, user)
+
+        nudges = health_tools.get_missing_profile_nudges(user_slug)
+        for n in nudges:
+            assert "field" in n
+            assert "prompt" in n
+            assert "instructions" in n
+
+
+class TestUpdateAthleteProfileDict:
+    """update_athlete_profile accepts dict values (e.g. location)."""
+
+    def test_set_location_dict(self, user_slug):
+        loc = {"lat": 40.7128, "lon": -74.0060, "label": "New York"}
+        result = health_tools.update_athlete_profile(user_slug, "location", loc)
+        assert result["updated"] == "location"
+        assert result["value"] == loc
+
+        from scripts import athlete_store
+        user = athlete_store.load(user_slug) or {}
+        assert user["location"]["lat"] == 40.7128
+        assert user["location"]["label"] == "New York"
+
+    def test_set_running_preferences_dict(self, user_slug):
+        prefs = {
+            "preferred_distance_km": [5, 10],
+            "surface": ["trail"],
+            "prefer_loop": True,
+        }
+        result = health_tools.update_athlete_profile(
+            user_slug, "running_preferences", prefs,
+        )
+        assert result["updated"] == "running_preferences"
+
+        from scripts import athlete_store
+        user = athlete_store.load(user_slug) or {}
+        assert user["running_preferences"]["prefer_loop"] is True
+
+
 class TestUserIntegrations:
 
     def test_get_integrations(self, user_slug):

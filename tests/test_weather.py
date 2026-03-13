@@ -8,10 +8,13 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from scripts.weather import (
+    AirQuality,
     DailyWeather,
     HourlyWeather,
     RunSuitability,
     check_weather,
+    fetch_air_quality,
+    parse_air_quality,
     parse_daily,
     parse_hourly,
     score_daily,
@@ -172,7 +175,7 @@ class TestScoring:
         assert result.score == 0
 
     def test_too_hot_reduces_score(self):
-        day = self._make_day(temp_min_c=30.0, temp_max_c=40.0)
+        day = self._make_day(temp_min_c=35.0, temp_max_c=45.0)
         result = score_daily(day)
         assert result.score < 70
         assert any("Hot" in w for w in result.warnings)
@@ -208,9 +211,9 @@ class TestScoring:
 
     def test_suitability_boundary(self):
         day = self._make_day(
-            temp_min_c=32.0, temp_max_c=38.0,
-            wind_max_kmh=35.0,
-            precipitation_sum_mm=5.0,
+            temp_min_c=36.0, temp_max_c=44.0,
+            wind_max_kmh=40.0,
+            precipitation_sum_mm=8.0,
         )
         result = score_daily(day)
         assert result.suitable is False
@@ -281,3 +284,219 @@ class TestCheckWeather:
              patch("scripts.athlete_store.load", return_value=config):
             result = check_weather(user_slug, "2026-03-13")
             assert result["target_date"] == "2026-03-13"
+
+
+# ---------------------------------------------------------------------------
+# Air quality tests
+# ---------------------------------------------------------------------------
+
+def _make_aqi_raw(
+    pm25: list[float] | None = None,
+    pm10: list[float] | None = None,
+    us_aqi: list[int] | None = None,
+    times: list[str] | None = None,
+) -> dict:
+    """Build a minimal Open-Meteo Air Quality response."""
+    times = times or [f"2026-03-13T{h:02d}:00" for h in range(24)]
+    n = len(times)
+    return {
+        "hourly": {
+            "time": times,
+            "pm2_5": pm25 or [10.0] * n,
+            "pm10": pm10 or [20.0] * n,
+            "us_aqi": us_aqi or [30] * n,
+        }
+    }
+
+
+class TestAirQuality:
+
+    def test_parse_air_quality(self):
+        raw = _make_aqi_raw(pm25=[12.0] * 24, us_aqi=[45] * 24)
+        aqi = parse_air_quality(raw, date(2026, 3, 13))
+        assert isinstance(aqi, AirQuality)
+        assert aqi.pm25_avg > 0
+        assert aqi.us_aqi_max > 0
+
+    def test_good_air_quality_no_penalty(self):
+        day = DailyWeather(
+            date=date(2026, 3, 13), temp_min_c=12, temp_max_c=22,
+            apparent_temp_min_c=10, apparent_temp_max_c=20,
+            precipitation_sum_mm=0, precipitation_hours=0,
+            wind_max_kmh=10, wind_gusts_max_kmh=15,
+            weather_code=0, uv_index_max=3, sunrise="06:30", sunset="18:00",
+        )
+        aqi = AirQuality(pm25_avg=8.0, pm25_max=12.0, pm10_avg=15.0, us_aqi_max=35)
+        result = score_daily(day, air_quality=aqi)
+        assert result.score >= 90
+        assert not any("air" in w.lower() for w in result.warnings)
+
+    def test_moderate_aqi_warning(self):
+        """PM2.5 25-50 µg/m³ or US AQI 51-100 should warn but stay suitable."""
+        day = DailyWeather(
+            date=date(2026, 3, 13), temp_min_c=12, temp_max_c=22,
+            apparent_temp_min_c=10, apparent_temp_max_c=20,
+            precipitation_sum_mm=0, precipitation_hours=0,
+            wind_max_kmh=10, wind_gusts_max_kmh=15,
+            weather_code=0, uv_index_max=3, sunrise="06:30", sunset="18:00",
+        )
+        aqi = AirQuality(pm25_avg=35.0, pm25_max=48.0, pm10_avg=50.0, us_aqi_max=80)
+        result = score_daily(day, air_quality=aqi)
+        assert result.suitable is True
+        assert any("air" in w.lower() for w in result.warnings)
+
+    def test_bad_aqi_unsuitable(self):
+        """PM2.5 > 50 or US AQI > 150 should make running unsuitable."""
+        day = DailyWeather(
+            date=date(2026, 3, 13), temp_min_c=12, temp_max_c=22,
+            apparent_temp_min_c=10, apparent_temp_max_c=20,
+            precipitation_sum_mm=0, precipitation_hours=0,
+            wind_max_kmh=10, wind_gusts_max_kmh=15,
+            weather_code=0, uv_index_max=3, sunrise="06:30", sunset="18:00",
+        )
+        aqi = AirQuality(pm25_avg=80.0, pm25_max=120.0, pm10_avg=100.0, us_aqi_max=170)
+        result = score_daily(day, air_quality=aqi)
+        assert result.score < 50
+
+    def test_hazardous_aqi_zero_score(self):
+        """US AQI > 200 (hazardous) should be near-zero."""
+        day = DailyWeather(
+            date=date(2026, 3, 13), temp_min_c=12, temp_max_c=22,
+            apparent_temp_min_c=10, apparent_temp_max_c=20,
+            precipitation_sum_mm=0, precipitation_hours=0,
+            wind_max_kmh=10, wind_gusts_max_kmh=15,
+            weather_code=0, uv_index_max=3, sunrise="06:30", sunset="18:00",
+        )
+        aqi = AirQuality(pm25_avg=200.0, pm25_max=300.0, pm10_avg=250.0, us_aqi_max=280)
+        result = score_daily(day, air_quality=aqi)
+        assert result.score <= 20
+        assert any("hazardous" in w.lower() or "dangerous" in w.lower()
+                    for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Graduated UV scoring tests
+# ---------------------------------------------------------------------------
+
+class TestGraduatedUV:
+
+    def _make_day(self, uv: float) -> DailyWeather:
+        return DailyWeather(
+            date=date(2026, 3, 13), temp_min_c=12, temp_max_c=22,
+            apparent_temp_min_c=10, apparent_temp_max_c=20,
+            precipitation_sum_mm=0, precipitation_hours=0,
+            wind_max_kmh=10, wind_gusts_max_kmh=15,
+            weather_code=0, uv_index_max=uv,
+            sunrise="06:30", sunset="18:00",
+        )
+
+    def test_low_uv_no_penalty(self):
+        result = score_daily(self._make_day(3.0))
+        assert result.score >= 95
+        assert not any("UV" in w for w in result.warnings)
+
+    def test_moderate_uv_small_penalty(self):
+        """UV 6-8: moderate penalty, sun protection advisory."""
+        result = score_daily(self._make_day(7.0))
+        assert 80 <= result.score <= 95
+        assert any("UV" in w for w in result.warnings)
+
+    def test_high_uv_larger_penalty(self):
+        """UV 8-10: larger penalty."""
+        result = score_daily(self._make_day(9.0))
+        high_result = score_daily(self._make_day(7.0))
+        assert result.score < high_result.score
+
+    def test_extreme_uv_major_penalty(self):
+        """UV 11+: major penalty (typical Australian summer)."""
+        result = score_daily(self._make_day(12.0))
+        assert result.score < 80
+        assert any("extreme" in w.lower() or "avoid" in w.lower()
+                    for w in result.warnings)
+
+    def test_sun_protection_guidance(self):
+        """UV >= 3 should include sun protection guidance."""
+        result = score_daily(self._make_day(6.0))
+        all_text = " ".join(result.warnings + result.reasons)
+        assert "sun protection" in all_text.lower() or "sunscreen" in all_text.lower()
+
+
+# ---------------------------------------------------------------------------
+# Humidity / apparent temperature tests
+# ---------------------------------------------------------------------------
+
+class TestHumidityAwareness:
+
+    def test_high_humidity_divergence_warns(self):
+        """When feels-like temp >> actual, warn about humidity."""
+        day = DailyWeather(
+            date=date(2026, 3, 13),
+            temp_min_c=22, temp_max_c=30,
+            apparent_temp_min_c=26, apparent_temp_max_c=36,
+            precipitation_sum_mm=0, precipitation_hours=0,
+            wind_max_kmh=10, wind_gusts_max_kmh=15,
+            weather_code=0, uv_index_max=4,
+            sunrise="06:30", sunset="18:00",
+        )
+        result = score_daily(day)
+        assert any("humid" in w.lower() or "feels like" in w.lower()
+                    for w in result.warnings)
+
+    def test_low_humidity_no_warning(self):
+        """When actual ≈ apparent, no humidity warning."""
+        day = DailyWeather(
+            date=date(2026, 3, 13),
+            temp_min_c=12, temp_max_c=22,
+            apparent_temp_min_c=11, apparent_temp_max_c=21,
+            precipitation_sum_mm=0, precipitation_hours=0,
+            wind_max_kmh=10, wind_gusts_max_kmh=15,
+            weather_code=0, uv_index_max=4,
+            sunrise="06:30", sunset="18:00",
+        )
+        result = score_daily(day)
+        assert not any("humid" in w.lower() for w in result.warnings)
+
+    def test_humidity_affects_score(self):
+        """High humidity should reduce the score compared to dry conditions."""
+        dry_day = DailyWeather(
+            date=date(2026, 3, 13),
+            temp_min_c=22, temp_max_c=30,
+            apparent_temp_min_c=21, apparent_temp_max_c=29,
+            precipitation_sum_mm=0, precipitation_hours=0,
+            wind_max_kmh=10, wind_gusts_max_kmh=15,
+            weather_code=0, uv_index_max=4,
+            sunrise="06:30", sunset="18:00",
+        )
+        humid_day = DailyWeather(
+            date=date(2026, 3, 13),
+            temp_min_c=22, temp_max_c=30,
+            apparent_temp_min_c=26, apparent_temp_max_c=38,
+            precipitation_sum_mm=0, precipitation_hours=0,
+            wind_max_kmh=10, wind_gusts_max_kmh=15,
+            weather_code=0, uv_index_max=4,
+            sunrise="06:30", sunset="18:00",
+        )
+        dry_result = score_daily(dry_day)
+        humid_result = score_daily(humid_day)
+        assert humid_result.score < dry_result.score
+
+
+# ---------------------------------------------------------------------------
+# check_weather includes air quality
+# ---------------------------------------------------------------------------
+
+class TestCheckWeatherWithAQI:
+
+    def test_check_weather_includes_air_quality(self, user_slug):
+        config = {
+            "profile": {"timezone": "Australia/Sydney"},
+            "location": {"lat": -33.87, "lon": 151.21, "label": "Sydney"},
+            "weather": {},
+        }
+        forecast_data = {**_make_daily_raw(), **_make_hourly_raw()}
+        aqi_data = _make_aqi_raw()
+        with patch("scripts.weather.fetch_forecast", return_value=forecast_data), \
+             patch("scripts.weather.fetch_air_quality", return_value=aqi_data), \
+             patch("scripts.athlete_store.load", return_value=config):
+            result = check_weather(user_slug)
+            assert "air_quality" in result

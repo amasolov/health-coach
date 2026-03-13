@@ -19,14 +19,18 @@ log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Default weather thresholds for "good running weather"
+# Tuned for Australian conditions (high UV, humid summers).
 # ---------------------------------------------------------------------------
 
 DEFAULT_WEATHER_PREFS: dict[str, Any] = {
     "temp_min_c": 5,
-    "temp_max_c": 28,
+    "temp_max_c": 32,
     "wind_max_kmh": 30,
     "precip_max_mm": 2.0,
     "uv_caution_threshold": 6,
+    "humidity_divergence_c": 4,
+    "aqi_warn_threshold": 50,
+    "aqi_unsuitable_threshold": 100,
 }
 
 # WMO weather codes that indicate severe conditions
@@ -103,6 +107,38 @@ class DailyWeather:
     @property
     def is_severe(self) -> bool:
         return self.weather_code in _SEVERE_CODES
+
+
+@dataclass
+class AirQuality:
+    """Summarised air quality for a date (from Open-Meteo AQI API)."""
+    pm25_avg: float
+    pm25_max: float
+    pm10_avg: float
+    us_aqi_max: int
+
+    def to_dict(self) -> dict:
+        return {
+            "pm25_avg": round(self.pm25_avg, 1),
+            "pm25_max": round(self.pm25_max, 1),
+            "pm10_avg": round(self.pm10_avg, 1),
+            "us_aqi_max": self.us_aqi_max,
+            "category": self.category,
+        }
+
+    @property
+    def category(self) -> str:
+        if self.us_aqi_max <= 50:
+            return "Good"
+        elif self.us_aqi_max <= 100:
+            return "Moderate"
+        elif self.us_aqi_max <= 150:
+            return "Unhealthy for sensitive groups"
+        elif self.us_aqi_max <= 200:
+            return "Unhealthy"
+        elif self.us_aqi_max <= 300:
+            return "Very unhealthy"
+        return "Hazardous"
 
 
 @dataclass
@@ -233,11 +269,81 @@ def parse_hourly(raw: dict) -> list[HourlyWeather]:
 
 
 # ---------------------------------------------------------------------------
+# Air Quality API (Open-Meteo)
+# ---------------------------------------------------------------------------
+
+AIR_QUALITY_BASE = "https://air-quality-api.open-meteo.com/v1/air-quality"
+
+
+def fetch_air_quality(
+    lat: float,
+    lon: float,
+    days: int = 3,
+    tz_name: str = "auto",
+) -> dict[str, Any]:
+    """Fetch air quality forecast from Open-Meteo AQI API.
+
+    Returns raw response with hourly PM2.5, PM10, and US AQI.
+    """
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "pm2_5,pm10,us_aqi",
+        "timezone": tz_name,
+        "forecast_days": days,
+    }
+    resp = _http().get(AIR_QUALITY_BASE, params=params, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def parse_air_quality(raw: dict, target_date: date) -> AirQuality | None:
+    """Parse and aggregate hourly AQI data for a single date."""
+    h = raw.get("hourly", {})
+    times = h.get("time", [])
+    pm25s = h.get("pm2_5", [])
+    pm10s = h.get("pm10", [])
+    aqis = h.get("us_aqi", [])
+
+    day_pm25 = []
+    day_pm10 = []
+    day_aqi = []
+
+    td_str = target_date.isoformat()
+    for i, ts in enumerate(times):
+        if ts.startswith(td_str):
+            if i < len(pm25s) and pm25s[i] is not None:
+                day_pm25.append(pm25s[i])
+            if i < len(pm10s) and pm10s[i] is not None:
+                day_pm10.append(pm10s[i])
+            if i < len(aqis) and aqis[i] is not None:
+                day_aqi.append(int(aqis[i]))
+
+    if not day_pm25:
+        return None
+
+    return AirQuality(
+        pm25_avg=sum(day_pm25) / len(day_pm25),
+        pm25_max=max(day_pm25),
+        pm10_avg=sum(day_pm10) / len(day_pm10) if day_pm10 else 0,
+        us_aqi_max=max(day_aqi) if day_aqi else 0,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Suitability scoring
 # ---------------------------------------------------------------------------
 
-def score_daily(day: DailyWeather, prefs: dict | None = None) -> RunSuitability:
-    """Score a single day for running suitability (0–100)."""
+def score_daily(
+    day: DailyWeather,
+    prefs: dict | None = None,
+    air_quality: AirQuality | None = None,
+) -> RunSuitability:
+    """Score a single day for running suitability (0–100).
+
+    Factors: temperature, wind, precipitation, UV (graduated), humidity
+    (apparent-temp divergence), and air quality (PM2.5 / US AQI).
+    """
     p = {**DEFAULT_WEATHER_PREFS, **(prefs or {})}
     score = 100
     reasons: list[str] = []
@@ -278,12 +384,78 @@ def score_daily(day: DailyWeather, prefs: dict | None = None) -> RunSuitability:
     elif day.precipitation_sum_mm < 0.5:
         reasons.append("Dry conditions")
 
-    # UV
-    if day.uv_index_max >= p["uv_caution_threshold"]:
-        score -= 10
+    # Graduated UV scoring
+    uv = day.uv_index_max
+    uv_threshold = p["uv_caution_threshold"]
+    if uv >= 11:
+        score -= 25
         warnings.append(
-            f"High UV ({day.uv_index_max:.0f}) — consider early morning or evening"
+            f"Extreme UV ({uv:.0f}) — avoid midday sun, run early morning "
+            "or evening. Sunscreen, hat, and sunglasses essential."
         )
+    elif uv >= 8:
+        score -= 15
+        warnings.append(
+            f"Very high UV ({uv:.0f}) — sun protection required, "
+            "prefer early morning or evening."
+        )
+    elif uv >= uv_threshold:
+        score -= 8
+        warnings.append(
+            f"High UV ({uv:.0f}) — wear sun protection (sunscreen, hat)."
+        )
+    elif uv >= 3:
+        reasons.append(f"UV {uv:.0f} — sun protection recommended")
+
+    # Humidity / apparent temperature divergence
+    humidity_threshold = p.get("humidity_divergence_c", 4)
+    apparent_max = day.apparent_temp_max_c
+    actual_max = day.temp_max_c
+    divergence = apparent_max - actual_max
+    if divergence > humidity_threshold + 4:
+        score -= 15
+        warnings.append(
+            f"Very humid — feels like {apparent_max:.0f}°C "
+            f"(actual {actual_max:.0f}°C). Hydrate well."
+        )
+    elif divergence > humidity_threshold:
+        score -= 8
+        warnings.append(
+            f"Humid — feels like {apparent_max:.0f}°C "
+            f"(actual {actual_max:.0f}°C). Extra hydration advised."
+        )
+
+    # Air quality (PM2.5 / US AQI) — critical for Australian bushfire smoke
+    if air_quality is not None:
+        aqi = air_quality.us_aqi_max
+        if aqi > 200:
+            score -= 80
+            warnings.append(
+                f"Dangerous air quality (AQI {aqi}, {air_quality.category}) — "
+                f"PM2.5 {air_quality.pm25_max:.0f} µg/m³. "
+                "Do not run outdoors."
+            )
+        elif aqi > 150:
+            score -= 55
+            warnings.append(
+                f"Unhealthy air quality (AQI {aqi}) — "
+                f"PM2.5 {air_quality.pm25_max:.0f} µg/m³. "
+                "Avoid prolonged outdoor exercise."
+            )
+        elif aqi > p.get("aqi_unsuitable_threshold", 100):
+            score -= 30
+            warnings.append(
+                f"Poor air quality (AQI {aqi}) — "
+                f"PM2.5 avg {air_quality.pm25_avg:.0f} µg/m³. "
+                "Reduce outdoor exercise intensity."
+            )
+        elif aqi > p.get("aqi_warn_threshold", 50):
+            score -= 10
+            warnings.append(
+                f"Moderate air quality (AQI {aqi}) — "
+                f"PM2.5 avg {air_quality.pm25_avg:.0f} µg/m³. "
+                "Sensitive individuals should take caution."
+            )
 
     score = max(0, min(100, score))
     suitable = score >= 50
@@ -326,9 +498,29 @@ def score_hourly_windows(
         if h.precipitation_mm > p["precip_max_mm"]:
             s -= min(30, (h.precipitation_mm - p["precip_max_mm"]) * 10)
 
-        if h.uv_index >= p["uv_caution_threshold"]:
-            s -= 10
-            notes.append("High UV")
+        # Graduated UV
+        uv = h.uv_index
+        if uv >= 11:
+            s -= 25
+            notes.append("Extreme UV — avoid")
+        elif uv >= 8:
+            s -= 15
+            notes.append("Very high UV")
+        elif uv >= p["uv_caution_threshold"]:
+            s -= 8
+            notes.append("High UV — sun protection")
+        elif uv >= 3:
+            notes.append("Sun protection recommended")
+
+        # Humidity (apparent vs actual temp)
+        divergence = h.apparent_temperature_c - h.temperature_c
+        hum_threshold = p.get("humidity_divergence_c", 4)
+        if divergence > hum_threshold + 4:
+            s -= 12
+            notes.append(f"Very humid (feels {h.apparent_temperature_c:.0f}°C)")
+        elif divergence > hum_threshold:
+            s -= 5
+            notes.append("Humid")
 
         s = max(0, min(100, s))
         if s >= 40:
@@ -456,8 +648,9 @@ def check_weather(
     location = config.get("location")
     if not location or "lat" not in location or "lon" not in location:
         raise ValueError(
-            "No location configured. Set location with update_athlete_profile "
-            "(field_path='location', value={'lat': ..., 'lon': ..., 'label': '...'})."
+            "No location configured. Ask the user where they are based and "
+            "store it with update_athlete_profile(field_path='location', "
+            "value={'lat': ..., 'lon': ..., 'label': '...'})."
         )
 
     lat = location["lat"]
@@ -480,6 +673,15 @@ def check_weather(
     daily = parse_daily(raw)
     hourly = parse_hourly(raw)
 
+    # Fetch air quality (non-blocking — swallow errors)
+    aqi: AirQuality | None = None
+    aqi_raw: dict | None = None
+    try:
+        aqi_raw = fetch_air_quality(lat, lon, days=3, tz_name=tz_name)
+        aqi = parse_air_quality(aqi_raw, td)
+    except Exception:
+        log.debug("Air quality fetch failed", exc_info=True)
+
     target_day = None
     for d in daily:
         if d.date == td:
@@ -492,13 +694,19 @@ def check_weather(
             f"Available dates: {[d.date.isoformat() for d in daily]}"
         )
 
-    suitability = score_daily(target_day, weather_prefs)
+    suitability = score_daily(target_day, weather_prefs, air_quality=aqi)
     windows = score_hourly_windows(hourly, td, weather_prefs)
     suitability.best_windows = windows
 
     forecast_summary = []
     for d in daily:
-        ds = score_daily(d, weather_prefs)
+        d_aqi: AirQuality | None = None
+        try:
+            if aqi_raw:
+                d_aqi = parse_air_quality(aqi_raw, d.date)
+        except Exception:
+            pass
+        ds = score_daily(d, weather_prefs, air_quality=d_aqi)
         forecast_summary.append({
             "date": d.date.isoformat(),
             "weather": d.weather_label,
@@ -510,7 +718,7 @@ def check_weather(
             "suitable_for_running": ds.suitable,
         })
 
-    return {
+    result: dict[str, Any] = {
         "location": label,
         "target_date": td.isoformat(),
         "suitability": suitability.to_dict(),
@@ -525,3 +733,8 @@ def check_weather(
             "sunset": target_day.sunset,
         },
     }
+
+    if aqi is not None:
+        result["air_quality"] = aqi.to_dict()
+
+    return result

@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.56.0
+**Australia-focused weather intelligence — air quality, UV safety, and humidity awareness**
+
+- **Air quality monitoring** — new `fetch_air_quality()` and `parse_air_quality()` integrate with the Open-Meteo Air Quality API to fetch PM2.5, PM10, and US AQI data; critical for NSW bushfire smoke awareness
+- **AQI-aware suitability scoring** — `score_daily()` now factors in air quality: AQI > 200 (hazardous) nearly disqualifies outdoor running, AQI 150–200 (unhealthy) heavily penalises, AQI 100–150 moderately penalises, AQI 50–100 warns sensitive individuals; `check_weather()` returns air quality data alongside weather
+- **Graduated UV scoring** — replaced the flat -10 UV penalty with a graduated scale tuned for Australian conditions: UV 6–8 (-8 pts, sun protection required), UV 8–10 (-15 pts, very high), UV 11+ (-25 pts, extreme — avoid midday sun); sun protection guidance included at UV ≥ 3
+- **Humidity / apparent temperature awareness** — when the apparent (feels-like) temperature diverges significantly from actual temperature (indicating high humidity), the system warns and penalises accordingly; important for Sydney coastal summer conditions
+- **Australian-tuned defaults** — `DEFAULT_WEATHER_PREFS.temp_max_c` raised from 28 to 32°C (Australian summers regularly hit 30+), new `humidity_divergence_c` and AQI threshold defaults added
+- **Enhanced hourly windows** — `score_hourly_windows()` now uses the same graduated UV and humidity scoring as daily scoring, helping identify early morning/evening windows on high-UV days
+- **Weather nudge with AQI** — proactive system prompt nudge now includes UV reminders when UV ≥ 6 and air quality warnings when AQI > 50; new hazardous air quality alert nudge when AQI > 150
+- **Onboarding: location & running preferences** — two new onboarding questions ask about location (for weather/routes) and outdoor running preferences; `get_onboarding_questions()` now resolves top-level config fields (not just `goals.*`); `update_athlete_profile()` accepts dict values for structured data like location
+- **14 new tests** covering air quality parsing, AQI scoring tiers, graduated UV penalties, sun protection guidance, humidity warnings, and onboarding location questions
+
 ## v0.55.0
 **Route popularity, variety, and proactive coaching for outdoor runs (issue #27 — Phases 3 & 4)**
 

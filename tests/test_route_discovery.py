@@ -658,8 +658,17 @@ class TestWeatherNudge:
             "profile": {"timezone": "America/New_York"},
             "location": {"lat": -33.87, "lon": 151.21, "label": "Sydney"},
         }
+        good_aqi = {
+            "hourly": {
+                "time": [f"2026-03-13T{h:02d}:00" for h in range(24)],
+                "pm2_5": [8.0] * 24,
+                "pm10": [15.0] * 24,
+                "us_aqi": [30] * 24,
+            }
+        }
         with patch("scripts.athlete_store.load", return_value=config), \
              patch("scripts.weather.fetch_forecast", return_value=self._make_good_forecast()), \
+             patch("scripts.weather.fetch_air_quality", return_value=good_aqi), \
              patch("scripts.tz.user_today", return_value=date(2026, 3, 13)), \
              patch("scripts.route_discovery.infer_training_context",
                    return_value={"run_type": "normal", "tsb": 0}):

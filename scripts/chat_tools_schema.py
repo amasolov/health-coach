@@ -389,12 +389,29 @@ TOOL_SCHEMAS: list[dict] = [
         "type": "function",
         "function": {
             "name": "update_athlete_profile",
-            "description": "Update a single field in the athlete profile. field_path is dot-separated (e.g. thresholds.heart_rate.max_hr, body.weight_kg).",
+            "description": (
+                "Update a single field in the athlete profile. field_path is "
+                "dot-separated (e.g. thresholds.heart_rate.max_hr, body.weight_kg). "
+                "For location, use field_path='location' with value={'lat': ..., "
+                "'lon': ..., 'label': '...'}. For running preferences, use "
+                "field_path='running_preferences'."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "field_path": {"type": "string", "description": "Dot-separated path relative to user (e.g. thresholds.cycling.ftp)."},
-                    "value": {"description": "The value to set (number or string)."},
+                    "field_path": {
+                        "type": "string",
+                        "description": (
+                            "Dot-separated path (e.g. thresholds.cycling.ftp, "
+                            "location, running_preferences, weather)."
+                        ),
+                    },
+                    "value": {
+                        "description": (
+                            "The value to set. Can be a number, string, list, or "
+                            "object (e.g. {lat, lon, label} for location)."
+                        ),
+                    },
                 },
                 "required": ["field_path", "value"],
             },

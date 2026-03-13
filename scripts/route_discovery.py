@@ -718,8 +718,9 @@ def recommend_outdoor_run(slug: str, target_date: str = "") -> dict:
     location = config.get("location")
     if not location or "lat" not in location or "lon" not in location:
         raise ValueError(
-            "No location configured. Set location with update_athlete_profile "
-            "(field_path='location', value={'lat': ..., 'lon': ..., 'label': '...'})."
+            "No location configured. Ask the user where they are based and "
+            "store it with update_athlete_profile(field_path='location', "
+            "value={'lat': ..., 'lon': ..., 'label': '...'})."
         )
 
     lat = location["lat"]
@@ -856,15 +857,23 @@ def get_weather_nudge(slug: str) -> str | None:
         today = user_today(tz)
         tz_name = str(tz)
 
-        result = weather.fetch_forecast(
-            location["lat"], location["lon"],
-            days=2, tz_name=tz_name,
-        )
+        lat, lon = location["lat"], location["lon"]
+        result = weather.fetch_forecast(lat, lon, days=2, tz_name=tz_name)
         daily = weather.parse_daily(result)
+
+        # Try air quality (non-blocking)
+        aqi = None
+        try:
+            aqi_raw = weather.fetch_air_quality(lat, lon, days=2, tz_name=tz_name)
+            aqi = weather.parse_air_quality(aqi_raw, today)
+        except Exception:
+            pass
 
         for day in daily:
             if day.date == today:
-                s = weather.score_daily(day, config.get("weather", {}))
+                s = weather.score_daily(
+                    day, config.get("weather", {}), air_quality=aqi,
+                )
                 if s.suitable and s.score >= 65:
                     tc = infer_training_context(slug)
                     label = location.get("label", "your area")
@@ -875,6 +884,19 @@ def get_weather_nudge(slug: str) -> str | None:
                         f"{day.weather_label}, {day.temp_min_c:.0f}–{day.temp_max_c:.0f}°C. "
                         f"Run suitability: {s.score}/100."
                     )
+
+                    if day.uv_index_max >= 6:
+                        nudge += (
+                            f" UV is {day.uv_index_max:.0f} — remind the user "
+                            "about sun protection (sunscreen, hat)."
+                        )
+
+                    if aqi and aqi.us_aqi_max > 50:
+                        nudge += (
+                            f" Air quality: {aqi.category} "
+                            f"(AQI {aqi.us_aqi_max})."
+                        )
+
                     if run_type == "easy":
                         nudge += (
                             f" TSB is {tc['tsb']:.0f} — suggest an easy recovery run "
@@ -891,6 +913,15 @@ def get_weather_nudge(slug: str) -> str | None:
                             "training today. Use recommend_outdoor_run for routes."
                         )
                     return nudge
+                elif not s.suitable and aqi and aqi.us_aqi_max > 150:
+                    label = location.get("label", "your area")
+                    return (
+                        f"\n⚠️ Air quality alert in {label}: "
+                        f"{aqi.category} (AQI {aqi.us_aqi_max}, "
+                        f"PM2.5 {aqi.pm25_max:.0f} µg/m³). "
+                        "Advise against outdoor running if the user asks. "
+                        "Suggest indoor alternatives."
+                    )
                 break
     except Exception:
         log.debug("Weather nudge check failed", exc_info=True)
