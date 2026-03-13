@@ -1,5 +1,15 @@
 # Release Notes
 
+## v0.58.0
+**Reduce OpenRouter costs with prompt caching, history caps, and compact JSON**
+
+- **Anthropic prompt caching** -- system messages now use `cache_control: {"type": "ephemeral"}` content-array format so the ~8,200-token static prefix (system prompt + tool schemas) is cached across turns; cache reads cost 0.1x normal input pricing (~90% savings on the prefix)
+- **Chainlit history cap** -- added `MAX_HISTORY_MESSAGES = 40` and `trim_history()` to prevent unbounded context growth in long web chat sessions; Telegram already had a 20-message cap
+- **Compact tool result JSON** -- tool results sent to the LLM now use `separators=(",",":")` instead of `indent=2`, reducing token count by ~20-30% per tool call; Chainlit UI still shows pretty-printed output
+- **Cache hit metrics** -- `ops_emit` now logs `cached_tokens` from `usage.prompt_tokens_details` for both Chainlit and Telegram, enabling Grafana monitoring of cache effectiveness
+- **Shared `scripts/llm_utils.py`** -- new module with `build_system_message()`, `trim_history()`, `compact_json()`, and `extract_cache_metrics()` used by both chat interfaces
+- **Removed redundant post-onboarding system prompt rebuild** -- `_init_session()` already handles this
+
 ## v0.57.0
 **Enrich iFit workout library with route metadata — distance, elevation, incline (issue #1)**
 

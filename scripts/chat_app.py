@@ -46,6 +46,13 @@ from scripts.run_sync import sync_garmin_profile
 from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
 from scripts.cross_channel import get_recent_telegram_messages, format_telegram_context
+from scripts.llm_utils import (
+    build_system_message,
+    trim_history as _trim_history,
+    compact_json,
+    extract_cache_metrics as _extract_cache_metrics,
+    MAX_HISTORY_MESSAGES,
+)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -429,7 +436,7 @@ async def _init_session(user_slug: str, user_id: int, first_name: str, user_data
         pass
 
     cl.user_session.set("system_prompt", system_prompt)
-    cl.user_session.set("messages", [{"role": "system", "content": system_prompt}])
+    cl.user_session.set("messages", [build_system_message(system_prompt)])
 
 
 # ---------------------------------------------------------------------------
@@ -662,8 +669,6 @@ async def run_onboarding(user: cl.User) -> None:
 
     # Transition into a normal coaching session
     await _init_session(slug, user_id, first_name, user_entry)
-    system_prompt = _build_system_prompt(slug, first_name)
-    cl.user_session.set("messages", [{"role": "system", "content": system_prompt}])
 
 
 # ---------------------------------------------------------------------------
@@ -854,6 +859,7 @@ async def on_message(message: cl.Message):
     charts: list = []
 
     for _round in range(MAX_TOOL_ROUNDS):
+        _trim_history(messages)
         try:
             response = await client.chat.completions.create(
                 model=CHAT_MODEL,
@@ -877,6 +883,7 @@ async def on_message(message: cl.Message):
         if usage:
             prompt_tok = getattr(usage, "prompt_tokens", 0) or 0
             completion_tok = getattr(usage, "completion_tokens", 0) or 0
+            cache = _extract_cache_metrics(usage)
             ops_emit.emit(
                 "chat", "llm_request",
                 user_id=user_id,
@@ -884,6 +891,7 @@ async def on_message(message: cl.Message):
                 prompt_tokens=prompt_tok,
                 completion_tokens=completion_tok,
                 total_tokens=prompt_tok + completion_tok,
+                cached_tokens=cache["cached_tokens"],
             )
 
         choice = response.choices[0]
@@ -905,8 +913,7 @@ async def on_message(message: cl.Message):
                         _execute_tool,
                         fn_name, fn_args, user_id, user_slug, user_data,
                     )
-                    result_str = json.dumps(result, indent=2, default=str)
-                    step.output = result_str
+                    step.output = json.dumps(result, indent=2, default=str)
 
                     fig = maybe_chart(fn_name, result)
                     if fig:
@@ -915,7 +922,7 @@ async def on_message(message: cl.Message):
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "content": result_str,
+                    "content": compact_json(result),
                 })
 
             continue

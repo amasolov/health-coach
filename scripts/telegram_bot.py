@@ -61,6 +61,11 @@ from scripts.telegram_link import (
     get_user_by_telegram,
 )
 from scripts.telegram_format import md_to_telegram_html, chunk_html
+from scripts.llm_utils import (
+    build_system_message,
+    compact_json,
+    extract_cache_metrics as _extract_cache_metrics,
+)
 
 logging.basicConfig(
     format="%(asctime)s [telegram_bot] %(levelname)s %(message)s",
@@ -190,7 +195,7 @@ def _sanitize_string(text: str) -> str:
 def sanitize_tool_result(result: Any) -> str:
     """Sanitize a tool result before it enters the LLM conversation context."""
     cleaned = _sanitize_dict(result)
-    return json.dumps(cleaned, indent=2, default=str)
+    return compact_json(cleaned)
 
 
 def sanitize_response(text: str) -> str:
@@ -332,7 +337,7 @@ def _get_messages(
             web_msgs = get_recent_web_messages(user_email)
             if web_msgs:
                 prompt += format_web_context(web_msgs)
-            _sessions[chat_id][0] = {"role": "system", "content": prompt}
+            _sessions[chat_id][0] = build_system_message(prompt)
             _session_ts[chat_id] = now
         return _sessions[chat_id]
 
@@ -342,7 +347,7 @@ def _get_messages(
     if web_msgs:
         prompt += format_web_context(web_msgs)
 
-    messages: list[dict] = [{"role": "system", "content": prompt}]
+    messages: list[dict] = [build_system_message(prompt)]
 
     db_history = load_telegram_history(user_id, limit=MAX_HISTORY_MESSAGES)
     for row in db_history:
@@ -562,6 +567,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             if usage:
                 prompt_tok = getattr(usage, "prompt_tokens", 0) or 0
                 completion_tok = getattr(usage, "completion_tokens", 0) or 0
+                cache = _extract_cache_metrics(usage)
                 asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: ops_emit.emit(
@@ -571,6 +577,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         prompt_tokens=prompt_tok,
                         completion_tokens=completion_tok,
                         total_tokens=prompt_tok + completion_tok,
+                        cached_tokens=cache["cached_tokens"],
                     ),
                 )
 
