@@ -22,6 +22,7 @@ _lock = threading.Lock()
 _hevy: httpx.Client | None = None
 _ifit: httpx.Client | None = None
 _openrouter: httpx.Client | None = None
+_open_meteo: httpx.Client | None = None
 
 
 def hevy_client() -> httpx.Client:
@@ -70,3 +71,19 @@ def openrouter_client() -> httpx.Client:
                     ),
                 )
     return _openrouter
+
+
+def open_meteo_client() -> httpx.Client:
+    """Shared client for Open-Meteo and Overpass API calls."""
+    global _open_meteo
+    if _open_meteo is None:
+        with _lock:
+            if _open_meteo is None:
+                _open_meteo = httpx.Client(
+                    timeout=30,
+                    limits=httpx.Limits(
+                        max_connections=5,
+                        max_keepalive_connections=3,
+                    ),
+                )
+    return _open_meteo

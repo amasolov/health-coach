@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.54.0
+**Outdoor run recommendations based on weather, location & route preferences (issue #27 — Phases 1 & 2)**
+
+- **Weather integration** — new `scripts/weather.py` module fetches current + 3-day forecast from Open-Meteo (free, no API key); evaluates running suitability with a 0–100 score based on temperature, wind, precipitation, UV index, and severe weather codes; identifies best hourly running windows with merged time ranges
+- **Route discovery** — new `scripts/route_discovery.py` queries OpenStreetMap Overpass API for running-suitable paths, trails, and roads within 15 km of the athlete's location; classifies surfaces (sealed, unsealed, trail, mixed); detects loops; scores routes against distance, surface, loop preference, traffic avoidance, and proximity
+- **`check_weather` tool** — MCP + Chainlit/Telegram tool that returns forecast summary, suitability score, warnings (heat, cold, wind, rain, UV), and best running windows for a target date
+- **`recommend_outdoor_run` tool** — checks weather first; if suitable, discovers and ranks nearby routes returning top 5 with per-route explanations ("Matches your 10 km preference, mostly trail, loop route"); if weather is poor, suggests indoor alternatives
+- **Athlete config extensions** — `location` (lat/lon/label), `weather` preferences (temp range, wind/rain thresholds, UV caution), and `running_preferences` (preferred distances, surfaces, elevation, loop/flat/traffic/scenic preferences) stored in existing `athlete_config` JSONB
+- **DB migration** — Alembic `0004` adds `weather_cache` (forecast caching, 3-hour TTL) and `route_cache` (route caching, 7-day TTL) tables with appropriate indexes
+- **HTTP client** — new `open_meteo_client()` in `scripts/http_clients.py` for connection pooling
+- **58 new tests** covering weather parsing, suitability scoring, hourly window detection, geometry (haversine, loop detection), surface classification, route parsing/scoring, and end-to-end integration for both tools
+
 ## v0.53.0
 **Migrate OAuth / credential storage from local files to DB (issue #29)**
 

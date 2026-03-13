@@ -20,6 +20,7 @@ Syncs data from **Garmin Connect** and **Hevy**, calculates performance metrics 
 - Conversational fitness coach backed by OpenRouter LLMs
 - 40+ specialized tools for querying training data, recommending workouts, and managing goals
 - **RAG knowledge base** — upload fitness PDFs (books, guides, research) and the coach references them in recommendations
+- **Outdoor run recommendations** — weather-aware route suggestions using Open-Meteo forecasts and OpenStreetMap route discovery
 - Scope-limited to health and fitness topics only
 - iFit workout recommendations with two-stage scoring (metadata + LLM exercise analysis)
 - iFit-to-Hevy routine conversion with exercise matching and custom exercise creation
@@ -68,7 +69,7 @@ Syncs data from **Garmin Connect** and **Hevy**, calculates performance metrics 
 │                      └─────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
 
-External APIs: Garmin Connect · Hevy · iFit · OpenRouter · GitHub
+External APIs: Garmin Connect · Hevy · iFit · OpenRouter · Open-Meteo · OSM Overpass · GitHub
 ```
 
 ## Prerequisites

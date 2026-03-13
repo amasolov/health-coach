@@ -949,6 +949,51 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    # ===== WEATHER & OUTDOOR RUNNING =====
+    {
+        "type": "function",
+        "function": {
+            "name": "check_weather",
+            "description": (
+                "Check weather and running suitability for the athlete's configured "
+                "location. Returns forecast summary, suitability score (0–100), best "
+                "running windows by hour, and any warnings."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_date": {
+                        "type": "string",
+                        "description": "Target date (YYYY-MM-DD). Defaults to today.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "recommend_outdoor_run",
+            "description": (
+                "Recommend outdoor running routes based on weather and preferences. "
+                "Checks weather first — if suitable, discovers nearby routes via "
+                "OpenStreetMap and scores them against distance, surface, and loop "
+                "preferences. Returns top 5 routes with weather context. If weather "
+                "is poor, suggests indoor alternatives."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_date": {
+                        "type": "string",
+                        "description": "Target date (YYYY-MM-DD). Defaults to today.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
     # ===== HEVY ROUTINE MANAGEMENT =====
     {
         "type": "function",
@@ -1055,4 +1100,7 @@ TOOL_DISPATCH: dict[str, tuple] = {
     "search_knowledge_base":       (health_tools.search_knowledge_base, "uid"),
     "list_knowledge_documents":    (health_tools.list_knowledge_documents, "uid"),
     "delete_knowledge_document":   (health_tools.delete_knowledge_document, "uid"),
+    # Weather & outdoor running
+    "check_weather":               (health_tools.check_weather, "slug"),
+    "recommend_outdoor_run":       (health_tools.recommend_outdoor_run, "slug"),
 }

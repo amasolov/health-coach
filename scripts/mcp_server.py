@@ -634,6 +634,27 @@ async def get_routine_weight_recommendations(
     )
 
 
+# ===== WEATHER & OUTDOOR RUNNING =====
+
+@mcp.tool
+async def check_weather(ctx: Context, target_date: str = "") -> dict:
+    """Check weather and running suitability for the athlete's configured
+    location. Returns forecast summary, suitability score (0-100), best
+    running windows by hour, and any warnings. Optionally pass a target
+    date (YYYY-MM-DD); defaults to today."""
+    return await _wrap(health_tools.check_weather, _uslug(ctx), target_date)
+
+
+@mcp.tool
+async def recommend_outdoor_run(ctx: Context, target_date: str = "") -> dict:
+    """Recommend outdoor running routes based on weather and preferences.
+    Checks weather first — if conditions are suitable, discovers nearby
+    routes via OpenStreetMap and scores them against the athlete's distance,
+    surface, and loop preferences. Returns top 5 routes with weather context.
+    If weather is poor, suggests indoor alternatives."""
+    return await _wrap(health_tools.recommend_outdoor_run, _uslug(ctx), target_date)
+
+
 # ---------------------------------------------------------------------------
 # Health check endpoint
 # ---------------------------------------------------------------------------

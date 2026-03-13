@@ -117,7 +117,9 @@ def _use_bare_httpx_in_clients():
          patch("scripts.hevy_exercise_resolver._hevy", return_value=httpx), \
          patch("scripts.hevy_exercise_resolver._llm_http", return_value=httpx), \
          patch("scripts.health_tools._hevy_http", return_value=httpx), \
-         patch("scripts.health_tools._ifit_http", return_value=httpx):
+         patch("scripts.health_tools._ifit_http", return_value=httpx), \
+         patch("scripts.weather._http", return_value=httpx), \
+         patch("scripts.route_discovery._http", return_value=httpx):
         yield
 
 

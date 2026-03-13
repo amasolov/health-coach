@@ -104,6 +104,8 @@ TOOL_DISPLAY_NAMES = {
     "search_knowledge_base":     "Knowledge Base Search",
     "list_knowledge_documents":  "Knowledge Documents",
     "delete_knowledge_document": "Knowledge Document Deletion",
+    "check_weather":             "Weather Check",
+    "recommend_outdoor_run":     "Outdoor Run Recommendations",
 }
 ALLOW_REGISTRATION = config.allow_registration
 SYNC_INTERVAL = config.sync_interval

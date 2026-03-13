@@ -3748,3 +3748,17 @@ def delete_knowledge_document(user_id: int, document_id: int) -> dict:
     from scripts.knowledge_store import delete_document
 
     return delete_document(document_id)
+
+
+# ===== WEATHER & OUTDOOR RUNNING ============================================
+
+def check_weather(slug: str, target_date: str = "") -> dict:
+    """Check weather and running suitability for an athlete's location."""
+    from scripts.weather import check_weather as _check
+    return _check(slug, target_date)
+
+
+def recommend_outdoor_run(slug: str, target_date: str = "") -> dict:
+    """Recommend outdoor running routes based on weather and preferences."""
+    from scripts.route_discovery import recommend_outdoor_run as _recommend
+    return _recommend(slug, target_date)

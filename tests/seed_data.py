@@ -299,6 +299,27 @@ def _seed_athlete_config(cur, user_id: int) -> None:
             "software_number": None,
         },
         "treadmill": {"zone_speed_map": {}, "hill_map": {}},
+        "location": {
+            "lat": -33.8688,
+            "lon": 151.2093,
+            "label": "Sydney CBD",
+        },
+        "weather": {
+            "temp_min_c": 5,
+            "temp_max_c": 28,
+            "wind_max_kmh": 30,
+            "precip_max_mm": 2.0,
+            "uv_caution_threshold": 6,
+        },
+        "running_preferences": {
+            "preferred_distance_km": [5, 10, 15],
+            "surface": ["sealed_road", "trail", "mixed"],
+            "max_elevation_gain_m": 300,
+            "prefer_flat": False,
+            "prefer_loop": True,
+            "avoid_high_traffic": True,
+            "scenic_preference": "high",
+        },
     }
 
     from psycopg2.extras import Json
