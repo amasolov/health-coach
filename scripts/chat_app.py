@@ -490,6 +490,10 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         "charts will be auto-generated from the data\n"
         "- At the start of a conversation, check action items for pending tasks\n"
         "- Be encouraging but honest about the data\n"
+        "- NEVER assume the user's schedule, lifestyle, mood, or context "
+        "unless they told you or it's in their profile. Only reference "
+        "data you actually have — do not infer 'busy day', 'rest day', "
+        "'tired', etc. from the time of day or day of the week\n"
     )
 
     return "\n".join(parts)

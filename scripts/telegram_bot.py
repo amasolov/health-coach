@@ -289,6 +289,10 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         "- Be specific with numbers and dates\n"
         "- Keep messages concise — you are responding via Telegram\n"
         "- Charts will be sent as images automatically\n"
+        "- NEVER assume the user's schedule, lifestyle, mood, or context "
+        "unless they told you or it's in their profile. Only reference "
+        "data you actually have — do not infer 'busy day', 'rest day', "
+        "'tired', etc. from the time of day or day of the week\n"
         "- At the start of a conversation, check action items for pending tasks\n"
         "- Be encouraging but honest about the data\n"
         "- When the user asks about running or outdoor training, "
@@ -399,6 +403,9 @@ def _execute_tool(
 # ---------------------------------------------------------------------------
 
 _sessions: dict[int, list[dict]] = {}
+_session_ts: dict[int, float] = {}
+
+_SYSTEM_PROMPT_TTL_S = 15 * 60  # rebuild system prompt every 15 minutes
 
 
 def _get_messages(
@@ -408,7 +415,20 @@ def _get_messages(
     first_name: str,
     user_email: str,
 ) -> list[dict]:
-    if chat_id in _sessions:
+    import time as _time
+
+    now = _time.monotonic()
+    cached = chat_id in _sessions
+
+    if cached:
+        age = now - _session_ts.get(chat_id, 0)
+        if age > _SYSTEM_PROMPT_TTL_S:
+            prompt = _build_system_prompt(user_slug, first_name)
+            web_msgs = get_recent_web_messages(user_email)
+            if web_msgs:
+                prompt += format_web_context(web_msgs)
+            _sessions[chat_id][0] = {"role": "system", "content": prompt}
+            _session_ts[chat_id] = now
         return _sessions[chat_id]
 
     prompt = _build_system_prompt(user_slug, first_name)
@@ -424,6 +444,7 @@ def _get_messages(
         messages.append({"role": row["role"], "content": row["content"]})
 
     _sessions[chat_id] = messages
+    _session_ts[chat_id] = now
     return messages
 
 
@@ -568,6 +589,7 @@ async def cmd_unlink(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     chat_id = update.effective_chat.id
     if await asyncio.to_thread(remove_telegram_chat_id, chat_id):
         _sessions.pop(chat_id, None)
+        _session_ts.pop(chat_id, None)
         await asyncio.to_thread(clear_telegram_history, chat_id)
         await update.message.reply_text(
             "Your Telegram account has been unlinked from Health Coach."
@@ -581,6 +603,7 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /reset — clear conversation history."""
     chat_id = update.effective_chat.id
     _sessions.pop(chat_id, None)
+    _session_ts.pop(chat_id, None)
     await asyncio.to_thread(clear_telegram_history, chat_id)
     await update.message.reply_text("Conversation history cleared. Send a new message to start fresh.")
 
