@@ -2646,13 +2646,27 @@ def recommend_strength_workout(user_slug: str) -> dict:
 
     Returns top 3 workout recommendations with exercise breakdowns,
     muscle focus analysis, and scoring rationale.  Uses the athlete's
-    current TSB, vitals, muscle load, goals, and iFit preferences."""
+    current TSB, vitals, muscle load, goals, and iFit preferences.
+
+    Recommendations that already have a Hevy routine (created via
+    create_hevy_routine_from_recommendation) are annotated with
+    ``existing_hevy_routine`` so the LLM tells the user to reuse it
+    instead of offering to create a duplicate (issue #25).
+    """
     from scripts.ifit_strength_recommend import recommend, AthleteState
     from dataclasses import asdict
 
     recs = recommend(user_slug)
     if not recs:
         return {"error": "No recommendations generated. Ensure library cache exists (run ifit_list_series.py)."}
+
+    # Build reverse index: ifit_workout_id → {routine_id, title}
+    routine_map = _load_routine_map()
+    ifit_to_hevy: dict[str, dict] = {}
+    for rid, mapping in routine_map.items():
+        wid = mapping.get("ifit_workout_id", "")
+        if wid:
+            ifit_to_hevy[wid] = {"routine_id": rid, "title": mapping.get("title", "")}
 
     def _with_match(rec_dict: dict) -> dict:
         raw = rec_dict.get("stage2_score", 0)
@@ -2669,17 +2683,35 @@ def recommend_strength_workout(user_slug: str) -> dict:
         rec_dict["match"] = f"{'★' * stars}{'☆' * (5 - stars)} {label} match"
         del rec_dict["stage1_score"]
         del rec_dict["stage2_score"]
+        existing = ifit_to_hevy.get(rec_dict.get("workout_id", ""))
+        if existing:
+            rec_dict["existing_hevy_routine"] = existing
         return rec_dict
 
-    return {
-        "recommendations": [_with_match(asdict(r)) for r in recs],
-        "count": len(recs),
-        "instructions": (
-            "Present these 3 workouts to the user with their exercise breakdowns. "
-            "Explain why each was chosen based on the reasoning field. "
+    recommendations = [_with_match(asdict(r)) for r in recs]
+    has_existing = any("existing_hevy_routine" in r for r in recommendations)
+
+    instructions = (
+        "Present these workouts to the user with their exercise breakdowns. "
+        "Explain why each was chosen based on the reasoning field. "
+    )
+    if has_existing:
+        instructions += (
+            "Some recommendations already have a Hevy routine — tell the user "
+            "it is already in their Hevy app and they can start it directly. "
+            "For the others, offer to create a Hevy routine using "
+            "create_hevy_routine."
+        )
+    else:
+        instructions += (
             "If the user picks one, offer to create a Hevy routine for it "
             "using create_hevy_routine."
-        ),
+        )
+
+    return {
+        "recommendations": recommendations,
+        "count": len(recommendations),
+        "instructions": instructions,
     }
 
 

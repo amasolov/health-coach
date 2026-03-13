@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.59.0
+**Don't recommend iFit-sourced Hevy routines — annotate existing routines on strength recommendations (issue #25)**
+
+- **Existing Hevy routine annotation** — `recommend_strength_workout` now cross-references the routine map to detect when a recommended iFit workout already has a Hevy routine; matching recommendations include `existing_hevy_routine` with the routine ID and title so the LLM tells the user to reuse it instead of offering to create a duplicate
+- **Dynamic instructions** — when any recommendation has an existing Hevy routine, the tool instructions switch from "offer to create" to "tell the user it's already in their Hevy app"; recommendations without an existing routine still get the create offer
+- **3 new tests** covering annotation of matching recommendations, updated instructions when existing routines are present, and no annotation when the routine map is empty
+
 ## v0.58.0
 **Reduce OpenRouter costs with prompt caching, history caps, and compact JSON**
 

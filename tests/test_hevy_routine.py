@@ -980,3 +980,65 @@ class TestIfitSourcedRoutineFiltering:
         assert "hevy-rt-001" not in ids
         assert "hevy-rt-002" in ids
         assert "hevy-rt-003" in ids
+
+    def test_strength_recs_annotate_existing_hevy_routine(self):
+        """recommend_strength_workout should flag recommendations that already
+        have a Hevy routine, so the LLM tells the user to reuse it."""
+        from scripts.ifit_strength_recommend import Recommendation
+
+        recs = [
+            Recommendation(**make_recommendation(
+                workout_id="ifit-wid-abc", title="Baldwin Beach Upper-Body",
+            )),
+            Recommendation(**make_recommendation(
+                workout_id="ifit-wid-new", title="Fresh Workout",
+            )),
+        ]
+
+        with patch("scripts.ifit_strength_recommend.recommend", return_value=recs), \
+             patch("scripts.health_tools._load_routine_map",
+                   return_value=self.ROUTINE_MAP):
+            result = health_tools.recommend_strength_workout("test")
+
+        annotated = result["recommendations"][0]
+        assert "existing_hevy_routine" in annotated
+        assert annotated["existing_hevy_routine"]["routine_id"] == "hevy-rt-001"
+        assert annotated["existing_hevy_routine"]["title"] == "iFit: Baldwin Beach Upper-Body"
+
+        fresh = result["recommendations"][1]
+        assert "existing_hevy_routine" not in fresh
+
+    def test_strength_recs_instructions_mention_existing_routines(self):
+        """When some recommendations have existing Hevy routines, the
+        instructions should tell the LLM to suggest using them directly."""
+        from scripts.ifit_strength_recommend import Recommendation
+
+        recs = [
+            Recommendation(**make_recommendation(
+                workout_id="ifit-wid-abc", title="Baldwin Beach Upper-Body",
+            )),
+        ]
+
+        with patch("scripts.ifit_strength_recommend.recommend", return_value=recs), \
+             patch("scripts.health_tools._load_routine_map",
+                   return_value=self.ROUTINE_MAP):
+            result = health_tools.recommend_strength_workout("test")
+
+        assert "already" in result["instructions"].lower() or \
+               "existing" in result["instructions"].lower()
+
+    def test_strength_recs_no_annotation_without_routine_map(self):
+        """When no routine map is available, recommendations should not be annotated."""
+        from scripts.ifit_strength_recommend import Recommendation
+
+        recs = [
+            Recommendation(**make_recommendation(
+                workout_id="ifit-wid-abc", title="Baldwin Beach Upper-Body",
+            )),
+        ]
+
+        with patch("scripts.ifit_strength_recommend.recommend", return_value=recs), \
+             patch("scripts.health_tools._load_routine_map", return_value={}):
+            result = health_tools.recommend_strength_workout("test")
+
+        assert "existing_hevy_routine" not in result["recommendations"][0]
