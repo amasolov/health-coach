@@ -117,7 +117,11 @@ def _serialise(v: Any) -> Any:
 
 def _localise_rows(rows: list[dict], tz_name: str, keys: tuple = ("time",)) -> list[dict]:
     """Convert UTC timestamp fields in query results to the user's local timezone.
-    This makes it unambiguous for the LLM to interpret 'today' vs 'yesterday'."""
+    This makes it unambiguous for the LLM to interpret 'today' vs 'yesterday'.
+
+    Also adds a ``date_label`` field (e.g. "Thursday, 12 March 2026") derived
+    from the first key so the LLM never needs to compute day-of-week itself.
+    """
     if not tz_name:
         return rows
     try:
@@ -125,15 +129,19 @@ def _localise_rows(rows: list[dict], tz_name: str, keys: tuple = ("time",)) -> l
     except Exception:
         return rows
     for row in rows:
+        local_dt: datetime | None = None
         for k in keys:
             v = row.get(k)
             if isinstance(v, str) and "T" in v:
                 try:
                     dt = datetime.fromisoformat(v)
                     if dt.tzinfo is not None:
+                        local_dt = local_dt or dt.astimezone(tz)
                         row[k] = dt.astimezone(tz).isoformat()
                 except Exception:
                     pass
+        if local_dt is not None:
+            row["date_label"] = local_dt.strftime("%A, %d %B %Y")
     return rows
 
 
