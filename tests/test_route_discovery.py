@@ -459,6 +459,104 @@ class TestRouteScoring:
         assert route_scenic_loop.score > route_plain.score
 
 
+class TestProximityAndAccess:
+    """Routes should be categorised by access mode (run from home vs drive)
+    and strongly prefer doorstep routes."""
+
+    def _make_route(self, **overrides) -> Route:
+        defaults = {
+            "osm_id": 1001,
+            "name": "Test Route",
+            "distance_m": 5000,
+            "surface_type": "trail",
+            "highway_type": "footway",
+            "is_loop": True,
+            "lat": -33.87,
+            "lon": 151.21,
+        }
+        defaults.update(overrides)
+        return Route(**defaults)
+
+    def test_doorstep_route_scores_highest(self):
+        """A route < 2 km from home should score much higher than one 15 km away."""
+        doorstep = self._make_route(
+            lat=-33.871, lon=151.211,
+            name="Unnamed path", distance_m=20000,
+            highway_type="track", surface_type="sealed_road", is_loop=False,
+        )
+        drivable = self._make_route(
+            osm_id=1002, lat=-33.99, lon=151.10,
+            name="Unnamed path", distance_m=20000,
+            highway_type="track", surface_type="sealed_road", is_loop=False,
+        )
+        prefs = {"preferred_distance_km": [5], "surface": [],
+                 "prefer_loop": False, "avoid_high_traffic": False}
+        score_routes([doorstep], prefs, user_lat=-33.87, user_lon=151.21)
+        score_routes([drivable], prefs, user_lat=-33.87, user_lon=151.21)
+        gap = doorstep.score - drivable.score
+        assert gap >= 15, f"Doorstep route should score 15+ pts more, got gap={gap}"
+
+    def test_beyond_max_drive_filtered_out(self):
+        """Routes beyond max_drive_km should be removed from results."""
+        near = self._make_route(lat=-33.871, lon=151.211)
+        far = self._make_route(osm_id=1002, lat=-34.50, lon=151.50)  # ~70 km
+        prefs = {"preferred_distance_km": [5], "surface": ["trail"],
+                 "max_drive_km": 25}
+        result = score_routes(
+            [near, far], prefs, user_lat=-33.87, user_lon=151.21,
+        )
+        osm_ids = {r.osm_id for r in result}
+        assert near.osm_id in osm_ids
+        assert far.osm_id not in osm_ids, "Route 70 km away should be filtered out"
+
+    def test_default_max_drive_km_exists(self):
+        assert "max_drive_km" in DEFAULT_RUNNING_PREFS
+        assert DEFAULT_RUNNING_PREFS["max_drive_km"] >= 20
+
+    def test_to_dict_includes_distance_from_home(self):
+        route = self._make_route(lat=-33.88, lon=151.22)
+        d = route.to_dict(user_lat=-33.87, user_lon=151.21)
+        assert "distance_from_home_km" in d
+        assert d["distance_from_home_km"] > 0
+
+    def test_to_dict_includes_access_mode_doorstep(self):
+        route = self._make_route(lat=-33.871, lon=151.211)
+        d = route.to_dict(user_lat=-33.87, user_lon=151.21)
+        assert d["access"] == "run_from_home"
+
+    def test_to_dict_includes_access_mode_drive(self):
+        route = self._make_route(lat=-33.99, lon=151.10)
+        d = route.to_dict(user_lat=-33.87, user_lon=151.21)
+        assert d["access"] in ("short_drive", "drive")
+
+    def test_to_dict_includes_est_drive_min(self):
+        route = self._make_route(lat=-33.99, lon=151.10)
+        d = route.to_dict(user_lat=-33.87, user_lon=151.21)
+        assert "est_drive_min" in d
+        assert d["est_drive_min"] > 0
+
+    def test_to_dict_no_drive_for_doorstep(self):
+        route = self._make_route(lat=-33.871, lon=151.211)
+        d = route.to_dict(user_lat=-33.87, user_lon=151.21)
+        assert d.get("est_drive_min", 0) == 0
+
+    def test_explain_includes_distance_context(self):
+        route = self._make_route(lat=-33.99, lon=151.10)
+        explanation = _explain_recommendation(
+            route, {"preferred_distance_km": [5]},
+            user_lat=-33.87, user_lon=151.21,
+        )
+        assert "drive" in explanation.lower() or "km away" in explanation.lower()
+
+    def test_explain_doorstep_says_from_home(self):
+        route = self._make_route(lat=-33.871, lon=151.211)
+        explanation = _explain_recommendation(
+            route, {"preferred_distance_km": [5]},
+            user_lat=-33.87, user_lon=151.21,
+        )
+        assert "from home" in explanation.lower() or "doorstep" in explanation.lower()
+
+
 class TestRouteToDict:
 
     def test_to_dict_has_required_fields(self):

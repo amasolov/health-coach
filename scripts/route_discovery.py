@@ -34,6 +34,7 @@ DEFAULT_RUNNING_PREFS: dict[str, Any] = {
     "prefer_loop": True,
     "avoid_high_traffic": True,
     "scenic_preference": "medium",
+    "max_drive_km": 25,
 }
 
 # OSM highway tags suitable for running, grouped by surface category
@@ -91,7 +92,11 @@ class Route:
     popularity: float = 0.0
     relation_names: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(
+        self,
+        user_lat: float = 0,
+        user_lon: float = 0,
+    ) -> dict:
         d = {
             "osm_id": self.osm_id,
             "name": self.name,
@@ -108,6 +113,19 @@ class Route:
         }
         if self.relation_names:
             d["part_of_routes"] = self.relation_names
+        if user_lat and user_lon:
+            dist_m = _haversine(user_lat, user_lon, self.lat, self.lon)
+            dist_km = round(dist_m / 1000, 1)
+            d["distance_from_home_km"] = dist_km
+            if dist_km < 2:
+                d["access"] = "run_from_home"
+                d["est_drive_min"] = 0
+            elif dist_km < 10:
+                d["access"] = "short_drive"
+                d["est_drive_min"] = max(1, round(dist_km * 1.5))
+            else:
+                d["access"] = "drive"
+                d["est_drive_min"] = round(dist_km * 1.5)
         return d
 
 
@@ -383,15 +401,20 @@ def score_routes(
         if not route.name.startswith("Unnamed"):
             score += 4
 
-        # Proximity bonus (closer to user location)
+        # Proximity bonus — strongly prefer doorstep routes
         if user_lat and user_lon:
             dist_from_user = _haversine(user_lat, user_lon, route.lat, route.lon)
-            if dist_from_user < 2000:
-                score += 12
-            elif dist_from_user < 5000:
+            dist_km = dist_from_user / 1000
+            if dist_km < 2:
+                score += 20
+            elif dist_km < 5:
+                score += 14
+            elif dist_km < 10:
                 score += 8
-            elif dist_from_user < 10000:
-                score += 4
+            elif dist_km < 20:
+                score += 3
+            else:
+                score -= 5
 
         # Phase 3: Popularity from OSM metadata
         score += route.popularity * 0.15  # up to +15 points
@@ -404,6 +427,14 @@ def score_routes(
         score += _training_context_bonus(route, tc)
 
         route.score = max(0, min(100, score))
+
+    # Filter out routes beyond maximum driving distance
+    max_drive_km = p.get("max_drive_km", 25)
+    if user_lat and user_lon and max_drive_km:
+        routes = [
+            r for r in routes
+            if _haversine(user_lat, user_lon, r.lat, r.lon) / 1000 <= max_drive_km
+        ]
 
     routes.sort(key=lambda r: r.score, reverse=True)
     return routes
@@ -780,8 +811,10 @@ def recommend_outdoor_run(slug: str, target_date: str = "") -> dict:
     # Step 4: Build recommendations
     recommendations = []
     for route in top_routes:
-        rd = route.to_dict()
-        rd["why"] = _explain_recommendation(route, running_prefs, tc)
+        rd = route.to_dict(user_lat=lat, user_lon=lon)
+        rd["why"] = _explain_recommendation(
+            route, running_prefs, tc, user_lat=lat, user_lon=lon,
+        )
         recommendations.append(rd)
 
     return {
@@ -794,9 +827,29 @@ def recommend_outdoor_run(slug: str, target_date: str = "") -> dict:
     }
 
 
-def _explain_recommendation(route: Route, prefs: dict, tc: dict | None = None) -> str:
+def _explain_recommendation(
+    route: Route,
+    prefs: dict,
+    tc: dict | None = None,
+    user_lat: float = 0,
+    user_lon: float = 0,
+) -> str:
     """Generate a human-readable explanation for why a route was recommended."""
     parts = []
+
+    # Proximity / access context
+    if user_lat and user_lon:
+        dist_home_m = _haversine(user_lat, user_lon, route.lat, route.lon)
+        dist_home_km = dist_home_m / 1000
+        if dist_home_km < 2:
+            parts.append("run from home (doorstep)")
+        elif dist_home_km < 10:
+            drive_min = max(1, round(dist_home_km * 1.5))
+            parts.append(f"~{drive_min} min drive ({dist_home_km:.0f} km away)")
+        else:
+            drive_min = round(dist_home_km * 1.5)
+            parts.append(f"~{drive_min} min drive ({dist_home_km:.0f} km away)")
+
     dist_km = route.distance_m / 1000
     pref_dists = prefs.get("preferred_distance_km", [5, 10])
     if tc:
@@ -804,7 +857,7 @@ def _explain_recommendation(route: Route, prefs: dict, tc: dict | None = None) -
     min_diff = min(abs(dist_km - d) for d in pref_dists)
 
     if min_diff < 1:
-        parts.append(f"Matches your {dist_km:.1f} km distance preference")
+        parts.append(f"matches your {dist_km:.1f} km distance preference")
     else:
         parts.append(f"{dist_km:.1f} km route")
 
