@@ -147,6 +147,12 @@ def build_system_prompt(
         "or the relevant tool FIRST. NEVER suggest workouts from memory or "
         "general knowledge — the tool returns personalised picks based on the "
         "user's current training state, history, and preferences.\n"
+        "CRITICAL: Only present details that tools actually return. Each "
+        "recommendation includes trainer name, duration, rating, difficulty, "
+        "and match score. NEVER fabricate or embellish workout details — if a "
+        "field is missing or empty, omit it rather than guessing. Do not add "
+        "trainer names, durations, ratings, or descriptions from your own "
+        "knowledge — the user needs to find these exact workouts in the app.\n"
     )
 
     # ------------------------------------------------------------------
@@ -248,6 +254,9 @@ def build_system_prompt(
         "unless they told you or it's in their profile. Only reference "
         "data you actually have — do not infer 'busy day', 'rest day', "
         "'tired', etc. from the time of day or day of the week\n"
+        "- Data fidelity: when presenting tool results (workouts, routes, "
+        "metrics), use ONLY the data returned by the tool. If a field is "
+        "empty or zero, omit it — never fill in details from memory\n"
     )
 
     # ------------------------------------------------------------------

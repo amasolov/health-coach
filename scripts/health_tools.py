@@ -2124,6 +2124,9 @@ def recommend_ifit_workout(user_slug: str) -> dict:
             stars, label = 1, "Poor"
         top.append({
             "title": cand.get("title", "?"),
+            "trainer": cand.get("trainer_name", ""),
+            "duration_min": cand.get("duration_min", 0),
+            "rating": cand.get("rating_avg", 0),
             "source": cand.get("source", "?"),
             "series_progress": cand.get("series_progress", ""),
             "match": f"{'★' * stars}{'☆' * (5 - stars)} {label} match",

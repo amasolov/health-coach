@@ -307,6 +307,172 @@ class TestCardioMuscleStress:
         assert "core" in c
 
 
+class TestClassifyWorkoutMetadata:
+    """classify_workout should extract trainer_id, duration_min, rating_avg
+    from the iFit API response so the LLM doesn't need to hallucinate them."""
+
+    def test_extracts_trainer_id(self):
+        from scripts.ifit_recommend import classify_workout
+        data = {
+            "title": "Next Level Running 9",
+            "type": "run",
+            "metadata": {"trainer": "abc123"},
+            "library_filters": [],
+        }
+        result = classify_workout(data)
+        assert result["trainer_id"] == "abc123"
+
+    def test_extracts_duration_min(self):
+        from scripts.ifit_recommend import classify_workout
+        data = {
+            "title": "Speed Intervals",
+            "type": "run",
+            "estimates": {"time": 1980},  # 33 minutes
+            "library_filters": [],
+        }
+        result = classify_workout(data)
+        assert result["duration_min"] == 33
+
+    def test_extracts_rating(self):
+        from scripts.ifit_recommend import classify_workout
+        data = {
+            "title": "Hill Climb",
+            "type": "run",
+            "ratings": {"average": 4.7, "count": 142},
+            "library_filters": [],
+        }
+        result = classify_workout(data)
+        assert result["rating_avg"] == 4.7
+
+    def test_missing_metadata_defaults(self):
+        from scripts.ifit_recommend import classify_workout
+        data = {"title": "Simple", "type": "run", "library_filters": []}
+        result = classify_workout(data)
+        assert result["trainer_id"] == ""
+        assert result["duration_min"] == 0
+        assert result["rating_avg"] == 0
+
+    def test_duration_rounds_down(self):
+        from scripts.ifit_recommend import classify_workout
+        data = {
+            "title": "Quick Run",
+            "type": "run",
+            "estimates": {"time": 1500},  # 25 min exactly
+            "library_filters": [],
+        }
+        result = classify_workout(data)
+        assert result["duration_min"] == 25
+
+
+class TestTrainerNameResolution:
+    """score_candidates should resolve trainer IDs to human-readable names."""
+
+    def test_resolves_trainer_name(self):
+        from scripts.ifit_recommend import score_candidates, _trainer_name_cache
+
+        _trainer_name_cache.clear()
+
+        candidates = [{
+            "source": "recommended",
+            "source_title": "",
+            "workout_id": "w1",
+            "title": "Test Workout",
+        }]
+        fatigue = {
+            "days_since": {},
+            "total_3d": 0,
+            "total_7d": 0,
+            "last_run_day": None,
+            "ran_recently": False,
+        }
+        history = []
+
+        meta_response = {
+            "title": "Test Workout",
+            "type": "run",
+            "metadata": {"trainer": "tid_123"},
+            "estimates": {"time": 1800},
+            "ratings": {"average": 4.5, "count": 50},
+            "difficulty": {"rating": "moderate"},
+            "library_filters": [],
+        }
+        trainer_response = {
+            "first_name": "Casey",
+            "last_name": "Gilbert",
+        }
+
+        def mock_api_get(url, headers):
+            if "lycan/v1/workouts/" in url:
+                return meta_response
+            if "/v1/trainers/" in url:
+                return trainer_response
+            return None
+
+        with patch("scripts.ifit_recommend._api_get", side_effect=mock_api_get):
+            results = score_candidates(candidates, fatigue, history, {})
+            assert len(results) >= 1
+            assert results[0]["trainer_name"] == "Casey Gilbert"
+
+    def test_caches_trainer_name(self):
+        from scripts.ifit_recommend import _trainer_name_cache, _resolve_trainer_name
+
+        _trainer_name_cache.clear()
+
+        trainer_response = {"first_name": "Jesse", "last_name": "Corbin"}
+
+        with patch("scripts.ifit_recommend._api_get", return_value=trainer_response) as mock:
+            name1 = _resolve_trainer_name("tid_abc", {})
+            name2 = _resolve_trainer_name("tid_abc", {})
+            assert name1 == "Jesse Corbin"
+            assert name2 == "Jesse Corbin"
+            assert mock.call_count == 1  # only one API call, second is cached
+
+
+class TestRecommendOutputFields:
+    """recommend_ifit_workout output must include trainer, duration, and rating
+    so the LLM presents only factual information."""
+
+    def test_recommendation_includes_trainer_and_duration(self):
+        from scripts import health_tools
+
+        fake_ranked = [{
+            "title": "Next Level Running 9",
+            "source": "up-next",
+            "series_progress": "Workout 9 of 12",
+            "type": "run",
+            "muscle_groups": {"lower"},
+            "styles": {"running"},
+            "difficulty": "moderate",
+            "required_equipment": [],
+            "reasons": ["lower rested (+15)"],
+            "score": 85,
+            "trainer_name": "Casey Gilbert",
+            "duration_min": 33,
+            "rating_avg": 4.9,
+        }]
+        fake_fatigue = {
+            "days_since": {},
+            "total_3d": 1,
+            "total_7d": 3,
+            "last_run_day": 2,
+            "ran_recently": False,
+        }
+        fake_history = []
+
+        with patch("scripts.ifit_auth.get_auth_headers", return_value={"Authorization": "fake"}), \
+             patch("scripts.ifit_recommend.fetch_recent_history", return_value=fake_history), \
+             patch("scripts.ifit_recommend.analyze_fatigue", return_value=fake_fatigue), \
+             patch("scripts.ifit_recommend.fetch_candidates", return_value=[]), \
+             patch("scripts.ifit_recommend.score_candidates", return_value=fake_ranked), \
+             patch("scripts.health_tools.resolve_user_id", return_value=None):
+            result = health_tools.recommend_ifit_workout("test")
+
+        rec = result["recommendations"][0]
+        assert rec["trainer"] == "Casey Gilbert"
+        assert rec["duration_min"] == 33
+        assert rec["rating"] == 4.9
+
+
 class TestRecommendIfitWorkout:
 
     def test_returns_dict(self, user_slug):

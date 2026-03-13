@@ -94,6 +94,24 @@ def _api_get(url: str, headers: dict) -> dict | list | None:
     return None
 
 
+_trainer_name_cache: dict[str, str] = {}
+
+
+def _resolve_trainer_name(trainer_id: str, headers: dict) -> str:
+    """Resolve a trainer ID to a human-readable name, with in-memory cache."""
+    if not trainer_id:
+        return ""
+    if trainer_id in _trainer_name_cache:
+        return _trainer_name_cache[trainer_id]
+    data = _api_get(f"{API}/v1/trainers/{trainer_id}", headers)
+    if data:
+        name = f"{data.get('first_name', '')} {data.get('last_name', '')}".strip()
+    else:
+        name = ""
+    _trainer_name_cache[trainer_id] = name
+    return name
+
+
 def classify_workout(workout_data: dict) -> dict:
     """Extract muscle groups and workout style from lycan workout data."""
     lf = workout_data.get("library_filters", [])
@@ -134,6 +152,10 @@ def classify_workout(workout_data: dict) -> dict:
     difficulty = workout_data.get("difficulty", {})
     diff_rating = difficulty.get("rating", "moderate") if isinstance(difficulty, dict) else "moderate"
 
+    meta = workout_data.get("metadata") or {}
+    estimates = workout_data.get("estimates") or {}
+    ratings = workout_data.get("ratings") or {}
+
     return {
         "muscle_groups": muscle_groups,
         "styles": styles,
@@ -143,6 +165,9 @@ def classify_workout(workout_data: dict) -> dict:
         "type": wtype,
         "title": workout_data.get("title", "?"),
         "required_equipment": workout_data.get("required_equipment", []),
+        "trainer_id": meta.get("trainer", ""),
+        "duration_min": int(estimates.get("time", 0)) // 60,
+        "rating_avg": ratings.get("average", 0),
     }
 
 
@@ -367,6 +392,8 @@ def score_candidates(
 
         cand["score"] = score
         cand["reasons"] = reasons
+        tid = info.get("trainer_id", "")
+        cand["trainer_name"] = _resolve_trainer_name(tid, headers)
         scored.append(cand)
 
     return sorted(scored, key=lambda x: x["score"], reverse=True)
