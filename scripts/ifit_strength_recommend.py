@@ -84,6 +84,12 @@ from r2_store import (
 # Paths & constants
 # ---------------------------------------------------------------------------
 
+from scripts.cache_store import (
+    get_cache, put_cache, get_cache_text, put_cache_text,
+    KEY_LIBRARY_WORKOUTS, KEY_TRAINERS, KEY_EXERCISE_CACHE,
+    KEY_HEVY_EXERCISE_REF, KEY_RECOMMENDATIONS,
+)
+
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / ".ifit_capture"
 EXERCISE_CACHE_PATH = CACHE_DIR / "exercise_cache.json"
@@ -504,6 +510,9 @@ def stage1_filter(
 
 
 def _load_exercise_cache() -> dict[str, list[dict]]:
+    cached = get_cache(KEY_EXERCISE_CACHE)
+    if cached is not None:
+        return cached
     if EXERCISE_CACHE_PATH.exists():
         with open(EXERCISE_CACHE_PATH) as f:
             return json.load(f)
@@ -511,6 +520,7 @@ def _load_exercise_cache() -> dict[str, list[dict]]:
 
 
 def _save_exercise_cache(cache: dict[str, list[dict]]) -> None:
+    put_cache(KEY_EXERCISE_CACHE, cache)
     CACHE_DIR.mkdir(exist_ok=True)
     with open(EXERCISE_CACHE_PATH, "w") as f:
         json.dump(cache, f, indent=2)
@@ -760,6 +770,8 @@ def fetch_workout_exercises(
         transcript_available = bool(transcript)
 
         if transcript:
+            if hevy_ref is None:
+                hevy_ref = get_cache_text(KEY_HEVY_EXERCISE_REF)
             if hevy_ref is None:
                 hevy_ref_path = CACHE_DIR / "hevy_exercise_ref.txt"
                 if hevy_ref_path.exists():
@@ -1507,22 +1519,28 @@ def recommend(user_slug: str = "alexey") -> list[Recommendation]:
     print("  iFit Strength Workout Recommendation Engine")
     print("=" * 80)
 
-    # Load cached data
+    # Load cached data (DB-first, file fallback)
+    trainers = get_cache(KEY_TRAINERS)
+    library = get_cache(KEY_LIBRARY_WORKOUTS)
+    hevy_ref = get_cache_text(KEY_HEVY_EXERCISE_REF)
+
     trainers_path = CACHE_DIR / "trainers.json"
     library_path = CACHE_DIR / "library_workouts.json"
     hevy_ref_path = CACHE_DIR / "hevy_exercise_ref.txt"
 
-    for p in (trainers_path, library_path, hevy_ref_path):
-        if not p.exists():
-            print(f"  ERROR: {p} not found. Run ifit_list_series.py first.")
-            return []
+    if trainers is None and trainers_path.exists():
+        with open(trainers_path) as f:
+            trainers = json.load(f)
+    if library is None and library_path.exists():
+        with open(library_path) as f:
+            library = json.load(f)
+    if hevy_ref is None and hevy_ref_path.exists():
+        with open(hevy_ref_path) as f:
+            hevy_ref = f.read()
 
-    with open(trainers_path) as f:
-        trainers = json.load(f)
-    with open(library_path) as f:
-        library = json.load(f)
-    with open(hevy_ref_path) as f:
-        hevy_ref = f.read()
+    if not trainers or not library or not hevy_ref:
+        print("  ERROR: Library data not found. Run ifit_list_series.py first.")
+        return []
 
     # Stage 0: Athlete state
     print("\nStage 0: Gathering athlete state...", flush=True)
@@ -1576,9 +1594,11 @@ def recommend(user_slug: str = "alexey") -> list[Recommendation]:
             print(f"  {i:3d}  {ex.get('hevy_name', '?'):<40s} {muscle:<12s} {sets:>4} x {reps:<6s} {weight}")
 
     # Save
+    recs_data = [asdict(r) for r in recommendations]
+    put_cache(KEY_RECOMMENDATIONS, recs_data)
     out_path = CACHE_DIR / "recommendations.json"
     with open(out_path, "w") as f:
-        json.dump([asdict(r) for r in recommendations], f, indent=2, default=str)
+        json.dump(recs_data, f, indent=2, default=str)
     print(f"\nSaved to {out_path}")
 
     return recommendations

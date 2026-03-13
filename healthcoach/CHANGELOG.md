@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.60.0
+**Migrate iFit / Hevy cache files from local filesystem to DB (issue #30)**
+
+- **CacheStore abstraction** — new `scripts/cache_store.py` with `DBCacheStore` and `FileCacheStore` backends, following the same DB-first / file-fallback pattern as `credential_store.py`; module-level API (`get_cache`, `put_cache`, `get_cache_text`, `put_cache_text`, `delete_cache`, `cache_exists`) for all scripts
+- **Alembic migration 0005** — `cache_store` table (`cache_key TEXT PRIMARY KEY`, `data JSONB`, `updated_at TIMESTAMPTZ`) stores all structured cache data in the shared DB
+- **iFit library data in DB** — `library_workouts.json` and `trainers.json` now written to and read from DB cache on every sync; file-based fallback preserved for local dev
+- **Hevy exercise templates in DB** — `hevy_exercises.json`, `hevy_exercise_ref.txt`, and `hevy_custom_map.json` all stored in DB cache; R2 remains a secondary sync target
+- **Exercise extraction cache in DB** — `exercise_cache.json` stored in DB; R2 per-workout cache still checked first for individual lookups
+- **R2 sync state in DB** — `r2_sync_state.json` stored in DB as primary, R2 as secondary, local file as tertiary
+- **LLM extraction caches in DB** — `st101_transcripts.json`, `st101_exercises.json`, `st101_exercises_llm.json` read from/written to DB
+- **Recommendations in DB** — `recommendations.json` persisted to DB cache alongside local file
+- **Dual-write strategy** — all scripts write to both DB cache and local files, ensuring backward compatibility; reads prefer DB, fall back to file
+- **22 new tests** — full coverage of `DBCacheStore`, `FileCacheStore`, module-level API, and auto-detection fallback
+- **All 10 affected scripts updated** — `ifit_list_series.py`, `sync_hevy.py`, `hevy_exercise_resolver.py`, `ifit_strength_recommend.py`, `ifit_r2_sync.py`, `health_tools.py`, `run_sync.py`, `ifit_extract_exercises.py`, `ifit_llm_extract.py`
+
 ## v0.59.0
 **Don't recommend iFit-sourced Hevy routines — annotate existing routines on strength recommendations (issue #25)**
 

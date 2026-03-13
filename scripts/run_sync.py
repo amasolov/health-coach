@@ -596,14 +596,16 @@ def _refresh_ifit_library_cache() -> None:
     The cache is used by search_ifit_library and recommend_ifit_workout tools."""
     import asyncio
     from pathlib import Path
+    from scripts.cache_store import get_cache, KEY_LIBRARY_WORKOUTS
 
     cache_path = Path(__file__).resolve().parent.parent / ".ifit_capture" / "library_workouts.json"
+    has_cache = get_cache(KEY_LIBRARY_WORKOUTS) is not None or cache_path.exists()
 
     try:
         from scripts.ifit_auth import get_auth_headers
         headers = get_auth_headers()
     except Exception:
-        if cache_path.exists():
+        if has_cache:
             print("  iFit token unavailable but cache exists — skipping refresh")
         else:
             print("  iFit token unavailable and no cache — search_ifit_library won't work")

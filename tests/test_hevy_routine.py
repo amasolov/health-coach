@@ -30,6 +30,16 @@ class TestHevyExerciseResolver:
         exercises_path.write_text(json.dumps(SAMPLE_HEVY_EXERCISES_JSON))
         self._exercises_path = exercises_path
 
+    @pytest.fixture(autouse=True)
+    def _clean_cache_store(self):
+        """Clear cache store keys used by the resolver between tests."""
+        from scripts.cache_store import delete_cache, KEY_HEVY_CUSTOM_MAP, KEY_HEVY_EXERCISES
+        delete_cache(KEY_HEVY_CUSTOM_MAP)
+        delete_cache(KEY_HEVY_EXERCISES)
+        yield
+        delete_cache(KEY_HEVY_CUSTOM_MAP)
+        delete_cache(KEY_HEVY_EXERCISES)
+
     def test_id_match(self, _setup_hevy_exercises):
         from scripts.hevy_exercise_resolver import resolve_hevy_exercises
         with patch("scripts.hevy_exercise_resolver.EXERCISES_JSON", self._exercises_path), \

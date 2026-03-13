@@ -45,6 +45,11 @@ HEVY_BASE = "https://api.hevyapp.com/v1"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 LLM_MODEL = "google/gemini-2.5-flash"
 
+from scripts.cache_store import (
+    get_cache, put_cache,
+    KEY_HEVY_EXERCISES, KEY_HEVY_CUSTOM_MAP,
+)
+
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".ifit_capture"
 EXERCISES_JSON = CACHE_DIR / "hevy_exercises.json"
 CUSTOM_MAP_PATH = CACHE_DIR / "hevy_custom_map.json"
@@ -93,20 +98,24 @@ Rules:
 
 
 def _load_library() -> dict[str, dict]:
-    """Load hevy_exercises.json into {title_lower: exercise_dict} lookup."""
-    if not EXERCISES_JSON.exists():
+    """Load Hevy exercises into {title_lower: exercise_dict} lookup."""
+    templates = get_cache(KEY_HEVY_EXERCISES)
+    if templates is None and EXERCISES_JSON.exists():
+        with open(EXERCISES_JSON) as f:
+            templates = json.load(f)
+    if not templates:
         return {}
-    with open(EXERCISES_JSON) as f:
-        templates = json.load(f)
     return {t["title"].lower(): t for t in templates}
 
 
 def _load_library_by_id() -> dict[str, dict]:
-    """Load hevy_exercises.json into {id: exercise_dict} lookup."""
-    if not EXERCISES_JSON.exists():
+    """Load Hevy exercises into {id: exercise_dict} lookup."""
+    templates = get_cache(KEY_HEVY_EXERCISES)
+    if templates is None and EXERCISES_JSON.exists():
+        with open(EXERCISES_JSON) as f:
+            templates = json.load(f)
+    if not templates:
         return {}
-    with open(EXERCISES_JSON) as f:
-        templates = json.load(f)
     return {t["id"]: t for t in templates}
 
 
@@ -137,22 +146,29 @@ def _r2_upload_json(key: str, data) -> bool:
 def _load_custom_map() -> dict[str, str]:
     """Load the name->template_id mapping for previously created custom exercises.
 
-    Checks R2 first, falls back to local file.
+    Checks DB cache first, then R2, then local file.
     """
+    cached = get_cache(KEY_HEVY_CUSTOM_MAP)
+    if isinstance(cached, dict):
+        return cached
     if _r2_available():
         data = _r2_download_json(R2_CUSTOM_MAP_KEY)
         if isinstance(data, dict):
+            put_cache(KEY_HEVY_CUSTOM_MAP, data)
             CACHE_DIR.mkdir(parents=True, exist_ok=True)
             with open(CUSTOM_MAP_PATH, "w") as f:
                 json.dump(data, f, indent=2)
             return data
     if CUSTOM_MAP_PATH.exists():
         with open(CUSTOM_MAP_PATH) as f:
-            return json.load(f)
+            data = json.load(f)
+        put_cache(KEY_HEVY_CUSTOM_MAP, data)
+        return data
     return {}
 
 
 def _save_custom_map(mapping: dict[str, str]) -> None:
+    put_cache(KEY_HEVY_CUSTOM_MAP, mapping)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with open(CUSTOM_MAP_PATH, "w") as f:
         json.dump(mapping, f, indent=2)

@@ -17,6 +17,10 @@ import time
 import httpx
 
 from scripts.addon_config import config
+from scripts.cache_store import (
+    get_cache, put_cache, get_cache_text,
+    KEY_HEVY_EXERCISE_REF, KEY_ST101_TRANSCRIPTS, KEY_ST101_EXERCISES_LLM,
+)
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", ".ifit_capture")
 API_KEY = config.openrouter_api_key
@@ -25,6 +29,9 @@ API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 def load_hevy_ref() -> str:
+    ref = get_cache_text(KEY_HEVY_EXERCISE_REF)
+    if ref is not None:
+        return ref
     with open(os.path.join(CACHE_DIR, "hevy_exercise_ref.txt")) as f:
         return f.read()
 
@@ -111,8 +118,10 @@ Extract all main working exercises as a JSON array. Skip warm-up and stretching/
 def main() -> int:
     hevy_ref = load_hevy_ref()
 
-    with open(os.path.join(CACHE_DIR, "st101_transcripts.json")) as f:
-        transcripts = json.load(f)
+    transcripts = get_cache(KEY_ST101_TRANSCRIPTS)
+    if transcripts is None:
+        with open(os.path.join(CACHE_DIR, "st101_transcripts.json")) as f:
+            transcripts = json.load(f)
 
     all_results = {}
 
@@ -135,6 +144,7 @@ def main() -> int:
 
         time.sleep(0.5)
 
+    put_cache(KEY_ST101_EXERCISES_LLM, all_results)
     out_path = os.path.join(CACHE_DIR, "st101_exercises_llm.json")
     with open(out_path, "w") as f:
         json.dump(all_results, f, indent=2)

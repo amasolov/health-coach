@@ -35,6 +35,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from r2_store import is_configured as r2_configured, upload_text, upload_json, download_json, list_keys
+from scripts.cache_store import (
+    get_cache, put_cache,
+    KEY_LIBRARY_WORKOUTS, KEY_R2_SYNC_STATE, KEY_EXERCISE_CACHE,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / ".ifit_capture"
@@ -67,17 +71,24 @@ def clean_vtt(raw: str) -> str:
 # ── Sync state management ────────────────────────────────────────────
 
 def _load_state() -> dict:
+    cached = get_cache(KEY_R2_SYNC_STATE)
+    if cached:
+        return cached
     state = download_json(STATE_KEY)
     if state:
+        put_cache(KEY_R2_SYNC_STATE, state)
         return state
     local = CACHE_DIR / "r2_sync_state.json"
     if local.exists():
         with open(local) as f:
-            return json.load(f)
+            data = json.load(f)
+        put_cache(KEY_R2_SYNC_STATE, data)
+        return data
     return {"attempted": {}, "stats": {}, "migrated": False}
 
 
 def _save_state(state: dict) -> None:
+    put_cache(KEY_R2_SYNC_STATE, state)
     upload_json(STATE_KEY, state)
     local = CACHE_DIR / "r2_sync_state.json"
     CACHE_DIR.mkdir(exist_ok=True)
@@ -93,18 +104,25 @@ def sync_library() -> dict:
         return {"skipped": True, "reason": "R2 not configured"}
 
     t0 = time.time()
+    from scripts.cache_store import KEY_TRAINERS
+    cache_key_map = {
+        "library_workouts.json": KEY_LIBRARY_WORKOUTS,
+        "trainers.json": KEY_TRAINERS,
+    }
     results = {}
     for name, key in [
         ("library_workouts.json", "library/workouts.json"),
         ("trainers.json", "library/trainers.json"),
     ]:
-        path = CACHE_DIR / name
-        if not path.exists():
-            print(f"    [library] {name}: not found locally, skipping")
-            results[name] = "not found"
-            continue
-        with open(path) as f:
-            data = json.load(f)
+        data = get_cache(cache_key_map[name])
+        if data is None:
+            path = CACHE_DIR / name
+            if not path.exists():
+                print(f"    [library] {name}: not found locally, skipping")
+                results[name] = "not found"
+                continue
+            with open(path) as f:
+                data = json.load(f)
         print(f"    [library] Uploading {name} ({len(data)} items)...", flush=True)
         if upload_json(key, data):
             results[name] = f"uploaded ({len(data)} items)"
@@ -154,13 +172,14 @@ def sync_transcripts(
     if not r2_configured():
         return {"skipped": True, "reason": "R2 not configured"}
 
-    library_path = CACHE_DIR / "library_workouts.json"
-    if not library_path.exists():
-        print("    [transcripts] library_workouts.json not found, skipping")
-        return {"error": "library_workouts.json not found"}
-
-    with open(library_path) as f:
-        library = json.load(f)
+    library = get_cache(KEY_LIBRARY_WORKOUTS)
+    if library is None:
+        library_path = CACHE_DIR / "library_workouts.json"
+        if not library_path.exists():
+            print("    [transcripts] library_workouts.json not found, skipping")
+            return {"error": "library_workouts.json not found"}
+        with open(library_path) as f:
+            library = json.load(f)
     all_ids = {w["id"] for w in library}
 
     state = _load_state()
@@ -780,13 +799,14 @@ def sync_series_discovery(batch_size: int = 50) -> dict:
     if not r2_configured():
         return {"skipped": True, "reason": "R2 not configured"}
 
-    library_path = CACHE_DIR / "library_workouts.json"
-    if not library_path.exists():
-        print("    [series] library_workouts.json not found, skipping")
-        return {"error": "library not found"}
-
-    with open(library_path) as f:
-        library = json.load(f)
+    library = get_cache(KEY_LIBRARY_WORKOUTS)
+    if library is None:
+        library_path = CACHE_DIR / "library_workouts.json"
+        if not library_path.exists():
+            print("    [series] library_workouts.json not found, skipping")
+            return {"error": "library not found"}
+        with open(library_path) as f:
+            library = json.load(f)
     all_ids = {w["id"] for w in library}
 
     state = _load_series_state()
@@ -911,13 +931,14 @@ def migrate_exercise_cache() -> dict:
         print("    [migrate] Already migrated, skipping")
         return {"already_migrated": True}
 
-    cache_path = CACHE_DIR / "exercise_cache.json"
-    if not cache_path.exists():
-        print("    [migrate] No local exercise_cache.json found")
-        return {"no_cache": True}
-
-    with open(cache_path) as f:
-        cache = json.load(f)
+    cache = get_cache(KEY_EXERCISE_CACHE)
+    if cache is None:
+        cache_path = CACHE_DIR / "exercise_cache.json"
+        if not cache_path.exists():
+            print("    [migrate] No local exercise_cache.json found")
+            return {"no_cache": True}
+        with open(cache_path) as f:
+            cache = json.load(f)
 
     print(f"    [migrate] Uploading {len(cache)} exercise cache entries to R2...",
           flush=True)

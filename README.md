@@ -57,7 +57,7 @@ Syncs data from **Garmin Connect** and **Hevy**, calculates performance metrics 
 │  ┌──────────────────────────────────────────────┐  │
 │  │            TimescaleDB (PostgreSQL)           │  │
 │  │  activities · vitals · body_comp · strength   │  │
-│  │  training_load · users · ops_log              │  │
+│  │  training_load · users · ops_log · cache_store│  │
 │  │  documents · knowledge_chunks (pgvector)      │  │
 │  └──────────────────────────────────────────────┘  │
 │                │                                    │

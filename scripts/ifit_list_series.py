@@ -28,6 +28,11 @@ try:
 except ImportError:
     from ifit_auth import get_auth_headers
 
+from scripts.cache_store import (
+    get_cache, put_cache,
+    KEY_LIBRARY_WORKOUTS, KEY_TRAINERS, KEY_LIBRARY_BY_TRAINER,
+)
+
 API = "https://api.ifit.com"
 LYCAN = "https://gateway.ifit.com/lycan/v1"
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", ".ifit_capture")
@@ -58,6 +63,9 @@ def _cache_fresh(path: str) -> bool:
 
 def fetch_all_trainers(headers: dict) -> dict[str, dict]:
     """Fetch all trainers from the legacy API. Returns {id: trainer_dict}."""
+    cached = get_cache(KEY_TRAINERS)
+    if cached is not None:
+        return cached
     if _cache_fresh(TRAINERS_CACHE):
         with open(TRAINERS_CACHE) as f:
             return json.load(f)
@@ -89,6 +97,7 @@ def fetch_all_trainers(headers: dict) -> dict[str, dict]:
     os.makedirs(CACHE_DIR, exist_ok=True)
     with open(TRAINERS_CACHE, "w") as f:
         json.dump(trainers, f, indent=2)
+    put_cache(KEY_TRAINERS, trainers)
     return trainers
 
 
@@ -174,7 +183,11 @@ def _slim_workout(w: dict) -> dict:
 
 async def fetch_all_workouts(headers: dict) -> list[dict]:
     """Fetch all discoverable workouts from lycan, with concurrency."""
-    if _cache_fresh(WORKOUTS_CACHE):
+    cached = get_cache(KEY_LIBRARY_WORKOUTS)
+    if cached is not None and _cache_fresh(WORKOUTS_CACHE):
+        print("  Using cached library (< 7 days old). Use --refresh to re-download.")
+        return cached
+    if cached is None and _cache_fresh(WORKOUTS_CACHE):
         print("  Using cached library (< 7 days old). Use --refresh to re-download.")
         with open(WORKOUTS_CACHE) as f:
             return json.load(f)
@@ -221,6 +234,7 @@ async def fetch_all_workouts(headers: dict) -> list[dict]:
     os.makedirs(CACHE_DIR, exist_ok=True)
     with open(WORKOUTS_CACHE, "w") as f:
         json.dump(all_workouts, f)
+    put_cache(KEY_LIBRARY_WORKOUTS, all_workouts)
     print(f"  Cached {len(all_workouts)} workouts to {WORKOUTS_CACHE}")
     return all_workouts
 
@@ -342,6 +356,7 @@ def main() -> int:
     out_path = os.path.join(CACHE_DIR, "library_by_trainer.json")
     with open(out_path, "w") as f:
         json.dump(summary, f, indent=2, default=str)
+    put_cache(KEY_LIBRARY_BY_TRAINER, summary)
     print(f"\n\nSaved to .ifit_capture/library_by_trainer.json")
 
     return 0

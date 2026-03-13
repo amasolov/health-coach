@@ -21,6 +21,11 @@ from typing import Any
 import httpx
 import psycopg2
 
+from scripts.cache_store import (
+    get_cache, put_cache, get_cache_text, put_cache_text,
+    KEY_HEVY_EXERCISES, KEY_HEVY_EXERCISE_REF,
+)
+
 HEVY_BASE = "https://api.hevyapp.com/v1"
 PAGE_SIZE = 10
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".ifit_capture"
@@ -75,11 +80,21 @@ def sync_exercise_templates(api_key: str, force: bool = False) -> dict:
 
     Returns stats dict.
     """
-    if not force and EXERCISES_JSON.exists():
+    cached = get_cache(KEY_HEVY_EXERCISES)
+    if not force and cached is not None:
+        if EXERCISES_JSON.exists():
+            age = time.time() - EXERCISES_JSON.stat().st_mtime
+        else:
+            age = 0
+        if age < TEMPLATES_MAX_AGE:
+            print(f"    Exercise templates cache fresh ({len(cached)} templates, {age/3600:.0f}h old)")
+            return {"cached": True, "count": len(cached)}
+    if not force and cached is None and EXERCISES_JSON.exists():
         age = time.time() - EXERCISES_JSON.stat().st_mtime
         if age < TEMPLATES_MAX_AGE:
             with open(EXERCISES_JSON) as f:
                 existing = json.load(f)
+            put_cache(KEY_HEVY_EXERCISES, existing)
             print(f"    Exercise templates cache fresh ({len(existing)} templates, {age/3600:.0f}h old)")
             return {"cached": True, "count": len(existing)}
 
@@ -108,9 +123,15 @@ def sync_exercise_templates(api_key: str, force: bool = False) -> dict:
     with open(EXERCISES_JSON, "w") as f:
         json.dump(templates, f, indent=2)
 
+    ref_lines = []
+    for t in sorted(templates, key=lambda x: x["title"]):
+        ref_lines.append(f"{t['title']} | {t['id']} | {t['primary_muscle_group']} | {t['equipment']}")
+    ref_text = "\n".join(ref_lines) + "\n"
     with open(EXERCISES_REF, "w") as f:
-        for t in sorted(templates, key=lambda x: x["title"]):
-            f.write(f"{t['title']} | {t['id']} | {t['primary_muscle_group']} | {t['equipment']}\n")
+        f.write(ref_text)
+
+    put_cache(KEY_HEVY_EXERCISES, templates)
+    put_cache_text(KEY_HEVY_EXERCISE_REF, ref_text)
 
     print(f"    Cached {len(templates)} exercise templates "
           f"({sum(1 for t in templates if t['is_custom'])} custom)", flush=True)

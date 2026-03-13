@@ -15,6 +15,10 @@ import re
 from dataclasses import dataclass, asdict
 from difflib import SequenceMatcher
 
+from scripts.cache_store import (
+    get_cache, put_cache, KEY_HEVY_EXERCISES, KEY_ST101_TRANSCRIPTS, KEY_ST101_EXERCISES,
+)
+
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", ".ifit_capture")
 
 
@@ -141,9 +145,11 @@ EXERCISE_PATTERNS: list[tuple[str, str, str]] = [
 
 def load_hevy_exercises() -> dict[str, dict]:
     """Load Hevy exercises keyed by title (lowered)."""
-    path = os.path.join(CACHE_DIR, "hevy_exercises.json")
-    with open(path) as f:
-        exercises = json.load(f)
+    exercises = get_cache(KEY_HEVY_EXERCISES)
+    if exercises is None:
+        path = os.path.join(CACHE_DIR, "hevy_exercises.json")
+        with open(path) as f:
+            exercises = json.load(f)
     return {e["title"].lower(): e for e in exercises}
 
 
@@ -270,8 +276,10 @@ def main():
     hevy_db = load_hevy_exercises()
     print(f"Loaded {len(hevy_db)} Hevy exercises")
 
-    with open(os.path.join(CACHE_DIR, "st101_transcripts.json")) as f:
-        transcripts = json.load(f)
+    transcripts = get_cache(KEY_ST101_TRANSCRIPTS)
+    if transcripts is None:
+        with open(os.path.join(CACHE_DIR, "st101_transcripts.json")) as f:
+            transcripts = json.load(f)
 
     all_results = {}
     for num_str in sorted(transcripts.keys(), key=int):
@@ -292,6 +300,7 @@ def main():
                 f"{ex.sets:4d} {ex.reps:>6s}  {ex.weight_suggestion}"
             )
 
+    put_cache(KEY_ST101_EXERCISES, all_results)
     out_path = os.path.join(CACHE_DIR, "st101_exercises.json")
     with open(out_path, "w") as f:
         json.dump(all_results, f, indent=2)

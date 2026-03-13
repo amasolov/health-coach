@@ -2170,14 +2170,18 @@ def recommend_ifit_workout(user_slug: str) -> dict:
 def _load_ifit_library() -> tuple[list[dict], dict]:
     """Load the iFit library and trainers into memory (cached after first call)."""
     import json as _json
+    from scripts.cache_store import get_cache, KEY_LIBRARY_WORKOUTS, KEY_TRAINERS
 
     if _ifit_library_cache.get("workouts"):
         return _ifit_library_cache["workouts"], _ifit_library_cache.get("trainers", {})
 
+    workouts = get_cache(KEY_LIBRARY_WORKOUTS)
+    trainers = get_cache(KEY_TRAINERS)
+
     cache_path = ROOT / ".ifit_capture" / "library_workouts.json"
     trainers_path = ROOT / ".ifit_capture" / "trainers.json"
 
-    if not cache_path.exists():
+    if workouts is None and not cache_path.exists():
         try:
             import asyncio
             from scripts.ifit_auth import get_auth_headers
@@ -2185,17 +2189,20 @@ def _load_ifit_library() -> tuple[list[dict], dict]:
             headers = get_auth_headers()
             fetch_all_trainers(headers)
             asyncio.run(fetch_all_workouts(headers))
+            workouts = get_cache(KEY_LIBRARY_WORKOUTS)
+            trainers = get_cache(KEY_TRAINERS)
         except Exception:
             return [], {}
+
+    if workouts is None:
         if not cache_path.exists():
             return [], {}
-
-    with open(cache_path) as f:
-        workouts = _json.load(f)
-    trainers = {}
-    if trainers_path.exists():
+        with open(cache_path) as f:
+            workouts = _json.load(f)
+    if trainers is None and trainers_path.exists():
         with open(trainers_path) as f:
             trainers = _json.load(f)
+    trainers = trainers or {}
 
     _ifit_library_cache["workouts"] = workouts
     _ifit_library_cache["trainers"] = trainers
@@ -2803,25 +2810,36 @@ def report_exercise_correction(
         }
 
     # Gather workout metadata from library cache
+    from scripts.cache_store import (
+        get_cache as _get_cache,
+        KEY_LIBRARY_WORKOUTS as _LW, KEY_TRAINERS as _TR, KEY_EXERCISE_CACHE as _EC,
+    )
     cache_dir = _P(__file__).resolve().parent.parent / ".ifit_capture"
-    library_path = cache_dir / "library_workouts.json"
-    trainers_path = cache_dir / "trainers.json"
 
     workout_title = workout_id
     trainer_name = ""
-    if library_path.exists():
-        with open(library_path) as f:
-            for w in _json.load(f):
-                if w.get("id") == workout_id:
-                    workout_title = w.get("title", workout_id)
-                    tid = w.get("trainer_id", "")
-                    if tid and trainers_path.exists():
-                        with open(trainers_path) as tf:
-                            trainers = _json.load(tf)
-                        trainer_name = trainers.get(tid, {}).get("name", "")
-                    break
+    library_data = _get_cache(_LW)
+    if library_data is None:
+        library_path = cache_dir / "library_workouts.json"
+        if library_path.exists():
+            with open(library_path) as f:
+                library_data = _json.load(f)
+    if library_data:
+        trainers_data = _get_cache(_TR) or {}
+        if not trainers_data:
+            trainers_path = cache_dir / "trainers.json"
+            if trainers_path.exists():
+                with open(trainers_path) as tf:
+                    trainers_data = _json.load(tf)
+        for w in library_data:
+            if w.get("id") == workout_id:
+                workout_title = w.get("title", workout_id)
+                tid = w.get("trainer_id", "")
+                if tid:
+                    trainer_name = trainers_data.get(tid, {}).get("name", "")
+                break
 
-    # Gather current exercises from R2 or local cache
+    # Gather current exercises from R2 or cache store
     exercises_json = ""
     try:
         from scripts.r2_store import is_configured as r2_ok, download_json, download_text
@@ -2833,12 +2851,14 @@ def report_exercise_correction(
         pass
 
     if not exercises_json:
-        exercise_cache_path = cache_dir / "exercise_cache.json"
-        if exercise_cache_path.exists():
-            with open(exercise_cache_path) as f:
-                cache = _json.load(f)
-            if workout_id in cache:
-                exercises_json = _json.dumps(cache[workout_id], indent=2)
+        exercise_cache = _get_cache(_EC)
+        if exercise_cache is None:
+            exercise_cache_path = cache_dir / "exercise_cache.json"
+            if exercise_cache_path.exists():
+                with open(exercise_cache_path) as f:
+                    exercise_cache = _json.load(f)
+        if exercise_cache and workout_id in exercise_cache:
+            exercises_json = _json.dumps(exercise_cache[workout_id], indent=2)
 
     # Gather transcript from R2
     transcript_snippet = ""
