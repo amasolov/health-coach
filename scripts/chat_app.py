@@ -407,6 +407,11 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
         "When a user asks about any iFit workout, program, series, or trainer, "
         "USE these tools to look it up. For program/series questions, try "
         "search_ifit_programs first, then search_ifit_library.\n"
+        "IMPORTANT: When the user asks for workout recommendations (indoor, "
+        "treadmill, running, strength, etc.), ALWAYS call recommend_ifit_workout "
+        "or the relevant tool FIRST. NEVER suggest workouts from memory or "
+        "general knowledge — the tool returns personalised picks based on the "
+        "user's current training state, history, and preferences.\n"
         "\nHevy Routine Creation:\n"
         "create_hevy_routine_from_recommendation AUTOMATICALLY creates the "
         "routine in the user's Hevy account via the API. ALWAYS pass "
@@ -482,7 +487,8 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
 
     parts.append(
         "\nGuidelines:\n"
-        "- Always query tools before making recommendations\n"
+        "- ALWAYS call the relevant tool before making ANY recommendation — "
+        "never suggest workouts, routes, or training advice from memory\n"
         "- Consider current form (TSB) when suggesting training intensity\n"
         "- Flag concerning trends (rapid ramp rate >8%/wk, declining HRV, etc.)\n"
         "- Be specific with numbers and dates\n"
