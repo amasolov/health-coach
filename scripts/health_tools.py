@@ -3288,6 +3288,44 @@ def get_hevy_routine_review(
     }
 
 
+def _build_actual_summary(rows: list[tuple], target_workout_id: str) -> dict[str, dict]:
+    """Aggregate strength_sets rows into per-exercise summaries."""
+    actual: dict[str, dict] = {}
+    for wid, _, name, set_num, weight, reps, dur, stype in rows:
+        if wid != target_workout_id:
+            continue
+        if name not in actual:
+            actual[name] = {"sets": 0, "reps": [], "weights": [], "durations": []}
+        ex = actual[name]
+        ex["sets"] += 1
+        if reps is not None:
+            ex["reps"].append(int(reps))
+        if weight is not None:
+            ex["weights"].append(float(weight))
+        if dur is not None:
+            ex["durations"].append(int(dur))
+
+    for ex in actual.values():
+        if ex["reps"]:
+            ex["typical_reps"] = max(set(ex["reps"]), key=ex["reps"].count)
+        if ex["weights"]:
+            ex["typical_weight_kg"] = round(max(ex["weights"]), 1)
+
+    return actual
+
+
+def _compact_actual(actual: dict[str, dict]) -> dict[str, dict]:
+    """Strip internal lists, keep only the summary fields."""
+    return {
+        name: {
+            "sets": d["sets"],
+            "typical_reps": d.get("typical_reps"),
+            "typical_weight_kg": d.get("typical_weight_kg"),
+        }
+        for name, d in actual.items()
+    }
+
+
 def compare_hevy_workout(
     user_id: int,
     hevy_workout_id: str = "",
@@ -3295,14 +3333,11 @@ def compare_hevy_workout(
 ) -> dict:
     """Compare a completed Hevy workout with its iFit-predicted exercises.
 
-    If hevy_workout_id is not provided, scans recent workouts (last N days)
-    for any that originated from an iFit-converted routine and compares
-    the first match found.
+    If *hevy_workout_id* is provided the function always returns the actual
+    workout data, even when no iFit predictions are available.  If omitted,
+    scans recent workouts (last *days* days) for any that originated from an
+    iFit-converted routine and compares the first match found.
     """
-    mapping = _load_routine_map()
-    if not mapping:
-        return {"error": "No iFit-to-Hevy routine conversions recorded yet."}
-
     conn = get_conn()
     cur = conn.cursor()
     try:
@@ -3341,42 +3376,32 @@ def compare_hevy_workout(
     target_workout_id = rows[0][0]
     target_routine_id = rows[0][1]
 
-    actual_exercises: dict[str, dict] = {}
-    for _, _, name, set_num, weight, reps, dur, stype in rows:
-        if rows[0][0] != _ and _ != target_workout_id:
-            continue
-        if name not in actual_exercises:
-            actual_exercises[name] = {"sets": 0, "reps": [], "weights": [], "durations": []}
-        ex = actual_exercises[name]
-        ex["sets"] += 1
-        if reps is not None:
-            ex["reps"].append(int(reps))
-        if weight is not None:
-            ex["weights"].append(float(weight))
-        if dur is not None:
-            ex["durations"].append(int(dur))
+    actual_exercises = _build_actual_summary(rows, target_workout_id)
 
-    for ex in actual_exercises.values():
-        if ex["reps"]:
-            ex["typical_reps"] = max(set(ex["reps"]), key=ex["reps"].count)
-        if ex["weights"]:
-            ex["typical_weight_kg"] = round(max(ex["weights"]), 1)
-
+    mapping = _load_routine_map()
     predicted_entry = mapping.get(target_routine_id, {}) if target_routine_id else {}
     predicted_exercises = predicted_entry.get("predicted_exercises", [])
     ifit_workout_id = predicted_entry.get("ifit_workout_id", "")
 
-    if not predicted_exercises and target_routine_id:
-        return {
+    if not predicted_exercises:
+        result: dict = {
             "workout_id": target_workout_id,
-            "routine_id": target_routine_id,
-            "actual_exercises": actual_exercises,
-            "note": (
+            "actual_exercises": _compact_actual(actual_exercises),
+        }
+        if target_routine_id:
+            result["routine_id"] = target_routine_id
+            result["note"] = (
                 "This workout came from a Hevy routine but no iFit mapping was found. "
                 "It may have been created before the mapping feature was added."
-            ),
-        }
+            )
+        else:
+            result["note"] = (
+                "This workout was not linked to an iFit routine. "
+                "Showing actual workout data only."
+            )
+        return result
 
+    # -- prediction comparison -------------------------------------------------
     predicted_names = {ex.get("hevy_name", "").lower(): ex for ex in predicted_exercises}
     actual_names = {name.lower(): data for name, data in actual_exercises.items()}
 
@@ -3413,10 +3438,7 @@ def compare_hevy_workout(
         "routine_id": target_routine_id,
         "ifit_workout_id": ifit_workout_id,
         "title": predicted_entry.get("title", ""),
-        "actual_exercises": {
-            name: {"sets": d["sets"], "typical_reps": d.get("typical_reps"), "typical_weight_kg": d.get("typical_weight_kg")}
-            for name, d in actual_exercises.items()
-        },
+        "actual_exercises": _compact_actual(actual_exercises),
         "predicted_exercises": [
             {"name": ex.get("hevy_name", ""), "sets": ex.get("sets"), "reps": ex.get("reps"), "weight": ex.get("weight", "")}
             for ex in predicted_exercises

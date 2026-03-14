@@ -13,8 +13,16 @@ from tests.conftest import FakeR2Store
 
 class TestCompareHevyWorkout:
 
-    def test_no_mapping_returns_error(self, user_id, mock_r2):
+    def test_auto_detect_no_mapping_returns_data(self, user_id, mock_r2):
+        """Auto-detect with empty R2 map still returns actual data if DB
+        has workouts with routine_id (GH-39 fix)."""
         result = health_tools.compare_hevy_workout(user_id, days=7)
+        assert "actual_exercises" in result
+        assert "note" in result
+
+    def test_auto_detect_no_workouts_returns_error(self, user_id, mock_r2):
+        """Auto-detect with no routine-linked workouts in range returns error."""
+        result = health_tools.compare_hevy_workout(user_id, days=1)
         assert "error" in result
 
     def test_compare_with_specific_workout(self, user_id, mock_r2, fake_r2, db_conn):
@@ -78,10 +86,51 @@ class TestCompareHevyWorkout:
         result = health_tools.compare_hevy_workout(user_id, days=365)
         assert "workout_id" in result or "error" in result
 
+    def test_explicit_workout_returns_data_without_mapping(self, user_id, mock_r2):
+        """When hevy_workout_id is given, return actual data even if R2 map
+        is empty (the bug reported in GH-39)."""
+        result = health_tools.compare_hevy_workout(
+            user_id, hevy_workout_id="hevy-wkt-001",
+        )
+        assert "error" not in result, (
+            "Should return actual workout data, not an error, "
+            "when hevy_workout_id is explicitly provided"
+        )
+        assert "actual_exercises" in result
+        assert result["workout_id"] == "hevy-wkt-001"
+
+    def test_explicit_workout_with_routine_not_in_map(
+        self, user_id, mock_r2, fake_r2,
+    ):
+        """Workout has routine_id in DB but the mapping doesn't contain it."""
+        fake_r2.upload_json("hevy/routine_map.json", {
+            "some-other-routine": {
+                "ifit_workout_id": "other_ifit",
+                "title": "iFit: Other",
+                "predicted_exercises": [],
+                "created_at": "2026-01-01T00:00:00",
+            }
+        })
+        result = health_tools.compare_hevy_workout(
+            user_id, hevy_workout_id="hevy-wkt-001",
+        )
+        assert "actual_exercises" in result
+        assert result["workout_id"] == "hevy-wkt-001"
+        assert "note" in result
+
+    def test_explicit_workout_without_routine_id(self, user_id, mock_r2):
+        """Workout with no routine_id still returns actual data."""
+        result = health_tools.compare_hevy_workout(
+            user_id, hevy_workout_id="hevy-wkt-002",
+        )
+        assert "error" not in result
+        assert "actual_exercises" in result
+        assert result["workout_id"] == "hevy-wkt-002"
+
     def test_differences_detection(self, user_id, mock_r2, fake_r2):
         """Verify difference detection logic with synthetic data."""
         mapping = {
-            "synthetic-routine": {
+            "ifit-routine-001": {
                 "ifit_workout_id": "ifit_synth",
                 "title": "iFit: Synthetic",
                 "predicted_exercises": [
@@ -93,5 +142,10 @@ class TestCompareHevyWorkout:
         }
         fake_r2.upload_json("hevy/routine_map.json", mapping)
 
-        result = health_tools.compare_hevy_workout(user_id, hevy_workout_id="nonexistent-wid")
-        assert "error" in result or "actual_exercises" in result
+        result = health_tools.compare_hevy_workout(
+            user_id, hevy_workout_id="hevy-wkt-001",
+        )
+        assert "differences" in result
+        diffs = result["differences"]
+        statuses = {d["status"] for d in diffs}
+        assert "predicted_but_not_done" in statuses or "done_but_not_predicted" in statuses
