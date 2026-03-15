@@ -1,5 +1,5 @@
 name: Health Coach
-version: "0.60.1"
+version: "0.61.0"
 slug: healthcoach
 description: >-
   AI-powered personal health and fitness coach.
@@ -29,7 +29,9 @@ options:
   sync_interval_minutes: 30
   mcp_port: 8765
   chat_port: 8080
-  chat_model: "anthropic/claude-sonnet-4"
+  chat_model: "google/gemini-2.5-flash"
+  chat_model_complex: "anthropic/claude-sonnet-4"
+  model_routing: "escalate"
   chainlit_url: "https://healthcoach.ktmb1.net"
   allow_registration: false
   openrouter_api_key: ""
@@ -58,6 +60,8 @@ schema:
   mcp_port: "int(1024,65535)"
   chat_port: "int(1024,65535)"
   chat_model: str
+  chat_model_complex: "str?"
+  model_routing: "str?"
   chainlit_url: "str?"
   allow_registration: bool
   openrouter_api_key: password

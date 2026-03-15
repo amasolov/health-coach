@@ -94,9 +94,11 @@ ROOT = Path(__file__).resolve().parent.parent
 CACHE_DIR = ROOT / ".ifit_capture"
 EXERCISE_CACHE_PATH = CACHE_DIR / "exercise_cache.json"
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-LLM_MODEL = "google/gemini-2.5-flash"
+from scripts.addon_config import config
+LLM_COMPLETIONS = "chat/completions"
+LLM_MODEL = config.extraction_model
 
+STAGE1_MAX_CANDIDATES = 10
 HEVY_BASE = "https://api.hevyapp.com"
 
 MUSCLE_GROUP_CANONICAL = {
@@ -501,7 +503,7 @@ def stage1_filter(
         })
 
     candidates.sort(key=lambda x: -x["stage1_score"])
-    return candidates[:18]
+    return candidates[:STAGE1_MAX_CANDIDATES]
 
 
 # ---------------------------------------------------------------------------
@@ -615,7 +617,7 @@ Extract ALL exercises as a JSON array. Include active warmup/cooldown exercises;
 
     try:
         resp = _llm_http().post(
-            OPENROUTER_URL,
+            LLM_COMPLETIONS,
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -1506,6 +1508,74 @@ def _remove_routine_mapping(routine_id: str) -> None:
             print(f"  Removed routine mapping: {routine_id}")
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Exercise cache pre-warming
+# ---------------------------------------------------------------------------
+
+
+def prewarm_exercise_cache() -> dict:
+    """Pre-extract exercises for library strength workouts to avoid LLM calls
+    during interactive ``recommend_strength_workout`` invocations.
+
+    Iterates all strength workouts in the library cache and calls
+    ``fetch_workout_exercises`` for any that don't already have cached
+    exercises.  Returns counts of cached / extracted / skipped workouts.
+    """
+    from scripts.ifit_auth import get_auth_headers
+
+    library = get_cache(KEY_LIBRARY_WORKOUTS)
+    trainers = get_cache(KEY_TRAINERS)
+    hevy_ref = get_cache_text(KEY_HEVY_EXERCISE_REF)
+
+    library_path = CACHE_DIR / "library_workouts.json"
+    trainers_path = CACHE_DIR / "trainers.json"
+    hevy_ref_path = CACHE_DIR / "hevy_exercise_ref.txt"
+
+    if library is None and library_path.exists():
+        with open(library_path) as f:
+            library = json.load(f)
+    if trainers is None and trainers_path.exists():
+        with open(trainers_path) as f:
+            trainers = json.load(f)
+    if hevy_ref is None and hevy_ref_path.exists():
+        with open(hevy_ref_path) as f:
+            hevy_ref = f.read()
+
+    if not library or not hevy_ref:
+        return {"cached": 0, "extracted": 0, "skipped": 0,
+                "error": "Library data or Hevy reference not available"}
+
+    strength = [w for w in library
+                if any("strength" in s.lower() for s in w.get("subcategories", []))]
+
+    try:
+        ifit_headers = get_auth_headers()
+    except Exception:
+        ifit_headers = None
+
+    stats = {"cached": 0, "extracted": 0, "skipped": 0}
+
+    for w in strength:
+        wid = w["id"]
+        title = w.get("title", wid)
+        duration_min = w.get("duration_seconds", 0) // 60
+
+        result = fetch_workout_exercises(
+            wid, title, ifit_headers, hevy_ref=hevy_ref,
+            duration_min=duration_min or None,
+        )
+
+        if result["source"] in ("r2_cache", "local_cache"):
+            stats["cached"] += 1
+        elif result["source"] == "extracted":
+            stats["extracted"] += 1
+            time.sleep(0.3)
+        else:
+            stats["skipped"] += 1
+
+    return stats
 
 
 # ---------------------------------------------------------------------------

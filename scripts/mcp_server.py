@@ -668,6 +668,120 @@ async def rate_route(
     return await _wrap(health_tools.rate_route, _uslug(ctx), osm_id, rating, notes)
 
 
+# ===== PLATFORM OPS TOOLS =====
+
+@mcp.tool
+async def trigger_user_sync(ctx: Context, full_sync: bool = False) -> dict:
+    """Trigger an immediate data sync (Garmin + Hevy) for the authenticated
+    user. Returns a summary of what was found and inserted.
+    Set full_sync=True to pull all historical data instead of incremental."""
+    hevy_key = _get_hevy_key(ctx) or ""
+    return await _wrap(
+        health_tools.sync_data,
+        _uslug(ctx), _uid(ctx), hevy_key, full_sync,
+    )
+
+
+@mcp.tool
+async def get_cross_channel_context(
+    ctx: Context,
+    channel: str = "telegram",
+    hours: int = 24,
+    limit: int = 10,
+) -> dict:
+    """Get recent messages from another chat channel for conversation
+    continuity. channel: 'telegram' or 'web'. Returns formatted context
+    suitable for system prompt injection."""
+    user = _TOKEN_TO_USER.get(
+        next((k for k, v in _TOKEN_TO_USER.items()
+              if v.get("slug") == _uslug(ctx)), ""),
+        {},
+    )
+    return await _wrap(
+        health_tools.get_cross_channel_context,
+        _uid(ctx),
+        channel=channel,
+        limit=limit,
+        hours=hours,
+        user_email=user.get("email", ""),
+    )
+
+
+@mcp.tool
+async def get_ops_log(
+    ctx: Context,
+    category: str = "",
+    limit: int = 50,
+) -> list[dict]:
+    """Query the operational event log. Filter by category (e.g. 'sync',
+    'threshold', 'r2', 'system'). Returns the most recent entries first."""
+    return await _wrap(
+        health_tools.get_ops_log,
+        user_id=_uid(ctx),
+        category=category,
+        limit=limit,
+    )
+
+
+@mcp.tool
+async def get_service_health(ctx: Context) -> dict:
+    """Check platform service health: database connectivity, registered
+    user count, and last successful sync time."""
+    return await _wrap(health_tools.get_service_health)
+
+
+@mcp.tool
+async def list_users(ctx: Context) -> list[dict]:
+    """List all registered users with non-sensitive summary information
+    (slug, display name, email, onboarding status). Excludes passwords
+    and API keys."""
+    return await _wrap(health_tools.list_users_summary)
+
+
+@mcp.tool
+async def register_user(
+    ctx: Context,
+    email: str,
+    first_name: str,
+    last_name: str,
+    slug: str,
+    timezone: str = "UTC",
+    garmin_email: str = "",
+    garmin_password: str = "",
+    hevy_api_key: str = "",
+) -> dict:
+    """Register a new user on the platform. Creates the database record
+    and athlete config stub. Returns the new user's ID and auto-generated
+    MCP API key."""
+    from scripts.user_manager import register_user as _register
+    return await _wrap(
+        _register,
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        slug=slug,
+        timezone=timezone,
+        garmin_email=garmin_email,
+        garmin_password=garmin_password,
+        hevy_api_key=hevy_api_key,
+    )
+
+
+@mcp.tool
+async def save_telegram_message(
+    ctx: Context,
+    chat_id: int,
+    role: str,
+    content: str,
+) -> dict:
+    """Persist a Telegram message for cross-channel context. role is
+    'user' or 'assistant'. Used by the Telegram bot to store conversation
+    history in the platform database."""
+    from scripts.cross_channel import save_telegram_message as _save
+    await _wrap(_save, _uid(ctx), chat_id, role, content)
+    return {"saved": True}
+
+
 # ---------------------------------------------------------------------------
 # Health check endpoint
 # ---------------------------------------------------------------------------

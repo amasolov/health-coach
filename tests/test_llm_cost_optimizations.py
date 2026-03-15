@@ -4,6 +4,8 @@ Tests for OpenRouter cost optimizations:
 - Message history trimming
 - Compact JSON for tool results sent to LLM
 - Cache hit metrics extraction
+- Default model and history limits
+- Tiered model routing (escalation)
 """
 
 from __future__ import annotations
@@ -17,8 +19,103 @@ from scripts.llm_utils import (
     trim_history,
     compact_json,
     extract_cache_metrics,
+    pick_chat_model,
+    ESCALATE_ROUND_THRESHOLD,
+    ESCALATE_TOOL_CALL_THRESHOLD,
     MAX_HISTORY_MESSAGES,
 )
+
+
+# ── Default configuration ────────────────────────────────────────────────
+
+class TestCostDefaults:
+
+    def test_default_chat_model_is_gemini_flash(self):
+        from scripts.addon_config import AddonConfig
+        assert AddonConfig().chat_model == "google/gemini-2.5-flash"
+
+    def test_default_complex_model_is_sonnet(self):
+        from scripts.addon_config import AddonConfig
+        assert AddonConfig().chat_model_complex == "anthropic/claude-sonnet-4"
+
+    def test_default_model_routing_is_escalate(self):
+        from scripts.addon_config import AddonConfig
+        assert AddonConfig().model_routing == "escalate"
+
+    def test_history_limit_is_20(self):
+        assert MAX_HISTORY_MESSAGES == 20
+
+
+# ── Tiered model routing ─────────────────────────────────────────────────
+
+FLASH = "google/gemini-2.5-flash"
+SONNET = "anthropic/claude-sonnet-4"
+
+
+class TestPickChatModel:
+
+    def test_round_0_uses_base_model(self):
+        model, escalated = pick_chat_model(
+            round_num=0, prev_tool_calls=0, already_escalated=False,
+            base_model=FLASH, complex_model=SONNET,
+        )
+        assert model == FLASH
+        assert escalated is False
+
+    def test_round_1_few_tools_stays_on_base(self):
+        model, escalated = pick_chat_model(
+            round_num=1, prev_tool_calls=2, already_escalated=False,
+            base_model=FLASH, complex_model=SONNET,
+        )
+        assert model == FLASH
+        assert escalated is False
+
+    def test_escalates_on_many_tool_calls(self):
+        model, escalated = pick_chat_model(
+            round_num=1, prev_tool_calls=ESCALATE_TOOL_CALL_THRESHOLD,
+            already_escalated=False,
+            base_model=FLASH, complex_model=SONNET,
+        )
+        assert model == SONNET
+        assert escalated is True
+
+    def test_escalates_on_round_threshold(self):
+        model, escalated = pick_chat_model(
+            round_num=ESCALATE_ROUND_THRESHOLD, prev_tool_calls=0,
+            already_escalated=False,
+            base_model=FLASH, complex_model=SONNET,
+        )
+        assert model == SONNET
+        assert escalated is True
+
+    def test_stays_escalated_once_triggered(self):
+        model, escalated = pick_chat_model(
+            round_num=0, prev_tool_calls=0, already_escalated=True,
+            base_model=FLASH, complex_model=SONNET,
+        )
+        assert model == SONNET
+        assert escalated is True
+
+    def test_routing_off_always_uses_base(self):
+        model, escalated = pick_chat_model(
+            round_num=5, prev_tool_calls=10, already_escalated=False,
+            base_model=FLASH, complex_model=SONNET,
+            routing="off",
+        )
+        assert model == FLASH
+        assert escalated is False
+
+    def test_no_complex_model_stays_on_base(self):
+        model, escalated = pick_chat_model(
+            round_num=5, prev_tool_calls=10, already_escalated=False,
+            base_model=FLASH, complex_model="",
+        )
+        assert model == FLASH
+        assert escalated is False
+
+    def test_thresholds_are_sensible(self):
+        assert ESCALATE_ROUND_THRESHOLD >= 2
+        assert ESCALATE_TOOL_CALL_THRESHOLD >= 3
 
 
 # ── History trimming ─────────────────────────────────────────────────────
@@ -163,6 +260,27 @@ class TestExtractCacheMetrics:
 
         metrics = extract_cache_metrics(FakeUsage())
         assert metrics["cached_tokens"] == 0
+
+
+# ── Model escalation wired into frontends ─────────────────────────────────
+
+class TestEscalationWiring:
+
+    def test_chat_app_uses_pick_chat_model(self):
+        import inspect
+        from scripts import chat_app
+        source = inspect.getsource(chat_app.on_message)
+        assert "pick_chat_model" in source, (
+            "chat_app.on_message must use pick_chat_model for model routing"
+        )
+
+    def test_telegram_uses_pick_chat_model(self):
+        import inspect
+        from scripts import telegram_bot
+        source = inspect.getsource(telegram_bot.handle_message)
+        assert "pick_chat_model" in source, (
+            "telegram_bot.handle_message must use pick_chat_model for model routing"
+        )
 
 
 # ── Telegram sanitize_tool_result compact output ─────────────────────────

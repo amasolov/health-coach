@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.61.0
+**Slash OpenRouter costs: tiered model routing, result summarization, and aggressive context reduction**
+
+- **Default chat model → Gemini 2.5 Flash** — switched from `anthropic/claude-sonnet-4` ($3/$15 per M tokens) to `google/gemini-2.5-flash` ($0.15/$0.60), a ~20x cost reduction; configurable via `CHAT_MODEL` env var
+- **Tiered model routing (Option C)** — conversations start on Gemini Flash and automatically escalate to Claude Sonnet 4 when complexity signals appear: 3+ parallel tool calls in a single round, or entering round 3+ of the tool loop; once escalated, stays on Sonnet for the rest of the message; configurable via `CHAT_MODEL_COMPLEX` and `MODEL_ROUTING` (off/escalate)
+- **Tool result summarization** — new `scripts/llm_result_summarizer.py` compresses large tool outputs before they enter the LLM context:
+  - Time-series tools (training load, body comp, vitals): stats summary + last 5 records instead of 30–90 full records
+  - Strength sessions: per-exercise summary + last 10 sets instead of 200 individual sets
+  - Activity lists: capped at 15 most recent; `raw_data` stripped from activity detail
+  - Workout summaries: exercise details capped at 8 per workout
+  - iFit programs: schedule trimmed to first 3 weeks; workout ID/title arrays removed
+  - iFit series discovery: workouts per series capped at 5
+  - Safety net: any result exceeding 15K chars is hard-truncated with a note
+- **Chainlit history cap reduced** — `MAX_HISTORY_MESSAGES` from 40 → 20, matching Telegram
+- **Telegram trims before each LLM round** — `_trim_history` now runs before `chat.completions.create` inside the tool loop (not just after the final response), preventing context explosion during multi-round tool calls
+- **Stage 2 candidates reduced** — `recommend_strength_workout` now analyses top 10 candidates (down from 18), saving up to 8 LLM extraction calls on cache misses
+- **Exercise cache pre-warming** — new `prewarm_exercise_cache()` function pre-extracts exercises for all library strength workouts so `recommend_strength_workout` hits cache instead of making live LLM calls
+- **`ops_log` records actual model + escalation** — `llm_request` events now include the model that was actually used (not just the default) and an `escalated` flag for cost attribution in Grafana
+- **MCP platform ops tools** — `get_ops_log`, `list_users_summary`, `get_cross_channel_context`, and `get_onboarding_questions` exposed via MCP for external clients
+- **Tool executor abstraction** — new `scripts/tool_executor.py` centralises tool dispatch for both Chainlit and Telegram, with MCP-mode support
+- **51 new tests** across 6 test files covering model routing, result summarization, exercise cache pre-warming, and platform ops tools
+
 ## v0.60.0
 **Migrate iFit / Hevy cache files from local filesystem to DB (issue #30)**
 

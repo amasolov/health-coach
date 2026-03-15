@@ -41,9 +41,11 @@ def _llm_http():
     except Exception:
         return httpx
 
+from scripts.addon_config import config
+
 HEVY_BASE = "https://api.hevyapp.com/v1"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-LLM_MODEL = "google/gemini-2.5-flash"
+LLM_COMPLETIONS = "chat/completions"
+LLM_MODEL = config.extraction_model
 
 from scripts.cache_store import (
     get_cache, put_cache,
@@ -241,7 +243,7 @@ def _llm_classify(exercise_name: str, muscle_hint: str = "", weight_hint: str = 
 
     try:
         resp = _llm_http().post(
-            OPENROUTER_URL,
+            LLM_COMPLETIONS,
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",

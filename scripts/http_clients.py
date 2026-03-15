@@ -58,12 +58,14 @@ def ifit_client() -> httpx.Client:
 
 
 def openrouter_client() -> httpx.Client:
-    """Shared client for OpenRouter LLM API calls."""
+    """Shared client for LLM API calls (OpenRouter or AI gateway)."""
     global _openrouter
     if _openrouter is None:
         with _lock:
             if _openrouter is None:
+                from scripts.addon_config import config
                 _openrouter = httpx.Client(
+                    base_url=config.llm_base_url,
                     timeout=60,
                     limits=httpx.Limits(
                         max_connections=5,

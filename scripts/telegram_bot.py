@@ -45,7 +45,8 @@ from telegram.ext import (
 from scripts import health_tools
 from scripts import ops_emit
 from scripts.addon_config import config
-from scripts.chat_tools_schema import TOOL_SCHEMAS, TOOL_DISPATCH
+from scripts.tool_executor import get_tool_schemas, execute_tool as _tool_execute, is_mcp_mode
+from scripts.chat_tools_schema import TOOL_SCHEMAS as _DIRECT_SCHEMAS, TOOL_DISPATCH
 from scripts.chat_charts import maybe_chart
 from scripts.cross_channel import (
     save_telegram_message,
@@ -65,7 +66,9 @@ from scripts.llm_utils import (
     build_system_message,
     compact_json,
     extract_cache_metrics as _extract_cache_metrics,
+    pick_chat_model,
 )
+from scripts.llm_result_summarizer import summarize_for_llm
 
 logging.basicConfig(
     format="%(asctime)s [telegram_bot] %(levelname)s %(message)s",
@@ -80,6 +83,8 @@ log = logging.getLogger(__name__)
 TELEGRAM_BOT_TOKEN = config.telegram_bot_token
 OPENROUTER_API_KEY = config.openrouter_api_key
 CHAT_MODEL = config.chat_model
+CHAT_MODEL_COMPLEX = config.chat_model_complex
+MODEL_ROUTING = config.model_routing
 MAX_TOOL_ROUNDS = 10
 MAX_HISTORY_MESSAGES = 20
 TELEGRAM_MSG_LIMIT = 4096
@@ -101,7 +106,7 @@ def _get_tg_tool_schemas() -> list[dict]:
     global _tg_tool_schemas
     if _tg_tool_schemas is None:
         _tg_tool_schemas = [
-            s for s in TOOL_SCHEMAS
+            s for s in get_tool_schemas()
             if s["function"]["name"] not in EXCLUDED_TOOLS
         ]
     return _tg_tool_schemas
@@ -134,7 +139,7 @@ def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
         _client = AsyncOpenAI(
-            base_url="https://openrouter.ai/api/v1",
+            base_url=config.llm_base_url,
             api_key=OPENROUTER_API_KEY,
         )
     return _client
@@ -234,7 +239,7 @@ def _build_system_prompt(user_slug: str, first_name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool execution (mirrors chat_app.py _execute_tool)
+# Tool execution (delegates to shared tool_executor)
 # ---------------------------------------------------------------------------
 
 def _execute_tool(
@@ -244,68 +249,10 @@ def _execute_tool(
     user_slug: str,
     user_data: dict,
 ) -> Any:
-    if tool_name in EXCLUDED_TOOLS:
-        return {"error": "This tool is not available via Telegram. Please use the web UI."}
-
-    entry = TOOL_DISPATCH.get(tool_name)
-    if not entry:
-        return {"error": f"Unknown tool: {tool_name}"}
-
-    fn, param_kind = entry
-
-    if param_kind == "uid" and "tz_name" not in arguments:
-        import inspect
-        sig = inspect.signature(fn)
-        if "tz_name" in sig.parameters:
-            from scripts.tz import load_user_tz
-            arguments = {**arguments, "tz_name": str(load_user_tz(user_slug))}
-
-    try:
-        if param_kind == "uid":
-            return fn(user_id, **arguments)
-        elif param_kind == "slug":
-            return fn(user_slug, **arguments)
-        elif param_kind == "none":
-            return fn(**arguments)
-        elif param_kind == "creds":
-            if tool_name == "generate_fitness_assessment":
-                hevy_key = user_data.get("hevy_api_key") or None
-                return fn(user_slug, hevy_key, **arguments)
-            elif tool_name == "create_hevy_routine_from_recommendation":
-                hevy_key = user_data.get("hevy_api_key", "")
-                return fn(user_slug, hevy_api_key=hevy_key, **arguments)
-            elif tool_name == "manage_hevy_routines":
-                hevy_key = user_data.get("hevy_api_key", "")
-                return fn(user_slug, hevy_api_key=hevy_key, **arguments)
-            elif tool_name == "get_routine_weight_recommendations":
-                hevy_key = user_data.get("hevy_api_key", "")
-                return fn(user_id, user_slug, hevy_api_key=hevy_key, **arguments)
-            elif tool_name == "sync_data":
-                hevy_key = user_data.get("hevy_api_key", "")
-                return fn(user_slug, user_id, hevy_key, **arguments)
-            elif tool_name == "garmin_authenticate":
-                email = arguments.pop("garmin_email", "") or user_data.get("garmin_email", "")
-                password = arguments.pop("garmin_password", "") or user_data.get("garmin_password", "")
-                result = fn(user_slug, email, password)
-                if result.get("status") in ("ok", "needs_mfa") and email:
-                    user_data["garmin_email"] = email
-                    user_data["garmin_password"] = password
-                return result
-            elif tool_name == "hevy_auth_status":
-                hevy_key = user_data.get("hevy_api_key", "")
-                return fn(user_slug, hevy_key)
-            elif tool_name == "hevy_connect":
-                key = arguments.pop("hevy_api_key", "") or user_data.get("hevy_api_key", "")
-                result = fn(user_slug, key)
-                if result.get("status") == "ok" and key:
-                    user_data["hevy_api_key"] = key
-                return result
-            else:
-                return fn(user_slug, **arguments)
-        else:
-            return fn(**arguments)
-    except (ValueError, Exception) as exc:
-        return {"error": str(exc)}
+    return _tool_execute(
+        tool_name, arguments, user_id, user_slug, user_data,
+        excluded_tools=EXCLUDED_TOOLS,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -553,11 +500,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     client = _get_client()
     charts: list = []
+    escalated = False
+    prev_tool_calls = 0
 
     try:
         for _round in range(MAX_TOOL_ROUNDS):
+            _trim_history(messages)
+            model, escalated = pick_chat_model(
+                _round, prev_tool_calls, escalated,
+                CHAT_MODEL, CHAT_MODEL_COMPLEX, MODEL_ROUTING,
+            )
             response = await client.chat.completions.create(
-                model=CHAT_MODEL,
+                model=model,
                 messages=messages,
                 tools=_get_tg_tool_schemas(),
                 stream=False,
@@ -568,16 +522,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 prompt_tok = getattr(usage, "prompt_tokens", 0) or 0
                 completion_tok = getattr(usage, "completion_tokens", 0) or 0
                 cache = _extract_cache_metrics(usage)
+                _model, _esc = model, escalated
                 asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: ops_emit.emit(
                         "telegram", "llm_request",
                         user_id=user_id,
-                        model=CHAT_MODEL,
+                        model=_model,
                         prompt_tokens=prompt_tok,
                         completion_tokens=completion_tok,
                         total_tokens=prompt_tok + completion_tok,
                         cached_tokens=cache["cached_tokens"],
+                        escalated=_esc,
                     ),
                 )
 
@@ -585,6 +541,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
             if choice.finish_reason == "tool_calls" or choice.message.tool_calls:
                 messages.append(choice.message.model_dump())
+                prev_tool_calls = len(choice.message.tool_calls)
 
                 try:
                     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -607,7 +564,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     if fig:
                         charts.append(fig)
 
-                    result_str = sanitize_tool_result(result)
+                    llm_result = summarize_for_llm(fn_name, result)
+                    result_str = sanitize_tool_result(llm_result)
 
                     messages.append({
                         "role": "tool",

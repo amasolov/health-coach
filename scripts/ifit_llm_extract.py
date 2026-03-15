@@ -24,8 +24,8 @@ from scripts.cache_store import (
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", ".ifit_capture")
 API_KEY = config.openrouter_api_key
-MODEL = "google/gemini-2.5-flash"
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODEL = config.extraction_model
+LLM_COMPLETIONS_URL = config.llm_base_url.rstrip("/") + "/chat/completions"
 
 
 def load_hevy_ref() -> str:
@@ -77,7 +77,7 @@ def extract_exercises(transcript: str, hevy_ref: str, workout_num: int) -> list[
 Extract all main working exercises as a JSON array. Skip warm-up and stretching/cool-down."""
 
     resp = httpx.post(
-        API_URL,
+        LLM_COMPLETIONS_URL,
         headers={
             "Authorization": f"Bearer {API_KEY}",
             "Content-Type": "application/json",

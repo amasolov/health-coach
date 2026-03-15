@@ -1,6 +1,8 @@
 """Tests for iFit recommendation engines (mocked LLM / external calls)."""
 
 import json
+from pathlib import Path
+
 import pytest
 from collections import defaultdict
 from unittest.mock import patch, MagicMock
@@ -14,7 +16,9 @@ class TestRecommendStrengthWorkout:
 
     def test_stage1_filter(self, user_slug):
         """Stage 1 filtering should work with real data."""
-        from scripts.ifit_strength_recommend import stage1_filter, gather_athlete_state
+        from scripts.ifit_strength_recommend import (
+            stage1_filter, gather_athlete_state, STAGE1_MAX_CANDIDATES,
+        )
         from pathlib import Path
 
         cache_dir = Path(__file__).resolve().parent.parent / ".ifit_capture"
@@ -33,9 +37,14 @@ class TestRecommendStrengthWorkout:
         candidates = stage1_filter(state, library, trainers)
         assert isinstance(candidates, list)
         assert len(candidates) > 0, "Expected at least some strength candidates"
+        assert len(candidates) <= STAGE1_MAX_CANDIDATES
         for c in candidates[:3]:
             assert "title" in c
             assert "stage1_score" in c
+
+    def test_stage1_max_candidates_is_10(self):
+        from scripts.ifit_strength_recommend import STAGE1_MAX_CANDIDATES
+        assert STAGE1_MAX_CANDIDATES == 10
 
     def test_gather_athlete_state(self, user_slug):
         from scripts.ifit_strength_recommend import gather_athlete_state
@@ -743,6 +752,62 @@ class TestWorkoutDetailsRouteFields:
         assert result.get("elevation_gain_m") == 100
         assert result.get("max_incline_pct") == 4
         assert result.get("location_type") == "Outdoor"
+
+
+class TestPrewarmExerciseCache:
+
+    def test_prewarm_returns_stats(self):
+        """prewarm_exercise_cache should return hit/miss/error counts."""
+        from scripts.ifit_strength_recommend import prewarm_exercise_cache
+
+        with patch("scripts.ifit_strength_recommend.get_cache", return_value=None), \
+             patch("scripts.ifit_strength_recommend.get_cache_text", return_value=None), \
+             patch("scripts.ifit_strength_recommend.CACHE_DIR", Path("/nonexistent")):
+            result = prewarm_exercise_cache()
+
+        assert isinstance(result, dict)
+        assert "cached" in result
+        assert "extracted" in result
+        assert "skipped" in result
+
+    def test_prewarm_skips_when_no_library(self):
+        from scripts.ifit_strength_recommend import prewarm_exercise_cache
+
+        with patch("scripts.ifit_strength_recommend.get_cache", return_value=None), \
+             patch("scripts.ifit_strength_recommend.get_cache_text", return_value=None), \
+             patch("scripts.ifit_strength_recommend.CACHE_DIR", Path("/nonexistent")):
+            result = prewarm_exercise_cache()
+
+        assert result["skipped"] == 0
+        assert result["extracted"] == 0
+        assert "error" in result
+
+    def test_prewarm_uses_cache_layers(self):
+        """Workouts with existing exercise cache should not trigger LLM."""
+        from scripts.ifit_strength_recommend import prewarm_exercise_cache
+
+        fake_library = [
+            {"id": "w1", "title": "Test", "subcategories": ["Strength"],
+             "difficulty": "Moderate", "duration_seconds": 1800,
+             "rating_avg": 4.5, "trainer_id": "t1",
+             "required_equipment": [], "targeting": []},
+        ]
+        fake_trainers = {"t1": {"name": "Trainer"}}
+
+        with patch("scripts.ifit_strength_recommend.get_cache",
+                   side_effect=lambda k: {"trainers": fake_trainers,
+                                           "library_workouts": fake_library,
+                                           "exercise_cache": {"w1": [{"hevy_name": "Squat"}]}}.get(k)), \
+             patch("scripts.ifit_strength_recommend.get_cache_text",
+                   return_value="Squat | sq1 | quadriceps | barbell"), \
+             patch("scripts.ifit_strength_recommend.CACHE_DIR", Path("/nonexistent")), \
+             patch("scripts.ifit_strength_recommend.r2_configured", return_value=False), \
+             patch("scripts.ifit_strength_recommend.r2_download_json",
+                   side_effect=lambda k: [{"hevy_name": "Squat"}] if "w1" in k else None), \
+             patch("scripts.ifit_strength_recommend._llm_extract") as mock_llm:
+            result = prewarm_exercise_cache()
+
+        mock_llm.assert_not_called()
 
 
 class TestRecommendIfitWorkout:

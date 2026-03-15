@@ -1,0 +1,14 @@
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''\.gitleaks\.toml$''',
+  '''CHANGELOG\.md$''',
+  '''LICENSE$''',
+  '''requirements\..*\.txt$''',
+  '''secret-template\.yaml$''',
+]
+regexes = [
+  '''ifit/recommendations''',
+]

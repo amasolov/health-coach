@@ -4019,3 +4019,117 @@ def rate_route(slug: str, osm_id: int, rating: int, notes: str = "") -> dict:
     """Rate a running route after completing it (1-5 stars)."""
     from scripts.route_discovery import rate_route as _rate
     return _rate(slug, osm_id, rating, notes)
+
+
+# ===== PLATFORM OPS TOOLS ==================================================
+# These support the platform-coach decoupling (issue #18 / #26).
+# Exposed via MCP for ZeroClaw, health-coach, and external clients.
+
+def get_ops_log(
+    user_id: int | None = None,
+    category: str = "",
+    limit: int = 50,
+) -> list[dict]:
+    """Query recent ops_log entries, optionally filtered by category and user."""
+    conn = get_conn()
+    try:
+        import psycopg2.extras
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        clauses: list[str] = []
+        params: list = []
+        if category:
+            clauses.append("category = %s")
+            params.append(category)
+        if user_id is not None:
+            clauses.append("user_id = %s")
+            params.append(user_id)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        cur.execute(
+            f"SELECT time, category, event, user_id, status, duration_ms, detail "
+            f"FROM ops_log {where} ORDER BY time DESC LIMIT %s",
+            (*params, limit),
+        )
+        rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["time"] = str(d["time"]) if d.get("time") else None
+            if isinstance(d.get("detail"), str):
+                try:
+                    import json as _j
+                    d["detail"] = _j.loads(d["detail"])
+                except Exception:
+                    pass
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def get_service_health() -> dict:
+    """Check service health: DB connectivity, user count, last sync time."""
+    result: dict = {"db_connected": False, "user_count": 0, "last_sync": None}
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT 1")
+        result["db_connected"] = True
+
+        cur.execute("SELECT count(*) FROM users")
+        result["user_count"] = cur.fetchone()[0]
+
+        cur.execute(
+            "SELECT time FROM ops_log WHERE event = 'sync_cycle' "
+            "ORDER BY time DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+        result["last_sync"] = str(row[0]) if row else None
+
+        conn.close()
+    except Exception as exc:
+        result["error"] = str(exc)[:200]
+    return result
+
+
+_USERS_SUMMARY_COLS = ("id", "slug", "display_name", "email", "onboarding_complete")
+
+
+def list_users_summary() -> list[dict]:
+    """List all users with non-sensitive fields only."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {', '.join(_USERS_SUMMARY_COLS)} FROM users ORDER BY id"
+        )
+        rows = cur.fetchall()
+        return [dict(zip(_USERS_SUMMARY_COLS, row)) for row in rows]
+    finally:
+        conn.close()
+
+
+def get_cross_channel_context(
+    user_id: int,
+    channel: str = "telegram",
+    limit: int = 10,
+    hours: int = 24,
+    user_email: str = "",
+) -> dict:
+    """Retrieve recent cross-channel messages for system-prompt injection."""
+    from scripts.cross_channel import (
+        get_recent_telegram_messages,
+        get_recent_web_messages,
+        format_telegram_context,
+        format_web_context,
+    )
+
+    if channel == "telegram":
+        msgs = get_recent_telegram_messages(user_id, limit=limit, hours=hours)
+        return {"channel": "telegram", "messages": msgs,
+                "formatted": format_telegram_context(msgs)}
+    elif channel == "web" and user_email:
+        msgs = get_recent_web_messages(user_email, limit=limit, hours=hours)
+        return {"channel": "web", "messages": msgs,
+                "formatted": format_web_context(msgs)}
+    return {"channel": channel, "messages": [], "formatted": ""}

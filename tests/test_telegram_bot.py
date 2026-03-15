@@ -128,3 +128,32 @@ class TestFormatApplied:
     def test_code_spans_preserved(self):
         result = md_to_telegram_html("Use `get_zones` to check")
         assert "<code>get_zones</code>" in result
+
+
+# ── Telegram trims history before each LLM round ─────────────────────────
+
+class TestTelegramTrimBeforeRound:
+    """Verify that _trim_history runs before each LLM call, not only after
+    the final response.  This prevents context explosion during multi-round
+    tool loops."""
+
+    def test_trim_called_before_create(self):
+        """Inspect the handle_message source to confirm _trim_history
+        precedes client.chat.completions.create inside the tool loop."""
+        import inspect
+        from scripts import telegram_bot
+
+        source = inspect.getsource(telegram_bot.handle_message)
+
+        loop_start = source.find("for _round in range(MAX_TOOL_ROUNDS)")
+        assert loop_start != -1, "Tool loop not found in handle_message"
+
+        loop_body = source[loop_start:]
+        trim_pos = loop_body.find("_trim_history(messages)")
+        create_pos = loop_body.find("client.chat.completions.create")
+        assert trim_pos != -1, "_trim_history not found in tool loop"
+        assert create_pos != -1, "chat.completions.create not found in tool loop"
+        assert trim_pos < create_pos, (
+            "_trim_history must come BEFORE client.chat.completions.create "
+            "inside the tool loop to prevent context explosion"
+        )

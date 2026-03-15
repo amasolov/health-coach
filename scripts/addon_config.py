@@ -91,7 +91,11 @@ class AddonConfig(BaseSettings):
     # --- AI / LLM ---
     openrouter_api_key: str = ""
     openai_api_key: str = ""
-    chat_model: str = "anthropic/claude-sonnet-4"
+    llm_base_url: str = "https://openrouter.ai/api/v1"
+    chat_model: str = "google/gemini-2.5-flash"
+    chat_model_complex: str = "anthropic/claude-sonnet-4"
+    model_routing: str = "escalate"
+    extraction_model: str = "google/gemini-2.5-flash"
     embedding_api_base: str = ""
     embedding_model: str = "text-embedding-3-small"
     embedding_dim: int = 768
@@ -210,7 +214,11 @@ _ENV_MAP: dict[str, str] = {
     "SYNC_INTERVAL": "sync_interval_minutes",
     "OPENROUTER_API_KEY": "openrouter_api_key",
     "OPENAI_API_KEY": "openai_api_key",
+    "LLM_BASE_URL": "llm_base_url",
     "CHAT_MODEL": "chat_model",
+    "CHAT_MODEL_COMPLEX": "chat_model_complex",
+    "MODEL_ROUTING": "model_routing",
+    "EXTRACTION_MODEL": "extraction_model",
     "EMBEDDING_API_BASE": "embedding_api_base",
     "EMBEDDING_MODEL": "embedding_model",
     "EMBEDDING_DIM": "embedding_dim",
