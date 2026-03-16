@@ -67,8 +67,10 @@ from scripts.llm_utils import (
     compact_json,
     extract_cache_metrics as _extract_cache_metrics,
     pick_chat_model,
+    classify_message_complexity,
 )
 from scripts.llm_result_summarizer import summarize_for_llm
+from scripts.tool_filter import select_tools_for_message
 
 logging.basicConfig(
     format="%(asctime)s [telegram_bot] %(levelname)s %(message)s",
@@ -500,8 +502,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     client = _get_client()
     charts: list = []
-    escalated = False
+    escalated = (
+        classify_message_complexity(user_text)
+        if MODEL_ROUTING == "escalate" and CHAT_MODEL_COMPLEX
+        else False
+    )
     prev_tool_calls = 0
+    filtered_tools = select_tools_for_message(user_text, _get_tg_tool_schemas())
 
     try:
         for _round in range(MAX_TOOL_ROUNDS):
@@ -513,7 +520,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,
-                tools=_get_tg_tool_schemas(),
+                tools=filtered_tools,
                 stream=False,
             )
 

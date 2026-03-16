@@ -9,6 +9,7 @@ compact serialization, and tiered model routing.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 MAX_HISTORY_MESSAGES = 20
@@ -19,6 +20,61 @@ MAX_HISTORY_MESSAGES = 20
 # parallel tool calls).
 ESCALATE_ROUND_THRESHOLD = 2       # 0-indexed; round 3 in human terms
 ESCALATE_TOOL_CALL_THRESHOLD = 3   # parallel tool calls in a single round
+
+# ---------------------------------------------------------------------------
+# Semantic complexity classification
+# ---------------------------------------------------------------------------
+# Each pattern carries a weight.  When the sum meets COMPLEXITY_THRESHOLD
+# the message is pre-escalated to the complex model *before* the first
+# LLM round, saving wasted cheap-model rounds on inherently hard queries.
+# ---------------------------------------------------------------------------
+
+COMPLEXITY_THRESHOLD = 3
+_MIN_LENGTH_FOR_COMPLEX = 20
+
+_COMPLEX_SIGNALS: list[tuple[re.Pattern[str], int]] = [
+    # Multi-part questions (2+ question marks)
+    (re.compile(r"\?[^?]+\?"), 2),
+    # Explicit comparison / contrastive analysis
+    (re.compile(r"\b(compare|contrast|versus|vs\.?)\b", re.I), 2),
+    # Analytical / correlative reasoning
+    (re.compile(r"\b(analy[sz]e|correlat[ei]|relationship\s+between)\b", re.I), 2),
+    # Training-plan / periodisation requests (high-confidence complex)
+    (re.compile(r"\b(training\s+plan|race\s+plan|periodiz\w*|build\s+a\s+program)\b", re.I), 3),
+    (re.compile(r"\b(create\s+a\s+plan|design\s+a\s+(program|plan)|prepare\s+for)\b", re.I), 3),
+    # Step-by-step / detailed walkthrough
+    (re.compile(r"\b(step[\s-]by[\s-]step|break\s+down|walk\s+me\s+through)\b", re.I), 2),
+    # Temporal multi-point analysis
+    (re.compile(r"\b(trend|progression|trajectory)\b", re.I), 1),
+    (re.compile(r"\bover\s+the\s+(last|past)\s+\d+", re.I), 1),
+    # Causal / explanatory reasoning
+    (re.compile(r"\b(explain\s+why|how\s+does\s+\w+\s+affect|what\s+caused)\b", re.I), 1),
+    # Correlation / relatedness questions
+    (re.compile(r"\brelated\s+to\b", re.I), 1),
+    # Multi-factor consideration
+    (re.compile(r"\b(considering|taking\s+into\s+account|factoring\s+in)\b", re.I), 1),
+    # Optimisation + possessive ("optimize my …")
+    (re.compile(r"\b(adjust|optimiz[ei]|improve)\s+(my|the)\b", re.I), 1),
+]
+
+
+def classify_message_complexity(user_message: str) -> bool:
+    """Return *True* when *user_message* looks complex enough to justify
+    starting on the expensive model.
+
+    The function is deterministic, zero-cost (regex only) and intended to
+    be called once per user message, before the tool loop begins.
+    """
+    if len(user_message) < _MIN_LENGTH_FOR_COMPLEX:
+        return False
+
+    score = 0
+    for pattern, weight in _COMPLEX_SIGNALS:
+        if pattern.search(user_message):
+            score += weight
+            if score >= COMPLEXITY_THRESHOLD:
+                return True
+    return False
 
 
 def pick_chat_model(

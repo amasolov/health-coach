@@ -20,8 +20,10 @@ from scripts.llm_utils import (
     compact_json,
     extract_cache_metrics,
     pick_chat_model,
+    classify_message_complexity,
     ESCALATE_ROUND_THRESHOLD,
     ESCALATE_TOOL_CALL_THRESHOLD,
+    COMPLEXITY_THRESHOLD,
     MAX_HISTORY_MESSAGES,
 )
 
@@ -116,6 +118,133 @@ class TestPickChatModel:
     def test_thresholds_are_sensible(self):
         assert ESCALATE_ROUND_THRESHOLD >= 2
         assert ESCALATE_TOOL_CALL_THRESHOLD >= 3
+
+
+# ── Semantic message classification ───────────────────────────────────────
+
+class TestClassifyMessageComplexity:
+    """classify_message_complexity returns True for messages that warrant
+    the complex model upfront, False for simple lookups and greetings."""
+
+    # --- Simple messages (should stay on cheap model) -------------------------
+
+    def test_greeting_is_simple(self):
+        assert classify_message_complexity("Hi") is False
+
+    def test_short_thanks_is_simple(self):
+        assert classify_message_complexity("Thanks!") is False
+
+    def test_single_metric_query_is_simple(self):
+        assert classify_message_complexity("What's my CTL?") is False
+
+    def test_sleep_query_is_simple(self):
+        assert classify_message_complexity("How did I sleep last night?") is False
+
+    def test_vitals_query_is_simple(self):
+        assert classify_message_complexity("Show my vitals") is False
+
+    def test_readiness_query_is_simple(self):
+        assert classify_message_complexity("Am I ready to train today?") is False
+
+    def test_yesterday_summary_is_simple(self):
+        assert classify_message_complexity("What did I do yesterday?") is False
+
+    def test_empty_string_is_simple(self):
+        assert classify_message_complexity("") is False
+
+    def test_single_word_is_simple(self):
+        assert classify_message_complexity("yes") is False
+
+    # --- Complex messages (should escalate upfront) ---------------------------
+
+    def test_multipart_question_is_complex(self):
+        msg = "How did I sleep last week? And how does that compare to my training load?"
+        assert classify_message_complexity(msg) is True
+
+    def test_comparison_request_is_complex(self):
+        msg = "Compare my running volume and sleep quality over the last 4 weeks"
+        assert classify_message_complexity(msg) is True
+
+    def test_training_plan_is_complex(self):
+        msg = "Create a training plan for my half marathon in 8 weeks"
+        assert classify_message_complexity(msg) is True
+
+    def test_analysis_with_trend_is_complex(self):
+        msg = "Analyze the trend in my recovery scores and correlate with training stress"
+        assert classify_message_complexity(msg) is True
+
+    def test_multifactor_reasoning_is_complex(self):
+        msg = ("Why has my recovery been declining? Could it be related to "
+               "my increased training volume or sleep patterns?")
+        assert classify_message_complexity(msg) is True
+
+    def test_stepbystep_request_is_complex(self):
+        msg = "Walk me through how to adjust my training zones step by step"
+        assert classify_message_complexity(msg) is True
+
+    def test_periodization_is_complex(self):
+        msg = "Design a periodization program for the next 12 weeks"
+        assert classify_message_complexity(msg) is True
+
+    def test_optimize_with_context_is_complex(self):
+        msg = ("Analyze my zone distribution and compare it to the 80/20 principle. "
+               "What should I change?")
+        assert classify_message_complexity(msg) is True
+
+    # --- Edge cases -----------------------------------------------------------
+
+    def test_single_weak_signal_not_enough(self):
+        """A single weak keyword alone shouldn't trigger escalation."""
+        assert classify_message_complexity("Why did I feel tired?") is False
+
+    def test_short_message_never_complex(self):
+        """Messages under 20 chars are never complex, even with keywords."""
+        assert classify_message_complexity("Compare vs plan") is False
+
+    def test_threshold_is_sensible(self):
+        assert COMPLEXITY_THRESHOLD >= 2
+
+
+# ── Semantic routing integrates with pick_chat_model ─────────────────────
+
+class TestSemanticRoutingIntegration:
+    """Verify that semantic pre-classification feeds correctly into
+    the existing pick_chat_model flow."""
+
+    def test_complex_message_escalates_on_round_0(self):
+        """If caller pre-classifies as complex, round 0 uses complex model."""
+        is_complex = classify_message_complexity(
+            "Create a training plan for my marathon and analyze my fitness trends"
+        )
+        model, escalated = pick_chat_model(
+            round_num=0, prev_tool_calls=0, already_escalated=is_complex,
+            base_model=FLASH, complex_model=SONNET,
+        )
+        assert model == SONNET
+        assert escalated is True
+
+    def test_simple_message_stays_on_base_round_0(self):
+        """If caller pre-classifies as simple, round 0 uses base model."""
+        is_complex = classify_message_complexity("How did I sleep?")
+        model, escalated = pick_chat_model(
+            round_num=0, prev_tool_calls=0, already_escalated=is_complex,
+            base_model=FLASH, complex_model=SONNET,
+        )
+        assert model == FLASH
+        assert escalated is False
+
+    def test_simple_message_still_escalates_mechanically(self):
+        """Mechanical escalation still works as fallback for simple messages
+        that turn out to need deep tool loops."""
+        is_complex = classify_message_complexity("What's my CTL?")
+        assert is_complex is False
+        model, escalated = pick_chat_model(
+            round_num=ESCALATE_ROUND_THRESHOLD, prev_tool_calls=0,
+            already_escalated=is_complex,
+            base_model=FLASH, complex_model=SONNET,
+        )
+        assert model == SONNET
+        assert escalated is True
 
 
 # ── History trimming ─────────────────────────────────────────────────────
@@ -280,6 +409,27 @@ class TestEscalationWiring:
         source = inspect.getsource(telegram_bot.handle_message)
         assert "pick_chat_model" in source, (
             "telegram_bot.handle_message must use pick_chat_model for model routing"
+        )
+
+
+class TestSemanticRoutingWiring:
+
+    def test_chat_app_uses_classify_message_complexity(self):
+        import inspect
+        from scripts import chat_app
+        source = inspect.getsource(chat_app.on_message)
+        assert "classify_message_complexity" in source, (
+            "chat_app.on_message must use classify_message_complexity "
+            "for semantic pre-routing"
+        )
+
+    def test_telegram_uses_classify_message_complexity(self):
+        import inspect
+        from scripts import telegram_bot
+        source = inspect.getsource(telegram_bot.handle_message)
+        assert "classify_message_complexity" in source, (
+            "telegram_bot.handle_message must use classify_message_complexity "
+            "for semantic pre-routing"
         )
 
 

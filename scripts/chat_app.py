@@ -53,9 +53,11 @@ from scripts.llm_utils import (
     compact_json,
     extract_cache_metrics as _extract_cache_metrics,
     pick_chat_model,
+    classify_message_complexity,
     MAX_HISTORY_MESSAGES,
 )
 from scripts.llm_result_summarizer import summarize_for_llm
+from scripts.tool_filter import select_tools_for_message
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -799,8 +801,13 @@ async def on_message(message: cl.Message):
 
     client = _get_client()
     charts: list = []
-    escalated = False
+    escalated = (
+        classify_message_complexity(message.content)
+        if MODEL_ROUTING == "escalate" and CHAT_MODEL_COMPLEX
+        else False
+    )
     prev_tool_calls = 0
+    filtered_tools = select_tools_for_message(message.content, get_tool_schemas())
 
     for _round in range(MAX_TOOL_ROUNDS):
         _trim_history(messages)
@@ -812,7 +819,7 @@ async def on_message(message: cl.Message):
             response = await client.chat.completions.create(
                 model=model,
                 messages=messages,
-                tools=get_tool_schemas(),
+                tools=filtered_tools,
                 stream=False,
             )
         except APIStatusError as exc:

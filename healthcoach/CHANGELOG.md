@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.63.0
+**Per-request tool filtering: send only relevant tools to the LLM based on message intent**
+
+- **`scripts/tool_filter.py`** — new module that classifies user messages into intents (vitals, training, fitness, recommend, strength, iFit, treadmill, weather, knowledge, goals, setup, action items, sync, meta) and selects only the tool schemas relevant to those intents; 14 tool groups with 15 intent-detection patterns; zero-cost regex-based classification
+- **Chainlit + Telegram wired** — both `chat_app.py` and `telegram_bot.py` now call `select_tools_for_message()` before the tool loop, passing the filtered schema set to every LLM round instead of all 54 tools
+- **Conservative fallback** — when no intent is detected (greetings, ambiguous messages), all tools are sent unchanged; core tools (`get_fitness_summary`, `get_action_items`) are always included when any intent matches
+- **Typical token savings**:
+  - "How did I sleep?" → 8 tools (85% reduction)
+  - "What's my CTL?" → 6 tools (89% reduction)
+  - "Sync my data" → 3 tools (94% reduction)
+  - "Recommend me a workout" → 24 tools (56% reduction)
+  - "Hi there!" → 54 tools (0% — safe fallback)
+- **43 new tests** covering intent detection, group composition, fallback behaviour, token reduction assertions, and caller wiring
+
+## v0.62.0
+**Semantic model routing: classify message complexity upfront to avoid wasting cheap-model rounds**
+
+- **`classify_message_complexity()`** — new zero-cost, regex-based classifier in `scripts/llm_utils.py` that scores user messages against weighted complexity signals (multi-part questions, comparison/analysis requests, training plan generation, periodisation, step-by-step walkthroughs, temporal trend analysis, causal reasoning, multi-factor consideration); messages scoring ≥ 3 are pre-escalated to the complex model before the first LLM round
+- **Upfront escalation in Chainlit + Telegram** — both `chat_app.py` and `telegram_bot.py` now call `classify_message_complexity()` before entering the tool loop; complex messages start on Claude Sonnet immediately instead of wasting 2–3 rounds on Gemini Flash first; simple queries ("How did I sleep?", "What's my CTL?") stay on Flash as before
+- **Mechanical fallback preserved** — round-count and tool-call-count escalation still applies as a safety net for messages that aren't flagged upfront but reveal complexity at runtime
+- **Short-message guard** — messages under 20 characters are never classified as complex, preventing false positives on greetings and one-word replies
+- **23 new tests** covering simple/complex classification, integration with `pick_chat_model`, threshold validation, and caller wiring
+
 ## v0.61.0
 **Slash OpenRouter costs: tiered model routing, result summarization, and aggressive context reduction**
 
