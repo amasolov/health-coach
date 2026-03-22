@@ -3,7 +3,7 @@ pyyaml==6.0.3
 python-dotenv==1.2.2
 httpx==0.28.1
 fastmcp==3.1.0
-garminconnect==0.2.38
+garminconnect==0.2.40
 chainlit==2.10.0
 openai==2.26.0
 plotly==6.6.0
