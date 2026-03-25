@@ -933,6 +933,124 @@ class TestConcurrentMetadataFetch:
         )
 
 
+class TestConcurrentCandidateFetch:
+    """fetch_candidates should call all 3 API endpoints concurrently."""
+
+    def test_fetch_candidates_is_concurrent(self):
+        import time
+        from scripts.ifit_recommend import fetch_candidates
+
+        def slow_api_get(url, headers):
+            time.sleep(0.1)
+            if "up-next" in url:
+                return [{"workoutId": "w1", "title": "Up Next 1", "subtitle": ""}]
+            if "favorites" in url:
+                return [{"favoriteType": "workout", "id": "w2", "title": "Fav 1"}]
+            if "recommended-workouts" in url:
+                return [{"id": "w3", "title": "Rec 1"}]
+            return []
+
+        with patch("scripts.ifit_recommend._api_get", side_effect=slow_api_get):
+            start = time.monotonic()
+            results = fetch_candidates({})
+            elapsed = time.monotonic() - start
+
+        assert len(results) == 3
+        # Sequential: 3 * 0.1s = 0.3s; concurrent should be ~0.1s
+        assert elapsed < 0.2, (
+            f"fetch_candidates took {elapsed:.2f}s — 3 API calls should run concurrently"
+        )
+
+
+class TestConcurrentTrainerResolution:
+    """Trainer names should be resolved concurrently in score_candidates."""
+
+    def test_trainer_resolution_is_concurrent(self):
+        import time
+        from scripts.ifit_recommend import score_candidates, _trainer_name_cache
+        _trainer_name_cache.clear()
+
+        candidates = [
+            {"source": "recommended", "source_title": "",
+             "workout_id": f"w{i}", "title": f"Workout {i}"}
+            for i in range(6)
+        ]
+        fatigue = {
+            "days_since": {}, "total_3d": 0, "total_7d": 0,
+            "last_run_day": None, "ran_recently": False,
+        }
+
+        def slow_api_get(url, headers):
+            if "lycan" in url:
+                wid = url.rsplit("/", 1)[-1]
+                return {
+                    "title": f"W {wid}", "type": "run",
+                    "metadata": {"trainer": f"t_{wid}"},
+                    "estimates": {"time": 1800}, "ratings": {},
+                    "difficulty": {}, "library_filters": [], "controls": [],
+                }
+            if "/v1/trainers/" in url:
+                time.sleep(0.08)
+                return {"first_name": "Trainer", "last_name": url.rsplit("/", 1)[-1]}
+            return None
+
+        with patch("scripts.ifit_recommend._api_get", side_effect=slow_api_get):
+            start = time.monotonic()
+            results = score_candidates(candidates, fatigue, [], {})
+            elapsed = time.monotonic() - start
+
+        assert len(results) == 6
+        # Sequential: 6 * 0.08s = 0.48s; concurrent should be ~0.08s
+        assert elapsed < 0.3, (
+            f"Trainer resolution took {elapsed:.2f}s — should be concurrent"
+        )
+
+
+class TestPipelineLogging:
+    """The recommendation pipeline should log each stage for diagnostics."""
+
+    def test_pipeline_logs_stages(self, caplog):
+        import logging
+        from scripts import health_tools
+
+        fake_history = []
+        fake_fatigue = {
+            "days_since": {}, "total_3d": 0, "total_7d": 0,
+            "last_run_day": None, "ran_recently": False,
+        }
+
+        with patch("scripts.ifit_auth.get_auth_headers", return_value={"Authorization": "fake"}), \
+             patch("scripts.ifit_recommend.fetch_recent_history", return_value=fake_history), \
+             patch("scripts.ifit_recommend.analyze_fatigue", return_value=fake_fatigue), \
+             patch("scripts.ifit_recommend.fetch_candidates", return_value=[]), \
+             patch("scripts.ifit_recommend.score_candidates", return_value=[]), \
+             patch("scripts.health_tools.resolve_user_id", return_value=None), \
+             caplog.at_level(logging.INFO, logger="perf"):
+            health_tools.recommend_ifit_workout("test")
+
+        log_text = " ".join(r.message for r in caplog.records)
+        assert "fetch_recent_history" in log_text or "history" in log_text.lower(), \
+            f"Expected pipeline stage logging, got: {log_text}"
+
+
+class TestToolExecutionLogging:
+    """Tool executor should log tool calls for diagnostics."""
+
+    def test_direct_execute_logs_tool_call(self, caplog):
+        import logging
+        from scripts.tool_executor import _direct_execute
+
+        with patch("scripts.chat_tools_schema.TOOL_DISPATCH", {
+            "mock_tool": (lambda uid: {"ok": True}, "uid"),
+        }), caplog.at_level(logging.INFO, logger="scripts.tool_executor"):
+            result = _direct_execute("mock_tool", {}, 1, "test", {})
+
+        assert result == {"ok": True}
+        log_text = " ".join(r.message for r in caplog.records)
+        assert "mock_tool" in log_text, \
+            f"Expected tool execution log, got: {log_text}"
+
+
 class TestRecommendTimeout:
     """recommend_ifit_workout should not hang indefinitely."""
 

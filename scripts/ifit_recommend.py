@@ -90,9 +90,11 @@ RECOVERY_DAYS = {
 }
 
 
+_API_TIMEOUT = 8
+
 def _api_get(url: str, headers: dict) -> dict | list | None:
     try:
-        r = httpx.get(url, headers=headers, timeout=15)
+        r = httpx.get(url, headers=headers, timeout=_API_TIMEOUT)
         if r.status_code == 200:
             return r.json()
         log.warning("iFit API %s returned %s", url, r.status_code)
@@ -276,58 +278,65 @@ def analyze_fatigue(history: list[dict]) -> dict:
 
 
 def fetch_candidates(headers: dict) -> list[dict]:
-    """Gather workout candidates from multiple sources."""
-    candidates = []
+    """Gather workout candidates from multiple sources (concurrently)."""
 
-    # Source 1: Up-next (in-progress series)
-    up_next = _api_get(
-        f"{GATEWAY}/wolf-dashboard-service/v1/up-next"
-        f"?softwareNumber={SOFTWARE_NUMBER}&limit=15"
-        f"&challengeStoreEnabled=true&userType=premium",
-        headers,
-    ) or []
-    for item in up_next:
-        wid = item.get("workoutId", "")
-        if not wid:
-            continue
-        candidates.append({
-            "source": "up-next",
-            "source_title": item.get("subtitle", ""),
-            "workout_id": wid,
-            "title": item.get("title", "?"),
-            "series_progress": item.get("subtitle", ""),
-        })
+    def _fetch_up_next() -> list[dict]:
+        raw = _api_get(
+            f"{GATEWAY}/wolf-dashboard-service/v1/up-next"
+            f"?softwareNumber={SOFTWARE_NUMBER}&limit=15"
+            f"&challengeStoreEnabled=true&userType=premium",
+            headers,
+        ) or []
+        out = []
+        for item in raw:
+            wid = item.get("workoutId", "")
+            if not wid:
+                continue
+            out.append({
+                "source": "up-next",
+                "source_title": item.get("subtitle", ""),
+                "workout_id": wid,
+                "title": item.get("title", "?"),
+                "series_progress": item.get("subtitle", ""),
+            })
+        return out
 
-    # Source 2: Favorites
-    favs = _api_get(
-        f"{GATEWAY}/wolf-dashboard-service/v1/favorites"
-        f"?challengeStoreEnabled=true&softwareNumber={SOFTWARE_NUMBER}"
-        f"&page=1&pageSize=30",
-        headers,
-    ) or []
-    for fav in favs:
-        if fav.get("favoriteType") != "workout":
-            continue
-        candidates.append({
-            "source": "favorite",
-            "source_title": "",
-            "workout_id": fav["id"],
-            "title": fav.get("title", "?"),
-        })
+    def _fetch_favorites() -> list[dict]:
+        raw = _api_get(
+            f"{GATEWAY}/wolf-dashboard-service/v1/favorites"
+            f"?challengeStoreEnabled=true&softwareNumber={SOFTWARE_NUMBER}"
+            f"&page=1&pageSize=30",
+            headers,
+        ) or []
+        out = []
+        for fav in raw:
+            if fav.get("favoriteType") != "workout":
+                continue
+            out.append({
+                "source": "favorite",
+                "source_title": "",
+                "workout_id": fav["id"],
+                "title": fav.get("title", "?"),
+            })
+        return out
 
-    # Source 3: iFit recommended
-    recs = _api_get(
-        f"{GATEWAY}/wolf-dashboard-service/v1/recommended-workouts"
-        f"?softwareNumber={SOFTWARE_NUMBER}&limit=10",
-        headers,
-    ) or []
-    for rec in recs:
-        candidates.append({
-            "source": "recommended",
-            "source_title": "",
-            "workout_id": rec.get("id", ""),
-            "title": rec.get("title", "?"),
-        })
+    def _fetch_recommended() -> list[dict]:
+        raw = _api_get(
+            f"{GATEWAY}/wolf-dashboard-service/v1/recommended-workouts"
+            f"?softwareNumber={SOFTWARE_NUMBER}&limit=10",
+            headers,
+        ) or []
+        return [
+            {"source": "recommended", "source_title": "",
+             "workout_id": rec.get("id", ""), "title": rec.get("title", "?")}
+            for rec in raw
+        ]
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        fut_up = pool.submit(_fetch_up_next)
+        fut_fav = pool.submit(_fetch_favorites)
+        fut_rec = pool.submit(_fetch_recommended)
+        candidates = fut_up.result() + fut_fav.result() + fut_rec.result()
 
     return candidates
 
@@ -364,6 +373,7 @@ def score_candidates(
                 meta_map[wid] = meta
 
     scored = []
+    trainer_ids_needed: set[str] = set()
     for cand in unique:
         wid = cand["workout_id"]
         meta = meta_map.get(wid)
@@ -444,8 +454,20 @@ def score_candidates(
         cand["score"] = score
         cand["reasons"] = reasons
         tid = info.get("trainer_id", "")
-        cand["trainer_name"] = _resolve_trainer_name(tid, headers)
+        cand["_trainer_id"] = tid
+        if tid and tid not in _trainer_name_cache:
+            trainer_ids_needed.add(tid)
         scored.append(cand)
+
+    if trainer_ids_needed:
+        def _resolve(tid: str) -> tuple[str, str]:
+            return tid, _resolve_trainer_name(tid, headers)
+
+        with ThreadPoolExecutor(max_workers=_METADATA_WORKERS) as pool:
+            list(pool.map(lambda t: _resolve(t), trainer_ids_needed))
+
+    for cand in scored:
+        cand["trainer_name"] = _trainer_name_cache.get(cand.pop("_trainer_id", ""), "")
 
     return sorted(scored, key=lambda x: x["score"], reverse=True)
 

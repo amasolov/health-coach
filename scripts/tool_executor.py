@@ -91,9 +91,12 @@ def _direct_execute(
     user_slug: str,
     user_data: dict,
 ) -> Any:
+    import time as _time
+
     from scripts.chat_tools_schema import TOOL_DISPATCH
     entry = TOOL_DISPATCH.get(tool_name)
     if not entry:
+        log.warning("tool_execute: unknown tool %s", tool_name)
         return {"error": f"Unknown tool: {tool_name}"}
 
     fn, param_kind = entry
@@ -105,18 +108,25 @@ def _direct_execute(
             from scripts.tz import load_user_tz
             arguments = {**arguments, "tz_name": str(load_user_tz(user_slug))}
 
+    log.info("tool_execute: %s (user=%s, kind=%s)", tool_name, user_slug, param_kind)
+    t0 = _time.monotonic()
     try:
         if param_kind == "uid":
-            return fn(user_id, **arguments)
+            result = fn(user_id, **arguments)
         elif param_kind == "slug":
-            return fn(user_slug, **arguments)
+            result = fn(user_slug, **arguments)
         elif param_kind == "none":
-            return fn(**arguments)
+            result = fn(**arguments)
         elif param_kind == "creds":
-            return _creds_dispatch(tool_name, fn, arguments, user_id, user_slug, user_data)
+            result = _creds_dispatch(tool_name, fn, arguments, user_id, user_slug, user_data)
         else:
-            return fn(**arguments)
+            result = fn(**arguments)
+        elapsed = _time.monotonic() - t0
+        log.info("tool_execute: %s completed in %.2fs", tool_name, elapsed)
+        return result
     except Exception as exc:
+        elapsed = _time.monotonic() - t0
+        log.error("tool_execute: %s failed after %.2fs: %s", tool_name, elapsed, exc)
         import traceback
         traceback.print_exc()
         return {"error": str(exc)}

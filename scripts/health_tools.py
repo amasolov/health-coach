@@ -2058,7 +2058,7 @@ def _db_history_entries(user_id: int, days: int = 14,
     return entries
 
 
-_RECOMMEND_TIMEOUT = 90
+_RECOMMEND_TIMEOUT = 45
 
 
 def recommend_ifit_workout(user_slug: str) -> dict:
@@ -2089,20 +2089,27 @@ def recommend_ifit_workout(user_slug: str) -> dict:
 
     def _run_pipeline() -> tuple[list, dict, list]:
         tz = load_user_tz(user_slug)
-        history = fetch_recent_history(headers, days=14, tz=tz)
+        with _timed("recommend: fetch_recent_history"):
+            history = fetch_recent_history(headers, days=14, tz=tz)
 
         user_id = resolve_user_id(user_slug)
         if user_id:
-            db_entries = _db_history_entries(user_id, days=14, tz=tz)
+            with _timed("recommend: db_history_entries"):
+                db_entries = _db_history_entries(user_id, days=14, tz=tz)
             existing_ids = {e["workout_id"] for e in history}
             for entry in db_entries:
                 if entry["workout_id"] not in existing_ids:
                     history.append(entry)
             history.sort(key=lambda x: x["date"], reverse=True)
 
-        fatigue = analyze_fatigue(history)
-        candidates = fetch_candidates(headers)
-        ranked = score_candidates(candidates, fatigue, history, headers)
+        with _timed("recommend: analyze_fatigue"):
+            fatigue = analyze_fatigue(history)
+        with _timed("recommend: fetch_candidates"):
+            candidates = fetch_candidates(headers)
+        with _timed("recommend: score_candidates"):
+            ranked = score_candidates(candidates, fatigue, history, headers)
+        _perf_log.info("recommend: pipeline complete — %d history, %d candidates, %d ranked",
+                       len(history), len(candidates), len(ranked))
         return history, fatigue, ranked
 
     pool = ThreadPoolExecutor(max_workers=1)
