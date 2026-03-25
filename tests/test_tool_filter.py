@@ -171,6 +171,30 @@ class TestRecommendIntent:
         assert "get_vitals" in names
         assert "get_fitness_summary" in names
 
+    def test_suggest_workout_includes_recommend(self):
+        result = select_tools_for_message("Suggest a workout for today", ALL_SCHEMAS)
+        names = _names(result)
+        assert "recommend_ifit_workout" in names
+        assert "recommend_strength_workout" in names
+
+    def test_sync_and_suggest_includes_recommend(self):
+        result = select_tools_for_message(
+            "sync my profile and suggest a workout for today", ALL_SCHEMAS,
+        )
+        names = _names(result)
+        assert "recommend_ifit_workout" in names
+        assert "sync_data" in names
+
+    def test_give_me_a_workout(self):
+        result = select_tools_for_message("Give me a workout", ALL_SCHEMAS)
+        names = _names(result)
+        assert "recommend_ifit_workout" in names
+
+    def test_plan_my_workout(self):
+        result = select_tools_for_message("Plan my workout for today", ALL_SCHEMAS)
+        names = _names(result)
+        assert "recommend_ifit_workout" in names
+
 
 # ---------------------------------------------------------------------------
 # Strength / Hevy

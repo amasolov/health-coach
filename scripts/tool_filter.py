@@ -162,10 +162,13 @@ _INTENT_PATTERNS: list[tuple[re.Pattern[str], list[str]]] = [
 
     # Workout recommendation / what to do
     (re.compile(
-        r"\b(recommend\w*|what\s+should\s+i\s+do"
+        r"\b(recommend\w*|suggest\w*\s+(?:a\s+)?workout"
+        r"|what\s+should\s+i\s+do"
         r"|what\s+workout|which\s+workout"
+        r"|give\s+me\s+a\s+workout|plan\s+my\s+workout"
         r"|ready\s+to\s+train"
-        r"|what\s+to\s+do|what\s+can\s+i\s+do)\b", re.I),
+        r"|what\s+to\s+do|what\s+can\s+i\s+do"
+        r"|workout\s+for\s+today|workout\s+for\s+tomorrow)\b", re.I),
      ["recommend", "vitals", "training", "fitness", "strength"]),
 
     # Strength / Hevy / weight training
