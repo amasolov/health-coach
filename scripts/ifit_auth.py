@@ -73,13 +73,18 @@ def _save_cache(data: dict) -> None:
         from scripts.credential_store import put_credential
         put_credential(CRED_TYPE, data)
     except Exception:
-        log.debug("ifit_auth: DB credential save failed", exc_info=True)
+        log.warning("ifit_auth: DB credential save failed", exc_info=True)
 
+    _save_file(data)
+
+
+def _save_file(data: dict) -> None:
+    """Write token data to the local JSON file (backup/fallback)."""
     try:
         with open(TOKEN_FILE, "w") as f:
             json.dump(data, f, indent=2)
     except OSError:
-        log.debug("ifit_auth: file save failed", exc_info=True)
+        log.warning("ifit_auth: file save failed", exc_info=True)
 
 
 def _basic_header(data: dict) -> str:
@@ -143,13 +148,32 @@ def refresh_token(data: dict | None = None) -> dict | None:
     data["refresh_token"] = new_tokens["refresh_token"]
     data["expires_in"] = new_tokens.get("expires_in", 604800)
     data["timestamp"] = time.time()
-    _save_cache(data)
 
     if locked_conn:
         try:
+            cur = locked_conn.cursor()
+            cur.execute(
+                """INSERT INTO credentials (user_id, cred_type, cred_data, updated_at)
+                   VALUES (NULL, %s, %s, NOW())
+                   ON CONFLICT (cred_type)
+                       WHERE user_id IS NULL
+                   DO UPDATE SET cred_data = EXCLUDED.cred_data,
+                                 updated_at = NOW()""",
+                (CRED_TYPE, json.dumps(data)),
+            )
             locked_conn.commit()
+        except Exception:
+            log.warning("ifit_auth: DB credential save via locked_conn failed", exc_info=True)
+            try:
+                locked_conn.rollback()
+            except Exception:
+                pass
         finally:
             locked_conn.close()
+    else:
+        _save_cache(data)
+
+    _save_file(data)
 
     return data
 
