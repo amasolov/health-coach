@@ -2072,6 +2072,7 @@ def recommend_ifit_workout(user_slug: str) -> dict:
     The entire pipeline is wrapped in a timeout (_RECOMMEND_TIMEOUT seconds) so
     a slow iFit API cannot hang the chat session indefinitely.
     """
+    _perf_log.info("recommend: starting (user=%s)", user_slug)
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
     from scripts.ifit_recommend import (
         fetch_recent_history,
@@ -2081,13 +2082,17 @@ def recommend_ifit_workout(user_slug: str) -> dict:
         RECOVERY_DAYS,
     )
     from scripts.ifit_auth import get_auth_headers
+    _perf_log.info("recommend: imports done")
 
     try:
         headers = get_auth_headers()
     except RuntimeError as exc:
+        _perf_log.warning("recommend: auth failed — %s", exc)
         return {"error": str(exc)}
+    _perf_log.info("recommend: auth headers obtained")
 
     def _run_pipeline() -> tuple[list, dict, list]:
+        _perf_log.info("recommend: pipeline thread started")
         tz = load_user_tz(user_slug)
         with _timed("recommend: fetch_recent_history"):
             history = fetch_recent_history(headers, days=14, tz=tz)
@@ -2112,11 +2117,14 @@ def recommend_ifit_workout(user_slug: str) -> dict:
                        len(history), len(candidates), len(ranked))
         return history, fatigue, ranked
 
+    _perf_log.info("recommend: submitting pipeline to thread pool")
     pool = ThreadPoolExecutor(max_workers=1)
     future = pool.submit(_run_pipeline)
     try:
+        _perf_log.info("recommend: waiting for result (timeout=%ds)", _RECOMMEND_TIMEOUT)
         history, fatigue, ranked = future.result(timeout=_RECOMMEND_TIMEOUT)
     except (FuturesTimeout, TimeoutError):
+        _perf_log.warning("recommend: TIMED OUT after %ds", _RECOMMEND_TIMEOUT)
         future.cancel()
         pool.shutdown(wait=False, cancel_futures=True)
         return {"error": f"iFit recommendation timed out after {_RECOMMEND_TIMEOUT}s — the iFit API may be slow. Please try again later."}
