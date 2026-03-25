@@ -2084,15 +2084,16 @@ def recommend_ifit_workout(user_slug: str) -> dict:
     from scripts.ifit_auth import get_auth_headers
     _perf_log.info("recommend: imports done")
 
-    try:
-        headers = get_auth_headers()
-    except RuntimeError as exc:
-        _perf_log.warning("recommend: auth failed — %s", exc)
-        return {"error": str(exc)}
-    _perf_log.info("recommend: auth headers obtained")
-
     def _run_pipeline() -> tuple[list, dict, list]:
         _perf_log.info("recommend: pipeline thread started")
+
+        try:
+            headers = get_auth_headers()
+        except RuntimeError as exc:
+            _perf_log.warning("recommend: auth failed — %s", exc)
+            raise
+        _perf_log.info("recommend: auth headers obtained")
+
         tz = load_user_tz(user_slug)
         with _timed("recommend: fetch_recent_history"):
             history = fetch_recent_history(headers, days=14, tz=tz)
@@ -2128,6 +2129,9 @@ def recommend_ifit_workout(user_slug: str) -> dict:
         future.cancel()
         pool.shutdown(wait=False, cancel_futures=True)
         return {"error": f"iFit recommendation timed out after {_RECOMMEND_TIMEOUT}s — the iFit API may be slow. Please try again later."}
+    except RuntimeError as exc:
+        _perf_log.warning("recommend: auth failed — %s", exc)
+        return {"error": str(exc)}
     finally:
         pool.shutdown(wait=False)
 

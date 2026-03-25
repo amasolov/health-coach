@@ -85,6 +85,7 @@ def dsn_kwargs(dbname: str | None = None) -> dict:
         dbname=dbname or os.environ.get("DB_NAME", "health"),
         user=os.environ.get("DB_USER", "postgres"),
         password=os.environ.get("DB_PASSWORD", ""),
+        connect_timeout=5,
     )
 
 

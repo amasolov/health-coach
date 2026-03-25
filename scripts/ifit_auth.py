@@ -51,12 +51,16 @@ def _load_cached() -> dict | None:
     """Load iFit token data from credential store, falling back to file."""
     try:
         from scripts.credential_store import get_credential
+        log.info("ifit_auth: loading credential from DB")
         data = get_credential(CRED_TYPE)
         if data is not None:
+            log.info("ifit_auth: credential loaded from DB")
             return data
+        log.info("ifit_auth: no credential in DB")
     except Exception:
-        log.debug("ifit_auth: DB credential load failed", exc_info=True)
+        log.warning("ifit_auth: DB credential load failed", exc_info=True)
 
+    log.info("ifit_auth: falling back to token file %s", TOKEN_FILE)
     if not os.path.exists(TOKEN_FILE):
         return None
     with open(TOKEN_FILE) as f:
@@ -154,18 +158,23 @@ def get_valid_token() -> str | None:
     """Return a valid access token, refreshing if needed."""
     data = _load_cached()
     if not data:
+        log.warning("ifit_auth: no cached token data")
         return None
 
     elapsed = time.time() - data.get("timestamp", 0)
     expires = data.get("expires_in", 0)
 
     if elapsed < expires - 300:
+        log.info("ifit_auth: token valid (%.0fs elapsed, expires in %ds)", elapsed, expires)
         return data["access_token"]
 
+    log.info("ifit_auth: token expired (%.0fs elapsed, expires in %ds) — refreshing", elapsed, expires)
     refreshed = refresh_token(data)
     if refreshed:
+        log.info("ifit_auth: token refreshed successfully")
         return refreshed["access_token"]
 
+    log.warning("ifit_auth: token refresh failed")
     return None
 
 

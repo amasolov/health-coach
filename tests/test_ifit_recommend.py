@@ -1073,3 +1073,37 @@ class TestRecommendTimeout:
         assert elapsed < 5, f"Should timeout within ~2s, took {elapsed:.1f}s"
         assert "error" in result
         assert "timed out" in result["error"].lower()
+
+    def test_auth_hang_also_times_out(self):
+        """If get_auth_headers() blocks (e.g. DB lock), the pipeline timeout
+        must still fire — auth runs inside the timeout boundary."""
+        import time
+        from scripts import health_tools
+
+        def hang_auth():
+            time.sleep(30)
+            return {"Authorization": "fake"}
+
+        with patch("scripts.ifit_auth.get_auth_headers", side_effect=hang_auth), \
+             patch("scripts.health_tools._RECOMMEND_TIMEOUT", 2):
+            start = time.monotonic()
+            result = health_tools.recommend_ifit_workout("test")
+            elapsed = time.monotonic() - start
+
+        assert elapsed < 5, (
+            f"Auth hang should be caught by pipeline timeout, took {elapsed:.1f}s"
+        )
+        assert "error" in result
+
+
+class TestDbPoolConnectTimeout:
+    """DB pool must set connect_timeout so a stalled DB can't hang the process."""
+
+    def test_dsn_kwargs_includes_connect_timeout(self):
+        from scripts.db_pool import dsn_kwargs
+        kw = dsn_kwargs()
+        assert "connect_timeout" in kw, (
+            "dsn_kwargs must include connect_timeout to prevent indefinite hangs"
+        )
+        assert isinstance(kw["connect_timeout"], int)
+        assert kw["connect_timeout"] <= 10
