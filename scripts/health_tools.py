@@ -2058,13 +2058,21 @@ def _db_history_entries(user_id: int, days: int = 14,
     return entries
 
 
+_RECOMMEND_TIMEOUT = 90
+
+
 def recommend_ifit_workout(user_slug: str) -> dict:
     """Run the general iFit workout recommendation engine.
 
     Analyses recent 14-day activity history, muscle group fatigue, and variety
     to score up-next, favorites, and iFit-recommended workouts.  Returns top 5
     ranked candidates with muscle focus, scoring rationale, and recent activity
-    summary."""
+    summary.
+
+    The entire pipeline is wrapped in a timeout (_RECOMMEND_TIMEOUT seconds) so
+    a slow iFit API cannot hang the chat session indefinitely.
+    """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
     from scripts.ifit_recommend import (
         fetch_recent_history,
         analyze_fatigue,
@@ -2079,21 +2087,36 @@ def recommend_ifit_workout(user_slug: str) -> dict:
     except RuntimeError as exc:
         return {"error": str(exc)}
 
-    tz = load_user_tz(user_slug)
-    history = fetch_recent_history(headers, days=14, tz=tz)
+    def _run_pipeline() -> tuple[list, dict, list]:
+        tz = load_user_tz(user_slug)
+        history = fetch_recent_history(headers, days=14, tz=tz)
 
-    user_id = resolve_user_id(user_slug)
-    if user_id:
-        db_entries = _db_history_entries(user_id, days=14, tz=tz)
-        existing_ids = {e["workout_id"] for e in history}
-        for entry in db_entries:
-            if entry["workout_id"] not in existing_ids:
-                history.append(entry)
-        history.sort(key=lambda x: x["date"], reverse=True)
+        user_id = resolve_user_id(user_slug)
+        if user_id:
+            db_entries = _db_history_entries(user_id, days=14, tz=tz)
+            existing_ids = {e["workout_id"] for e in history}
+            for entry in db_entries:
+                if entry["workout_id"] not in existing_ids:
+                    history.append(entry)
+            history.sort(key=lambda x: x["date"], reverse=True)
 
-    fatigue = analyze_fatigue(history)
-    candidates = fetch_candidates(headers)
-    ranked = score_candidates(candidates, fatigue, history, headers)
+        fatigue = analyze_fatigue(history)
+        candidates = fetch_candidates(headers)
+        ranked = score_candidates(candidates, fatigue, history, headers)
+        return history, fatigue, ranked
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(_run_pipeline)
+    try:
+        history, fatigue, ranked = future.result(timeout=_RECOMMEND_TIMEOUT)
+    except (FuturesTimeout, TimeoutError):
+        future.cancel()
+        pool.shutdown(wait=False, cancel_futures=True)
+        return {"error": f"iFit recommendation timed out after {_RECOMMEND_TIMEOUT}s — the iFit API may be slow. Please try again later."}
+    finally:
+        pool.shutdown(wait=False)
+
+    from scripts.ifit_recommend import RECOVERY_DAYS
 
     recent_summary = []
     for entry in history[:7]:

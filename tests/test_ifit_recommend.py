@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import httpx
 from collections import defaultdict
 from unittest.mock import patch, MagicMock
 
@@ -820,3 +821,137 @@ class TestRecommendIfitWorkout:
             assert isinstance(result, (dict, list))
         except Exception:
             pytest.skip("iFit token not available for recommend_ifit_workout")
+
+
+class TestApiGetLogging:
+    """_api_get should log failures instead of silently swallowing them."""
+
+    def test_logs_timeout(self, caplog):
+        import logging
+        from scripts.ifit_recommend import _api_get
+        with patch("scripts.ifit_recommend.httpx.get",
+                   side_effect=httpx.ReadTimeout("timed out")), \
+             caplog.at_level(logging.WARNING, logger="scripts.ifit_recommend"):
+            result = _api_get("https://example.com/test", {})
+        assert result is None
+        assert any("timed out" in r.message.lower() or "example.com" in r.message
+                    for r in caplog.records), \
+            f"Expected a warning log for timeout, got: {[r.message for r in caplog.records]}"
+
+    def test_logs_http_error(self, caplog):
+        import logging
+        from scripts.ifit_recommend import _api_get
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = "Internal Server Error"
+        with patch("scripts.ifit_recommend.httpx.get", return_value=mock_resp), \
+             caplog.at_level(logging.WARNING, logger="scripts.ifit_recommend"):
+            result = _api_get("https://example.com/fail", {})
+        assert result is None
+        assert any("500" in r.message for r in caplog.records), \
+            f"Expected a warning log for HTTP 500, got: {[r.message for r in caplog.records]}"
+
+
+class TestConcurrentMetadataFetch:
+    """fetch_recent_history and score_candidates should fetch metadata concurrently."""
+
+    def test_fetch_history_uses_concurrent_requests(self):
+        """Metadata fetching for multiple activities should not be purely sequential."""
+        import time
+        from scripts.ifit_recommend import fetch_recent_history
+
+        call_count = 0
+        now_ts = int(time.time() * 1000)
+
+        fake_logs = [
+            {"start": now_ts - i * 86400_000, "workout_id": f"w{i}",
+             "type": "run", "duration": 1800000,
+             "summary": {"total_calories": 300}}
+            for i in range(5)
+        ]
+        fake_meta = {
+            "title": "Test", "type": "run",
+            "library_filters": [], "controls": [],
+        }
+
+        def slow_api_get(url, headers):
+            nonlocal call_count
+            call_count += 1
+            if "/activity_logs" in url:
+                return fake_logs
+            time.sleep(0.05)
+            return fake_meta
+
+        with patch("scripts.ifit_recommend._api_get", side_effect=slow_api_get):
+            start = time.monotonic()
+            result = fetch_recent_history({}, days=14)
+            elapsed = time.monotonic() - start
+
+        assert len(result) == 5
+        # Sequential would take ~0.25s (5 * 0.05s); concurrent should be much faster
+        assert elapsed < 0.2, (
+            f"fetch_recent_history took {elapsed:.2f}s — metadata should be fetched concurrently"
+        )
+
+    def test_score_candidates_uses_concurrent_requests(self):
+        """Scoring should fetch metadata concurrently, not one at a time."""
+        import time
+        from scripts.ifit_recommend import score_candidates, _trainer_name_cache
+
+        _trainer_name_cache.clear()
+
+        candidates = [
+            {"source": "recommended", "source_title": "",
+             "workout_id": f"w{i}", "title": f"Workout {i}"}
+            for i in range(8)
+        ]
+        fatigue = {
+            "days_since": {}, "total_3d": 1, "total_7d": 3,
+            "last_run_day": None, "ran_recently": False,
+        }
+        fake_meta = {
+            "title": "Test", "type": "run", "metadata": {},
+            "estimates": {"time": 1800}, "ratings": {},
+            "difficulty": {}, "library_filters": [], "controls": [],
+        }
+
+        def slow_api_get(url, headers):
+            time.sleep(0.05)
+            if "lycan" in url:
+                return fake_meta
+            return None
+
+        with patch("scripts.ifit_recommend._api_get", side_effect=slow_api_get):
+            start = time.monotonic()
+            results = score_candidates(candidates, fatigue, [], {})
+            elapsed = time.monotonic() - start
+
+        assert len(results) == 8
+        # Sequential would take ~0.4s (8 * 0.05s); concurrent should be much faster
+        assert elapsed < 0.25, (
+            f"score_candidates took {elapsed:.2f}s — metadata should be fetched concurrently"
+        )
+
+
+class TestRecommendTimeout:
+    """recommend_ifit_workout should not hang indefinitely."""
+
+    def test_returns_error_on_timeout(self):
+        """If iFit API calls take too long, return an error instead of hanging."""
+        import time
+        from scripts import health_tools
+
+        def hang(*args, **kwargs):
+            time.sleep(30)
+
+        with patch("scripts.ifit_auth.get_auth_headers", return_value={"Authorization": "fake"}), \
+             patch("scripts.ifit_recommend.fetch_recent_history", side_effect=hang), \
+             patch("scripts.health_tools.resolve_user_id", return_value=None), \
+             patch("scripts.health_tools._RECOMMEND_TIMEOUT", 2):
+            start = time.monotonic()
+            result = health_tools.recommend_ifit_workout("test")
+            elapsed = time.monotonic() - start
+
+        assert elapsed < 5, f"Should timeout within ~2s, took {elapsed:.1f}s"
+        assert "error" in result
+        assert "timed out" in result["error"].lower()

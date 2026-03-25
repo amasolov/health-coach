@@ -15,8 +15,10 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -26,6 +28,10 @@ try:
 except ImportError:
     from ifit_auth import get_auth_headers, get_valid_token
 from scripts.tz import user_now, DEFAULT_TZ
+
+log = logging.getLogger(__name__)
+
+_METADATA_WORKERS = 6
 
 GATEWAY = "https://gateway.ifit.com"
 GATEWAY_CACHE = "https://gateway-cache.ifit.com"
@@ -89,8 +95,9 @@ def _api_get(url: str, headers: dict) -> dict | list | None:
         r = httpx.get(url, headers=headers, timeout=15)
         if r.status_code == 200:
             return r.json()
-    except Exception:
-        pass
+        log.warning("iFit API %s returned %s", url, r.status_code)
+    except Exception as exc:
+        log.warning("iFit API %s failed: %s", url, exc)
     return None
 
 
@@ -183,22 +190,24 @@ def classify_workout(workout_data: dict) -> dict:
 
 def fetch_recent_history(headers: dict, days: int = 14,
                          tz: "ZoneInfo | None" = None) -> list[dict]:
-    """Fetch activity logs and enrich with workout metadata."""
+    """Fetch activity logs and enrich with workout metadata (concurrently)."""
     logs = _api_get(f"{API}/v1/activity_logs?perPage=30", headers) or []
 
     tz = tz or DEFAULT_TZ
     now = user_now(tz)
     today = now.date()
     cutoff = now - timedelta(days=days)
-    recent = []
 
-    for log in logs:
-        start_ts = log.get("start", 0) / 1000
+    filtered: list[tuple[dict, datetime]] = []
+    for entry in logs:
+        start_ts = entry.get("start", 0) / 1000
         dt = datetime.fromtimestamp(start_ts, tz=timezone.utc).astimezone(DEFAULT_TZ)
-        if dt < cutoff:
-            continue
+        if dt >= cutoff:
+            filtered.append((entry, dt))
 
-        wid = log.get("workout_id", "")
+    def _fetch_meta(item: tuple[dict, datetime]) -> dict:
+        entry, dt = item
+        wid = entry.get("workout_id", "")
         workout_meta = _api_get(f"{GATEWAY}/lycan/v1/workouts/{wid}", headers)
         classification = classify_workout(workout_meta) if workout_meta else {
             "muscle_groups": set(),
@@ -206,20 +215,24 @@ def fetch_recent_history(headers: dict, days: int = 14,
             "categories": set(),
             "subcategories": set(),
             "difficulty": "?",
-            "type": log.get("type", "?"),
+            "type": entry.get("type", "?"),
             "title": "?",
             "required_equipment": [],
         }
-
-        recent.append({
+        return {
             "date": dt,
             "days_ago": (today - dt.date()).days,
-            "duration_min": log.get("duration", 0) / 60000,
-            "calories": log.get("summary", {}).get("total_calories", 0),
+            "duration_min": entry.get("duration", 0) / 60000,
+            "calories": entry.get("summary", {}).get("total_calories", 0),
             "workout_id": wid,
-            "log_type": log.get("type", "?"),
+            "log_type": entry.get("type", "?"),
             **classification,
-        })
+        }
+
+    recent: list[dict] = []
+    if filtered:
+        with ThreadPoolExecutor(max_workers=_METADATA_WORKERS) as pool:
+            recent = list(pool.map(_fetch_meta, filtered))
 
     return sorted(recent, key=lambda x: x["date"], reverse=True)
 
@@ -325,22 +338,35 @@ def score_candidates(
     history: list[dict],
     headers: dict,
 ) -> list[dict]:
-    """Score each candidate based on muscle group freshness and variety."""
-    seen_ids = set()
-    scored = []
+    """Score each candidate based on muscle group freshness and variety.
+
+    Metadata for candidates is fetched concurrently to avoid blocking.
+    """
+    seen_ids: set[str] = set()
+    unique: list[dict] = []
     recent_workout_ids = {e["workout_id"] for e in history}
 
     for cand in candidates:
         wid = cand["workout_id"]
-        if wid in seen_ids or not wid:
+        if wid in seen_ids or not wid or wid in recent_workout_ids:
             continue
         seen_ids.add(wid)
+        unique.append(cand)
 
-        # Skip workouts already done recently
-        if wid in recent_workout_ids:
-            continue
+    # Prefetch metadata concurrently
+    meta_map: dict[str, dict | None] = {}
+    if unique:
+        def _fetch(wid: str) -> tuple[str, dict | None]:
+            return wid, _api_get(f"{GATEWAY}/lycan/v1/workouts/{wid}", headers)
 
-        meta = _api_get(f"{GATEWAY}/lycan/v1/workouts/{wid}", headers)
+        with ThreadPoolExecutor(max_workers=_METADATA_WORKERS) as pool:
+            for wid, meta in pool.map(lambda c: _fetch(c["workout_id"]), unique):
+                meta_map[wid] = meta
+
+    scored = []
+    for cand in unique:
+        wid = cand["workout_id"]
+        meta = meta_map.get(wid)
         if not meta:
             continue
 
@@ -350,7 +376,6 @@ def score_candidates(
         score = 50.0
         reasons = []
 
-        # Muscle group freshness scoring
         for mg in info["muscle_groups"]:
             days = fatigue["days_since"].get(mg)
             recovery_needed = RECOVERY_DAYS.get(mg, 2)
@@ -369,7 +394,6 @@ def score_candidates(
                 score -= penalty
                 reasons.append(f"{mg} only {days}d ago (-{penalty})")
 
-        # Variety bonus: if been doing lots of strength, prefer a run or recovery
         if fatigue["total_3d"] >= 3 and "recovery" in info["styles"]:
             score += 20
             reasons.append("recovery after busy 3 days (+20)")
@@ -378,7 +402,6 @@ def score_candidates(
             score += 15
             reasons.append("run for variety (+15)")
 
-        # Running type variety
         if "running" in info["styles"] and fatigue.get("last_run_day") is not None:
             if fatigue["last_run_day"] == 0:
                 score -= 20
@@ -387,7 +410,6 @@ def score_candidates(
                 score -= 5
                 reasons.append("ran yesterday (-5)")
 
-        # Source bonuses
         if cand["source"] == "up-next":
             score += 10
             reasons.append("in-progress series (+10)")
@@ -395,12 +417,10 @@ def score_candidates(
             score += 5
             reasons.append("favorite (+5)")
 
-        # Easy difficulty bonus when fatigued
         if fatigue["total_3d"] >= 4 and info["difficulty"] == "easy":
             score += 10
             reasons.append("easy workout on tired week (+10)")
 
-        # Elevation/incline variety for running workouts
         if "running" in info["styles"]:
             elev = info.get("elevation_gain_m", 0)
             max_incline = info.get("max_incline_pct", 0)
